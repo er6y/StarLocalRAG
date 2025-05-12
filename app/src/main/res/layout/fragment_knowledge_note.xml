@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:padding="16dp">
+
+    <!-- 标题标签 -->
+    <TextView
+        android:id="@+id/textViewTitleLabel"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="标题:"
+        android:textSize="14sp"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent" />
+
+    <!-- 标题输入框 -->
+    <EditText
+        android:id="@+id/editTextTitle"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:inputType="text"
+        android:singleLine="true"
+        android:longClickable="true"
+        android:contextClickable="true"
+        android:textIsSelectable="true"
+        android:background="@null"
+        android:textSize="14sp"
+        android:padding="4dp"
+        android:hint="请输入标题"
+        android:textColorHint="#A0A0A0"
+        app:layout_constraintTop_toTopOf="@+id/textViewTitleLabel"
+        app:layout_constraintBottom_toBottomOf="@+id/textViewTitleLabel"
+        app:layout_constraintStart_toEndOf="@+id/textViewTitleLabel"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- 标题下划线 -->
+    <View
+        android:id="@+id/viewTitleUnderline"
+        android:layout_width="0dp"
+        android:layout_height="1dp"
+        android:background="#6200EE"
+        app:layout_constraintTop_toBottomOf="@+id/editTextTitle"
+        app:layout_constraintStart_toStartOf="@+id/editTextTitle"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- 内容标签 -->
+    <TextView
+        android:id="@+id/textViewContentLabel"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="内容:"
+        android:layout_marginTop="16dp"
+        android:textSize="14sp"
+        app:layout_constraintTop_toBottomOf="@+id/viewTitleUnderline"
+        app:layout_constraintStart_toStartOf="parent" />
+
+    <!-- 内容输入框 -->
+    <EditText
+        android:id="@+id/editTextContent"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:layout_marginTop="8dp"
+        android:layout_marginBottom="16dp"
+        android:gravity="top|start"
+        android:inputType="textMultiLine"
+        android:background="@null"
+        android:padding="8dp"
+        android:textSize="14sp"
+        android:longClickable="true"
+        android:contextClickable="true"
+        android:textIsSelectable="true"
+        android:hint="请输入内容"
+        android:textColorHint="#A0A0A0"
+        app:layout_constraintTop_toBottomOf="@+id/textViewContentLabel"
+        app:layout_constraintBottom_toTopOf="@+id/viewContentUnderline"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- 内容下划线 -->
+    <View
+        android:id="@+id/viewContentUnderline"
+        android:layout_width="0dp"
+        android:layout_height="1dp"
+        android:background="#6200EE"
+        android:layout_marginBottom="8dp"
+        app:layout_constraintBottom_toTopOf="@+id/textViewProgressLabel"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- 添加进度标签 -->
+    <TextView
+        android:id="@+id/textViewProgressLabel"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="添加进度:"
+        android:layout_marginBottom="8dp"
+        android:textSize="14sp"
+        app:layout_constraintBottom_toTopOf="@+id/textViewProgress"
+        app:layout_constraintStart_toStartOf="parent" />
+
+    <!-- 添加进度显示框 -->
+    <TextView
+        android:id="@+id/textViewProgress"
+        android:layout_width="0dp"
+        android:layout_height="60dp"
+        android:layout_marginBottom="16dp"
+        android:background="#E0E0E0"
+        android:padding="8dp"
+        android:textSize="14sp"
+        android:textIsSelectable="true"
+        android:longClickable="true"
+        android:contextClickable="true"
+        android:focusable="true"
+        app:layout_constraintBottom_toTopOf="@+id/knowledgeBaseContainer"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- 知识库行 -->
+    <LinearLayout
+        android:id="@+id/knowledgeBaseContainer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="16dp"
+        android:gravity="center_vertical"
+        app:layout_constraintBottom_toTopOf="@+id/buttonAddToKnowledgeBase"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <!-- 知识库标签 -->
+        <TextView
+            android:id="@+id/textViewKnowledgeBaseLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="知识库:"
+            android:textSize="14sp" />
+
+        <!-- 知识库下拉框 -->
+        <Spinner
+            android:id="@+id/spinnerNoteKnowledgeBase"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp" />
+    </LinearLayout>
+
+    <!-- 添加到知识库按钮 -->
+    <Button
+        android:id="@+id/buttonAddToKnowledgeBase"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="添加到知识库"
+        android:textSize="14sp"
+        android:backgroundTint="#6200EE"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+</androidx.constraintlayout.widget.ConstraintLayout>

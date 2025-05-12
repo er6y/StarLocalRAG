@@ -1,0 +1,12 @@
+<resources>
+    <string name="app_name">StarLocalRAG</string>
+    <!-- Add other string resources here as needed -->
+    <string-array name="api_urls">
+        <item>新建...</item> <!-- 添加新API地址选项 -->
+        <item>https://api.deepseek.com</item>
+        <item>http://localhost:11434</item> <!-- Default Ollama address -->
+        <item>https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation</item> <!-- Qianwen API -->
+        <item>https://api.moonshot.cn/v1</item> <!-- Moonshot API -->
+        <item>https://ark.cn-beijing.volces.com/api/v3</item> <!-- Doubao API -->
+    </string-array>
+</resources>

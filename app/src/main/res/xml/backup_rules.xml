@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!-- TODO: Define backup rules if needed -->
+    <!-- Example: <exclude domain="database" path="my_db.db"/> -->
+</full-backup-content>

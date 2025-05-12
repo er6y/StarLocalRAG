@@ -1,0 +1,82 @@
+{
+  "model_name": "DeepSeek-R1-Distill-Qwen-1.5B_full_fst_1e-4_onnx",
+  "model_type": "ONNX词嵌入模型",
+  "status": "成功",
+  "errors": [],
+  "details": {
+    "files": [
+      "config.json",
+      "model.onnx",
+      "tokenizer.json",
+      "tokenizer_config.json"
+    ],
+    "model_size": {
+      "bytes": 698872551,
+      "mb": 666.5
+    },
+    "tokenizer": {
+      "vocab_size": 151665
+    },
+    "load_time": 0.64,
+    "input_names": [
+      "input_ids"
+    ],
+    "output_names": [
+      "token_ids"
+    ]
+  },
+  "embedding_dim": 1152,
+  "test_results": [
+    {
+      "text": "这是一个测试句子，用于验证词嵌入模型",
+      "success": true,
+      "embedding_shape": [
+        1,
+        11,
+        1152
+      ],
+      "embedding_stats": {
+        "min": -0.9849929809570312,
+        "max": 1.167533040046692,
+        "mean": 0.010904715396463871,
+        "std": 0.30226197838783264,
+        "norm": 10.265785217285156
+      },
+      "inference_time": 0.0
+    },
+    {
+      "text": "人工智能正在改变世界",
+      "success": true,
+      "embedding_shape": [
+        1,
+        5,
+        1152
+      ],
+      "embedding_stats": {
+        "min": -1.6078402996063232,
+        "max": 1.4948253631591797,
+        "mean": 0.009685581550002098,
+        "std": 0.4636387228965759,
+        "norm": 15.739853858947754
+      },
+      "inference_time": 0.0
+    },
+    {
+      "text": "词嵌入是自然语言处理的基础技术",
+      "success": true,
+      "embedding_shape": [
+        1,
+        10,
+        1152
+      ],
+      "embedding_stats": {
+        "min": -1.2353894710540771,
+        "max": 0.9559465646743774,
+        "mean": 0.001863813609816134,
+        "std": 0.3073200285434723,
+        "norm": 10.43097972869873
+      },
+      "inference_time": 0.0
+    }
+  ]
+}

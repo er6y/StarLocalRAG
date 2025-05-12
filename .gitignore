@@ -1,0 +1,67 @@
+# Built application files
+*.apk
+*.aab
+
+# Files for the ART/Dalvik VM
+*.dex
+
+# Java class files
+*.class
+
+# Generated files
+bin/
+gen/
+
+# Gradle files
+.gradle/
+build/
+
+# Local configuration files (sdk path, etc)
+local.properties
+
+# Log files
+*.log
+
+# Android Studio Navigation editor files
+.navigation/
+
+# Android Studio captures folder
+captures/
+
+# IntelliJ
+*.iml
+.idea/
+
+# Keystore files
+*.jks
+*.keystore
+
+# External native build folder created in Android Studio 2.2 and later
+.externalNativeBuild/
+
+# Google Services (e.g. APIs or Firebase)
+google-services.json
+
+# Freeline
+freeline.py
+freeline/
+freeline_project_description.json
+
+# Crashlytics plugin
+com_crashlytics_export_strings.xml
+crashlytics.properties
+crashlytics-build.properties
+fabric.properties
+
+# fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots
+fastlane/test_output
+fastlane/logs
+
+# Version control ignored files
+.DS_Store
+embeddings/
+knowledge_bases/
+

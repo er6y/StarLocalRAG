@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    
+    <item
+        android:id="@+id/action_settings"
+        android:title="设置"
+        android:orderInCategory="100"
+        app:showAsAction="never" />
+        
+    <item
+        android:id="@+id/action_about"
+        android:title="关于"
+        android:orderInCategory="150"
+        app:showAsAction="never" />
+        
+    <item
+        android:id="@+id/action_help"
+        android:title="帮助"
+        android:orderInCategory="160"
+        app:showAsAction="never" />
+        
+    <item
+        android:id="@+id/action_view_log"
+        android:title="查看日志"
+        android:orderInCategory="175"
+        app:showAsAction="never" />
+        
+    <item
+        android:id="@+id/action_exit"
+        android:title="退出"
+        android:orderInCategory="200"
+        app:showAsAction="never" />
+        
+</menu>
