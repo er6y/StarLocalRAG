@@ -525,9 +525,12 @@ public class RagQaFragment extends Fragment {
         // 添加"新建..."选项作为第一项
         apiUrlsList.add("新建...");
         
+        // 添加"本地"选项作为第二项（固定项，不能删除）
+        apiUrlsList.add("local");
+        
         // 添加预定义的API URL
         for (String apiUrl : predefinedApiUrls) {
-            if (!apiUrl.equals("新建...") && !apiUrlsList.contains(apiUrl)) {
+            if (!apiUrl.equals("新建...") && !apiUrl.equals("local") && !apiUrlsList.contains(apiUrl)) {
                 apiUrlsList.add(apiUrl);
             }
         }
@@ -535,7 +538,7 @@ public class RagQaFragment extends Fragment {
         // 添加自定义的API URL
         if (customApiUrls != null && customApiUrls.length > 0) {
             for (String apiUrl : customApiUrls) {
-                if (!apiUrlsList.contains(apiUrl)) {
+                if (!apiUrl.equals("local") && !apiUrlsList.contains(apiUrl)) {
                     apiUrlsList.add(apiUrl);
                 }
             }
@@ -722,9 +725,15 @@ public class RagQaFragment extends Fragment {
                 return;
             }
             
-            if (apiUrl.trim().isEmpty() || apiKey.trim().isEmpty() || 
+            if (apiUrl.trim().isEmpty() || 
                 model.equals("加载中...") || model.equals("获取模型失败")) {
-                Toast.makeText(requireContext(), "请确保API地址、API Key和模型都已正确设置", Toast.LENGTH_SHORT).show();
+                Toast.makeText(requireContext(), "请确保API地址和模型都已正确设置", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            
+            // 如果不是本地模型，需要检查API Key
+            if (!"local".equals(apiUrl) && apiKey.trim().isEmpty()) {
+                Toast.makeText(requireContext(), "请输入API Key", Toast.LENGTH_SHORT).show();
                 return;
             }
 
@@ -1416,14 +1425,11 @@ public class RagQaFragment extends Fragment {
                 return;
             }
             
-            // 创建LlmApiAdapter实例
-            com.example.starlocalrag.api.LlmApiAdapter apiAdapter = new com.example.starlocalrag.api.LlmApiAdapter(context);
-            
             // 记录开始时间
             final long startTime = System.currentTimeMillis();
             
-            // 调用API并处理流式响应
-            apiAdapter.callLlmApi(apiUrl, apiKey, model, prompt, new com.example.starlocalrag.api.LlmApiAdapter.ApiCallback() {
+            // 创建回调接口实例
+            com.example.starlocalrag.api.LlmApiAdapter.ApiCallback callback = new com.example.starlocalrag.api.LlmApiAdapter.ApiCallback() {
                 // 在onSuccess方法中，进行一次完整的Markdown渲染
                 @Override
                 public void onSuccess(String response) {
@@ -1761,7 +1767,11 @@ public class RagQaFragment extends Fragment {
                     // 记录错误到日志
                     logToFile("API错误: " + errorMessage);
                 }
-            });
+            };
+            
+            // 创建LlmApiAdapter实例并调用API
+            com.example.starlocalrag.api.LlmApiAdapter apiAdapter = new com.example.starlocalrag.api.LlmApiAdapter(context);
+            apiAdapter.callLlmApi(apiUrl, apiKey, model, prompt, callback);
             
         } catch (Exception e) {
             Log.e(TAG, "调用大模型API失败", e);
@@ -1958,14 +1968,57 @@ public class RagQaFragment extends Fragment {
         String apiUrl = spinnerApiUrl.getSelectedItem().toString();
         String apiKey = editTextApiKey.getText().toString();
         
+        // 显示加载状态
+        setupSpinner(spinnerApiModel, new String[]{"加载中..."});
+        
+        // 如果是本地模型，从本地模型目录中获取可用的模型列表
+        if ("local".equals(apiUrl)) {
+            Log.d(TAG, "获取本地模型列表");
+            
+            // 从配置中获取模型路径
+            String modelPath = ConfigManager.getModelPath(requireContext());
+            File modelDir = new File(modelPath);
+            
+            if (!modelDir.exists() || !modelDir.isDirectory()) {
+                Log.e(TAG, "模型目录不存在: " + modelPath);
+                setupSpinner(spinnerApiModel, new String[]{"模型目录不存在"});
+                Toast.makeText(requireContext(), "模型目录不存在: " + modelPath, Toast.LENGTH_SHORT).show();
+                return;
+            }
+            
+            // 获取模型目录中的所有子目录（每个子目录代表一个模型）
+            File[] modelDirs = modelDir.listFiles(File::isDirectory);
+            
+            if (modelDirs == null || modelDirs.length == 0) {
+                Log.e(TAG, "模型目录中没有发现模型: " + modelPath);
+                setupSpinner(spinnerApiModel, new String[]{"未发现模型"});
+                Toast.makeText(requireContext(), "模型目录中没有发现模型: " + modelPath, Toast.LENGTH_SHORT).show();
+                return;
+            }
+            
+            // 提取模型名称
+            List<String> modelsList = new ArrayList<>();
+            for (File dir : modelDirs) {
+                modelsList.add(dir.getName());
+            }
+            
+            // 更新UI
+            if (modelsList.isEmpty()) {
+                setupSpinner(spinnerApiModel, new String[]{"无可用模型"});
+            } else {
+                setupSpinner(spinnerApiModel, modelsList.toArray(new String[0]));
+            }
+            
+            Log.d(TAG, "成功获取本地模型列表: " + modelsList.size() + "个模型");
+            return;
+        }
+        
+        // 如果是在线模型，需要API Key
         if (apiUrl.isEmpty() || apiKey.isEmpty()) {
             Toast.makeText(requireContext(), "请先设置API地址和API Key", Toast.LENGTH_SHORT).show();
             setupSpinner(spinnerApiModel, new String[]{"获取模型失败"});
             return;
         }
-        
-        // 显示加载状态
-        setupSpinner(spinnerApiModel, new String[]{"加载中..."});
         
         // 构建请求URL，根据不同API调整
         String modelsUrl = apiUrl;

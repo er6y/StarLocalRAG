@@ -43,7 +43,8 @@ public class LlmApiAdapter {
         MOONSHOT,    // Moonshot API
         DOUBAO,      // 豆包 API
         QIANWEN,     // 千问 API
-        OLLAMA       // Ollama API
+        OLLAMA,      // Ollama API
+        LOCAL        // 本地模型
     }
     
     public LlmApiAdapter(Context context) {
@@ -56,7 +57,9 @@ public class LlmApiAdapter {
      * 根据API URL自动检测API类型
      */
     public ApiType detectApiType(String apiUrl) {
-        if (apiUrl.contains("ollama") || apiUrl.contains("localhost")) {
+        if (apiUrl.equals("local")) {
+            return ApiType.LOCAL;
+        } else if (apiUrl.contains("ollama") || apiUrl.contains("localhost")) {
             return ApiType.OLLAMA;
         } else if (apiUrl.contains("deepseek")) {
             return ApiType.DEEPSEEK;
@@ -81,6 +84,14 @@ public class LlmApiAdapter {
         Log.d(TAG, "检测到API类型: " + apiType.name());
         
         try {
+            // 如果是本地模型，使用本地适配器
+            if (apiType == ApiType.LOCAL) {
+                Log.d(TAG, "使用本地模型: " + model);
+                LocalLlmAdapter localAdapter = LocalLlmAdapter.getInstance(context);
+                localAdapter.callLocalModel(model, prompt, callback);
+                return;
+            }
+            
             // 创建适合当前API类型的请求体
             JSONObject requestBody = createRequestBody(apiType, model, prompt);
             
@@ -116,6 +127,11 @@ public class LlmApiAdapter {
      * 获取完整的API URL，包含正确的端点路径
      */
     private String getFullApiUrl(String baseUrl, ApiType apiType) {
+        // 如果是本地模型，直接返回
+        if (apiType == ApiType.LOCAL) {
+            return "local";
+        }
+        
         // 移除URL末尾的斜杠（如果有）
         String url = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
         
@@ -174,11 +190,19 @@ public class LlmApiAdapter {
     private JSONObject createRequestBody(ApiType apiType, String model, String prompt) throws JSONException {
         JSONObject requestBody = new JSONObject();
         
+        // 如果是本地模型，返回空对象
+        if (apiType == ApiType.LOCAL) {
+            return requestBody;
+        }
+        
         // 添加模型名称
         requestBody.put("model", model);
         
         // 根据API类型添加不同的请求参数
         switch (apiType) {
+            case LOCAL:
+                // 本地模型不需要请求体
+                break;
             case OLLAMA:
                 // Ollama使用prompt字段
                 requestBody.put("prompt", prompt);
@@ -215,6 +239,50 @@ public class LlmApiAdapter {
      * 用于后台线程中调用
      */
     public String callLlmApiSync(String apiUrl, String apiKey, String model, String prompt) {
+        // 如果是本地模型，使用本地适配器的同步调用
+        if (detectApiType(apiUrl) == ApiType.LOCAL) {
+            Log.d(TAG, "同步调用本地模型: " + model);
+            try {
+                final CountDownLatch latch = new CountDownLatch(1);
+                final StringBuilder result = new StringBuilder();
+                final StringBuilder error = new StringBuilder();
+                
+                LocalLlmAdapter localAdapter = LocalLlmAdapter.getInstance(context);
+                localAdapter.callLocalModel(model, prompt, new ApiCallback() {
+                    @Override
+                    public void onSuccess(String response) {
+                        result.append(response);
+                        latch.countDown();
+                    }
+                    
+                    @Override
+                    public void onStreamingData(String chunk) {
+                        result.append(chunk);
+                    }
+                    
+                    @Override
+                    public void onError(String errorMessage) {
+                        error.append(errorMessage);
+                        latch.countDown();
+                    }
+                });
+                
+                boolean completed = latch.await(60, TimeUnit.SECONDS);
+                if (!completed) {
+                    return "本地模型调用超时";
+                }
+                
+                if (error.length() > 0) {
+                    return "本地模型调用错误: " + error.toString();
+                }
+                
+                return result.toString();
+            } catch (Exception e) {
+                Log.e(TAG, "本地模型同步调用错误", e);
+                return "本地模型调用错误: " + e.getMessage();
+            }
+        }
+        
         final CountDownLatch latch = new CountDownLatch(1);
         final StringBuilder result = new StringBuilder();
         final StringBuilder error = new StringBuilder();

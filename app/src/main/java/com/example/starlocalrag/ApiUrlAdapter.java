@@ -143,8 +143,8 @@ public class ApiUrlAdapter extends BaseAdapter {
             radioButtonSelect.performClick();
         });
 
-        // 只为非"新建..."选项显示删除按钮，且不为第一个选项（新建...）
-        if (!apiUrl.equals("新建...") && position > 0) {
+        // 只为非"新建..."和非"local"选项显示删除按钮，且不为第一个选项（新建...）和第二个选项（local）
+        if (!apiUrl.equals("新建...") && !apiUrl.equals("local") && position > 1) {
             buttonDelete.setVisibility(View.VISIBLE);
             buttonDelete.setOnClickListener(v -> {
                 if (deleteListener != null) {
