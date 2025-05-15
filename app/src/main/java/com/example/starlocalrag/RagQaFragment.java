@@ -792,6 +792,14 @@ public class RagQaFragment extends Fragment {
         isTaskRunning = true;
         isTaskCancelled = false;
         
+        // 保存查询参数，用于恢复
+        lastApiUrl = apiUrl;
+        lastApiKey = apiKey;
+        lastModel = model;
+        lastKnowledgeBase = knowledgeBase;
+        lastSystemPrompt = systemPrompt;
+        lastUserPrompt = userPrompt;
+        
         // 初始化相关文档列表
         synchronized (this) {
             relevantDocuments = new ArrayList<>();
@@ -1765,8 +1773,38 @@ public class RagQaFragment extends Fragment {
         }
     }
     
-    // 在UI线程上更新进度信息
+    // 保存最后一次查询的参数，用于恢复
+    private String lastApiUrl;
+    private String lastApiKey;
+    private String lastModel;
+    private String lastKnowledgeBase;
+    private String lastSystemPrompt;
+    private String lastUserPrompt;
+    private boolean queryNeedsResume = false;
+    
+    // 在UI线程上更新进度信息，带有重试机制
     private void updateProgressOnUiThread(String progress) {
+        updateProgressOnUiThreadWithRetry(progress, 3); // 最多重试3次
+    }
+    
+    // 带重试机制的UI更新方法
+    private void updateProgressOnUiThreadWithRetry(String progress, int retryCount) {
+        if (retryCount <= 0) {
+            Log.w(TAG, "更新UI重试次数已用完，放弃更新");
+            return;
+        }
+        
+        if (getActivity() == null || !isAdded()) {
+            Log.w(TAG, "无法更新UI，Fragment未附加到Activity，将在1秒后重试 (剩余重试次数: " + retryCount + ")");
+            queryNeedsResume = true; // 标记需要恢复查询
+            
+            // 1秒后重试
+            new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                updateProgressOnUiThreadWithRetry(progress, retryCount - 1);
+            }, 1000);
+            return;
+        }
+        
         getActivity().runOnUiThread(() -> {
             appendToResponse(progress);
         });
@@ -1774,10 +1812,18 @@ public class RagQaFragment extends Fragment {
     
     // 完全重写的追加内容方法，解决滚动和Markdown渲染问题
     private void appendToResponse(String text) {
-        if (getActivity() == null || getView() == null) return;
+        if (getActivity() == null || !isAdded()) {
+            Log.w(TAG, "无法追加响应，Fragment未附加到Activity");
+            return;
+        }
         
         getActivity().runOnUiThread(() -> {
             try {
+                if (getView() == null) {
+                    Log.w(TAG, "无法追加响应，Fragment的View为空");
+                    return;
+                }
+                
                 // 获取文本视图和滚动视图
                 TextView textViewResponse = getView().findViewById(R.id.textViewResponse);
                 ScrollView scrollView = getView().findViewById(R.id.scrollViewResponse);
@@ -1831,8 +1877,18 @@ public class RagQaFragment extends Fragment {
     
     // 在UI线程上更新结果（替换全部内容）
     private void updateResultOnUiThread(String result) {
+        if (getActivity() == null || !isAdded()) {
+            Log.w(TAG, "无法更新结果，Fragment未附加到Activity");
+            return;
+        }
+        
         mainHandler.post(() -> {
             try {
+                if (getView() == null) {
+                    Log.w(TAG, "无法更新结果，Fragment的View为空");
+                    return;
+                }
+                
                 // 获取结果文本视图
                 TextView textViewResult = getView().findViewById(R.id.textViewResponse);
                 if (textViewResult == null) return;
@@ -2681,6 +2737,33 @@ public class RagQaFragment extends Fragment {
         super.onResume();
         // 在页面恢复时重新应用字体大小，以便在设置页面修改后能够立即生效
         applyGlobalTextSize();
+        
+        // 检查是否需要恢复之前的查询
+        if (queryNeedsResume && lastUserPrompt != null && !lastUserPrompt.isEmpty()) {
+            Log.d(TAG, "检测到需要恢复的查询，将在页面恢复后重新执行");
+            
+            // 重置恢复标记
+            queryNeedsResume = false;
+            
+            // 在UI线程上显示恢复提示
+            new Handler().postDelayed(() -> {
+                try {
+                    if (isAdded() && getActivity() != null) {
+                        updateProgressOnUiThread("恢复之前的查询: " + lastUserPrompt);
+                        
+                        // 延迟一秒再执行，确保UI已经完全初始化
+                        new Handler().postDelayed(() -> {
+                            if (isAdded() && getActivity() != null) {
+                                executeRagQuery(lastApiUrl, lastApiKey, lastModel, lastKnowledgeBase, 
+                                                lastSystemPrompt, lastUserPrompt);
+                            }
+                        }, 1000);
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "恢复查询时出错", e);
+                }
+            }, 500);
+        }
     }
     
     // 设置自定义文本选择菜单

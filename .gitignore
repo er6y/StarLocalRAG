@@ -64,4 +64,5 @@ fastlane/logs
 .DS_Store
 embeddings/
 knowledge_bases/
-
+knowledge_bases/
+models/

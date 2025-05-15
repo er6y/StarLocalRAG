@@ -63,10 +63,35 @@ public class StreamingApiClient {
         try {
             Log.d(TAG, "准备发送流式请求: " + apiUrl);
             
+            // 检查提示词中是否包含系统提示词
+            String systemPrompt = "";
+            String userPrompt = prompt;
+            
+            // 提取系统提示词（如果存在）
+            // 系统提示词通常位于提示词的开头，直到第一个空行
+            if (prompt.contains("\n\n")) {
+                int firstEmptyLineIndex = prompt.indexOf("\n\n");
+                systemPrompt = prompt.substring(0, firstEmptyLineIndex).trim();
+                userPrompt = prompt.substring(firstEmptyLineIndex + 2).trim();
+            }
+            
             // 构建请求体
             JSONObject requestBody = new JSONObject();
             requestBody.put("model", model);
-            requestBody.put("messages", new JSONArray().put(new JSONObject().put("role", "user").put("content", prompt)));
+            
+            // 创建消息数组
+            JSONArray messages = new JSONArray();
+            
+            // 添加系统提示词（如果存在）
+            if (!systemPrompt.isEmpty()) {
+                messages.put(new JSONObject().put("role", "system").put("content", systemPrompt));
+                Log.d(TAG, "添加系统提示词，长度: " + systemPrompt.length());
+            }
+            
+            // 添加用户提示词
+            messages.put(new JSONObject().put("role", "user").put("content", userPrompt));
+            
+            requestBody.put("messages", messages);
             requestBody.put("stream", true);
             
             // 构建请求
