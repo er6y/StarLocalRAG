@@ -63,6 +63,11 @@ public class ConfigManager {
     public static final String KEY_DEBUG_MODE = "debug_mode"; // 调试模式配置键
     public static final String KEY_USE_GPU = "use_gpu"; // GPU加速配置键
     
+    // LLM 推理相关的键
+    public static final String KEY_MAX_NEW_TOKENS = "max_new_tokens"; // 最大生成token数
+    public static final String KEY_NO_THINKING = "no_thinking"; // 是否禁用思考模式
+    public static final String KEY_THREADS = "threads"; // ONNX推理线程数
+    
     // 文本大小相关的键
     public static final String KEY_GLOBAL_TEXT_SIZE = "global_text_size";
     public static final String KEY_RAG_RESPONSE_TEXT_SIZE = "rag_response_text_size";
@@ -82,6 +87,11 @@ public class ConfigManager {
     public static final int DEFAULT_SEARCH_DEPTH = 10;
     public static final int DEFAULT_RETRIEVAL_COUNT = 5;
     public static final float DEFAULT_TEXT_SIZE = 14f;
+    
+    // LLM 推理相关的默认值
+    public static final int DEFAULT_MAX_NEW_TOKENS = 400;
+    public static final boolean DEFAULT_NO_THINKING = false;
+    public static final int DEFAULT_THREADS = 4;
 
     private static JSONObject configCache = null;
 
@@ -849,6 +859,60 @@ public class ConfigManager {
         } catch (JSONException e) {
             Log.e(TAG, "设置字符串配置失败: " + key, e);
         }
+    }
+    
+    /**
+     * 获取最大生成token数
+     * @param context 上下文
+     * @return 最大生成token数
+     */
+    public static int getMaxNewTokens(Context context) {
+        return getInt(context, KEY_MAX_NEW_TOKENS, DEFAULT_MAX_NEW_TOKENS);
+    }
+    
+    /**
+     * 设置最大生成token数
+     * @param context 上下文
+     * @param maxNewTokens 最大生成token数
+     */
+    public static void setMaxNewTokens(Context context, int maxNewTokens) {
+        setInt(context, KEY_MAX_NEW_TOKENS, maxNewTokens);
+    }
+    
+    /**
+     * 获取是否禁用思考模式
+     * @param context 上下文
+     * @return 是否禁用思考模式
+     */
+    public static boolean getNoThinking(Context context) {
+        return getBoolean(context, KEY_NO_THINKING, DEFAULT_NO_THINKING);
+    }
+    
+    /**
+     * 设置是否禁用思考模式
+     * @param context 上下文
+     * @param noThinking 是否禁用思考模式
+     */
+    public static void setNoThinking(Context context, boolean noThinking) {
+        setBoolean(context, KEY_NO_THINKING, noThinking);
+    }
+    
+    /**
+     * 获取ONNX推理线程数
+     * @param context 上下文
+     * @return ONNX推理线程数
+     */
+    public static int getThreads(Context context) {
+        return getInt(context, KEY_THREADS, DEFAULT_THREADS);
+    }
+    
+    /**
+     * 设置ONNX推理线程数
+     * @param context 上下文
+     * @param threads ONNX推理线程数
+     */
+    public static void setThreads(Context context, int threads) {
+        setInt(context, KEY_THREADS, threads);
     }
 
     /**

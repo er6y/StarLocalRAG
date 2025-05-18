@@ -50,6 +50,11 @@ public class SettingsFragment extends Fragment {
     private SeekBar seekBarFontSize; // 字体大小拖动条
     private TextView textViewFontSizeValue; // 字体大小值显示
     
+    // LLM 推理设置相关UI组件
+    private EditText editTextMaxNewTokens; // 最大生成token数
+    private EditText editTextThreads; // 推理线程数
+    private SwitchCompat switchNoThinking; // 思考模式开关
+    
     // 设置变更监听器
     private SettingsChangeListener settingsChangeListener;
     
@@ -99,6 +104,11 @@ public class SettingsFragment extends Fragment {
         switchDebugMode = view.findViewById(R.id.switchDebugMode);
         switchUseGpu = view.findViewById(R.id.switchUseGpu);
         switchJsonDatasetSplitting = view.findViewById(R.id.switchJsonDatasetSplitting); // JSON训练集分块优化开关
+        
+        // 初始化 LLM 推理设置相关UI组件
+        editTextMaxNewTokens = view.findViewById(R.id.editTextMaxNewTokens);
+        editTextThreads = view.findViewById(R.id.editTextThreads);
+        switchNoThinking = view.findViewById(R.id.switchNoThinking);
         seekBarFontSize = view.findViewById(R.id.seekBarFontSize); // 字体大小拖动条
         textViewFontSizeValue = view.findViewById(R.id.textViewFontSizeValue); // 字体大小值显示
         
@@ -208,6 +218,11 @@ public class SettingsFragment extends Fragment {
             // 加载字体大小
             float fontSize = ConfigManager.getGlobalTextSize(context);
             
+            // 加载 LLM 推理设置
+            int maxNewTokens = ConfigManager.getMaxNewTokens(context);
+            int threads = ConfigManager.getThreads(context);
+            boolean noThinking = ConfigManager.getNoThinking(context);
+            
             // 设置UI
             editTextChunkSize.setText(String.valueOf(chunkSize));
             editTextOverlapSize.setText(String.valueOf(overlapSize));
@@ -220,6 +235,11 @@ public class SettingsFragment extends Fragment {
             switchJsonDatasetSplitting.setChecked(jsonDatasetSplitting);
             seekBarFontSize.setProgress(Math.round(fontSize) - 10);
             updateFontSizeText(Math.round(fontSize) - 10);
+            
+            // 设置 LLM 推理设置UI
+            editTextMaxNewTokens.setText(String.valueOf(maxNewTokens));
+            editTextThreads.setText(String.valueOf(threads));
+            switchNoThinking.setChecked(noThinking);
             
             Log.d(TAG, "设置加载完成");
         } catch (Exception e) {
@@ -262,8 +282,8 @@ public class SettingsFragment extends Fragment {
                 return;
             }
             
-            if (minChunkSize < 10 || minChunkSize > 100 || minChunkSize >= chunkSize) {
-                Toast.makeText(context, "最小分块限制应在10-100之间且小于分块大小", Toast.LENGTH_SHORT).show();
+            if (minChunkSize < 10 || minChunkSize > 200 || minChunkSize >= chunkSize) {
+                Toast.makeText(context, "最小分块限制应在10-200之间且小于分块大小", Toast.LENGTH_SHORT).show();
                 return;
             }
             
@@ -291,6 +311,32 @@ public class SettingsFragment extends Fragment {
             int progress = seekBarFontSize.getProgress();
             float fontSize = progress + 10;
             
+            // 获取 LLM 推理设置
+            String maxNewTokensStr = editTextMaxNewTokens.getText().toString().trim();
+            String threadsStr = editTextThreads.getText().toString().trim();
+            boolean noThinking = switchNoThinking.isChecked();
+            
+            // 验证 LLM 推理设置
+            if (maxNewTokensStr.isEmpty() || threadsStr.isEmpty()) {
+                Toast.makeText(context, "请填写所有 LLM 推理设置", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            
+            // 转换为整数
+            int maxNewTokens = Integer.parseInt(maxNewTokensStr);
+            int threads = Integer.parseInt(threadsStr);
+            
+            // 验证值范围
+            if (maxNewTokens < 100 || maxNewTokens > 2000) {
+                Toast.makeText(context, "最大生成token数应在100-2000之间", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            
+            if (threads < 1 || threads > 16) {
+                Toast.makeText(context, "推理线程数应在1-16之间", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            
             // 保存设置到ConfigManager
             ConfigManager.setChunkSize(context, chunkSize);
             ConfigManager.setInt(context, ConfigManager.KEY_OVERLAP_SIZE, overlapSize);
@@ -303,6 +349,11 @@ public class SettingsFragment extends Fragment {
             ConfigManager.setJsonDatasetSplittingEnabled(context, jsonDatasetSplitting);
             ConfigManager.setGlobalTextSize(context, fontSize);
             
+            // 保存 LLM 推理设置
+            ConfigManager.setMaxNewTokens(context, maxNewTokens);
+            ConfigManager.setThreads(context, threads);
+            ConfigManager.setNoThinking(context, noThinking);
+            
             // 创建JSON格式的设置摘要
             JSONObject settingsSummary = new JSONObject();
             settingsSummary.put("chunkSize", chunkSize);
@@ -314,6 +365,11 @@ public class SettingsFragment extends Fragment {
             settingsSummary.put("debugMode", debugMode);
             settingsSummary.put("useGpu", useGpu);
             settingsSummary.put("jsonDatasetSplitting", jsonDatasetSplitting);
+            
+            // 添加 LLM 推理设置信息
+            settingsSummary.put("maxNewTokens", maxNewTokens);
+            settingsSummary.put("threads", threads);
+            settingsSummary.put("noThinking", noThinking);
             
             Log.d(TAG, "设置已保存: " + settingsSummary.toString());
             
