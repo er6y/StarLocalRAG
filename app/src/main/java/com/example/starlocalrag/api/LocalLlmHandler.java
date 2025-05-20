@@ -8,12 +8,14 @@ import android.util.Log;
 
 import com.example.starlocalrag.ConfigManager;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
+import java.lang.reflect.Method;
 import java.nio.LongBuffer;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -34,7 +36,8 @@ import java.util.Arrays;
 
 /**
  * 本地LLM处理程序
- * 负责加载和管理本地ONNX模型，执行本地推理
+ * 负责加载和管理本地模型，执行本地推理
+ * 支持多种模型类型，包括ONNX等
  */
 public class LocalLLMHandler {
     private static final String TAG = "LocalLLMHandler";
@@ -81,8 +84,14 @@ public class LocalLLMHandler {
     // 最大序列长度
     private int maxSeqLen = 2048;
     
+    // 模型类型
+    private String modelType = "onnx";
+    
+    // ONNX处理器
+    private LocalLLMOnnxHandler localLlmOnnxHandler;
+    
     // 模型配置类
-    private static class ModelConfig {
+    public static class ModelConfig {
         String modelType; // 模型类型，如"qwen", "deepseek"等
         int vocabSize;    // 词汇表大小
         int hiddenSize;   // 隐藏层大小
@@ -162,8 +171,9 @@ public class LocalLLMHandler {
                 logMemoryInfo();
                 
                 // 1. 确保模型文件存在
-                // 模型一般放在SD卡中，这里直接检查模型目录
-                File modelDir = new File(android.os.Environment.getExternalStorageDirectory(), "models/" + modelName);
+                // 从ConfigManager获取模型路径
+                String modelPath = ConfigManager.getModelPath(context);
+                File modelDir = new File(modelPath, modelName);
                 
                 if (!modelDir.exists() || !modelDir.isDirectory()) {
                     throw new IOException("模型文件不存在: " + modelDir.getAbsolutePath());
@@ -197,14 +207,32 @@ public class LocalLLMHandler {
                 sessionOptions.setMemoryPatternOptimization(true);
                 sessionOptions.setExecutionMode(SessionOptions.ExecutionMode.SEQUENTIAL);
                 
-                // 如果启用GPU，设置GPU加速
+                // 如果启用GPU，按优先级尝试不同的GPU加速方式
                 if (useGpu) {
-                    try {
-                        // 尝试启用GPU加速
-                        sessionOptions.addCUDA();
-                        Log.d(TAG, "已启用CUDA GPU加速");
-                    } catch (Exception e) {
-                        Log.w(TAG, "启用GPU加速失败，将使用CPU: " + e.getMessage());
+                    boolean gpuEnabled = false;
+                    
+                    // 使用反射机制尝试调用可能存在的GPU加速方法
+                    String[] gpuMethods = {"addNNAPI", "addOpenCL", "addCUDA"};
+                    String[] gpuNames = {"NNAPI", "OpenCL", "CUDA"};
+                    
+                    for (int i = 0; i < gpuMethods.length && !gpuEnabled; i++) {
+                        try {
+                            // 尝试通过反射调用方法
+                            Method method = SessionOptions.class.getMethod(gpuMethods[i]);
+                            method.invoke(sessionOptions);
+                            Log.i(TAG, "成功启用" + gpuNames[i] + "加速");
+                            gpuEnabled = true;
+                        } catch (NoSuchMethodException e) {
+                            // 方法不存在，跳过
+                            Log.d(TAG, gpuNames[i] + "加速方法不可用");
+                        } catch (Exception e) {
+                            // 其他错误，如调用失败
+                            Log.d(TAG, "启用" + gpuNames[i] + "加速失败: " + e.getMessage());
+                        }
+                    }
+                    
+                    if (!gpuEnabled) {
+                        Log.w(TAG, "所有GPU加速方式均失败，将使用CPU模式");
                     }
                 }
                 
@@ -231,9 +259,28 @@ public class LocalLLMHandler {
                     Log.d(TAG, "模型输出: " + outputName + ", 类型: " + outputInfo.get(outputName).getInfo());
                 }
                 
-                // 8. 标记为已加载
+                // 8. 检测模型类型并初始化相应处理器
+                // 默认为ONNX模型
+                modelType = "onnx";
+                
+                // 如果模型配置中指定了模型类型，则使用配置中的类型
+                if (modelConfig != null && modelConfig.modelType != null) {
+                    modelType = modelConfig.modelType.toLowerCase();
+                }
+                
+                // 根据模型类型初始化处理器
+                if ("onnx".equals(modelType)) {
+                    Log.i(TAG, "初始化ONNX处理器");
+                    localLlmOnnxHandler = new LocalLLMOnnxHandler(context, ortEnvironment, ortSession, tokenizer, reverseTokenizer, modelConfig);
+                } else {
+                    Log.w(TAG, "未知模型类型: " + modelType + "，默认使用ONNX处理器");
+                    modelType = "onnx";
+                    localLlmOnnxHandler = new LocalLLMOnnxHandler(context, ortEnvironment, ortSession, tokenizer, reverseTokenizer, modelConfig);
+                }
+                
+                // 9. 标记为已加载
                 modelLoaded.set(true);
-                Log.i(TAG, "模型加载完成: " + modelName);
+                Log.i(TAG, "模型加载完成: " + modelName + ", 类型: " + modelType);
                 logMemoryInfo();
                 
                 // 回调成功
@@ -325,7 +372,9 @@ public class LocalLLMHandler {
         tokenizer = new HashMap<>();
         reverseTokenizer = new HashMap<>();
         
-        // 解析词汇表
+        boolean vocabLoaded = false;
+        
+        // 1. 首先尝试从model.vocab加载（传统方式）
         if (tokenizerJson.has("model") && tokenizerJson.getJSONObject("model").has("vocab")) {
             JSONObject vocab = tokenizerJson.getJSONObject("model").getJSONObject("vocab");
             Iterator<String> keys = vocab.keys();
@@ -336,195 +385,124 @@ public class LocalLLMHandler {
                 tokenizer.put(token, id);
                 reverseTokenizer.put(id, token);
             }
+            vocabLoaded = true;
+            Log.d(TAG, "从model.vocab加载词汇表，数量: " + tokenizer.size());
         }
+        
+        // 2. 如果没有model.vocab，尝试从added_tokens加载特殊token
+        if (tokenizerJson.has("added_tokens")) {
+            try {
+                JSONArray addedTokens = tokenizerJson.getJSONArray("added_tokens");
+                int addedCount = 0;
+                for (int i = 0; i < addedTokens.length(); i++) {
+                    JSONObject tokenObj = addedTokens.getJSONObject(i);
+                    int id = tokenObj.getInt("id");
+                    String tokenContent = tokenObj.getString("content");
+                    tokenizer.put(tokenContent, id);
+                    reverseTokenizer.put(id, tokenContent);
+                    addedCount++;
+                    Log.d(TAG, "加载特殊token: " + tokenContent + " -> " + id);
+                }
+                Log.d(TAG, "从added_tokens加载特殊token，数量: " + addedCount);
+            } catch (Exception e) {
+                Log.w(TAG, "加载added_tokens失败: " + e.getMessage());
+            }
+        }
+        
+        // 3. 尝试从vocab.json加载完整词汇表（如果存在且词汇表不完整）
+        File vocabFile = new File(tokenizerFile.getParentFile(), "vocab.json");
+        if (vocabFile.exists() && (!vocabLoaded || tokenizer.size() < 1000)) {
+            try {
+                Log.d(TAG, "尝试从vocab.json加载词汇表: " + vocabFile.getPath());
+                StringBuilder vocabContent = new StringBuilder();
+                try (BufferedReader reader = new BufferedReader(new FileReader(vocabFile))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        vocabContent.append(line);
+                    }
+                }
+                
+                JSONObject vocabJson = new JSONObject(vocabContent.toString());
+                Iterator<String> keys = vocabJson.keys();
+                int addedCount = 0;
+                
+                while (keys.hasNext()) {
+                    String token = keys.next();
+                    int id = vocabJson.getInt(token);
+                    if (!tokenizer.containsKey(token)) {
+                        tokenizer.put(token, id);
+                        reverseTokenizer.put(id, token);
+                        addedCount++;
+                    }
+                }
+                Log.d(TAG, "从vocab.json加载词汇表，新增数量: " + addedCount);
+            } catch (Exception e) {
+                Log.w(TAG, "从vocab.json加载词汇表失败: " + e.getMessage());
+            }
+        }
+        
+        // 4. 确保Qwen3特殊token存在
+        ensureQwen3SpecialTokens();
         
         Log.d(TAG, "词汇表加载完成，大小: " + tokenizer.size());
     }
     
     /**
-     * 卸载当前模型
+     * 确保Qwen3模型的特殊token存在
+     * 根据tokenizer_config.json中的信息添加特殊token
      */
-    public void unloadModel() {
-        executorService.execute(this::unloadModelInternal);
-    }
-    
-    /**
-     * 内部卸载模型方法
-     */
-    private void unloadModelInternal() {
-        Log.d(TAG, "卸载模型: " + currentModelName);
+    private void ensureQwen3SpecialTokens() {
+        // Qwen3模型的特殊token及其ID
+        Map<String, Integer> specialTokens = new HashMap<>();
+        specialTokens.put("endoftext", 151643);
+        specialTokens.put("im_start", 151644);
+        specialTokens.put("im_end", 151645);
+        specialTokens.put("object_ref_start", 151646);
+        specialTokens.put("object_ref_end", 151647);
+        specialTokens.put("box_start", 151648);
         
-        // 关闭ONNX会话
-        if (ortSession != null) {
-            try {
-                ortSession.close();
-                ortSession = null;
-                Log.d(TAG, "ONNX会话关闭成功");
-            } catch (Exception e) {
-                Log.w(TAG, "关闭ONNX会话失败: " + e.getMessage());
-            }
-        }
-        
-        // 重置状态
-        modelLoaded.set(false);
-        currentModelName = null;
-        tokenizer = null;
-        reverseTokenizer = null;
-        modelConfig = null;
-        
-        // 建议进行垃圾回收
-        System.gc();
-        
-        Log.d(TAG, "模型卸载完成");
-        logMemoryInfo();
-    }
-    
-    /**
-     * 记录当前内存使用情况
-     */
-    private void logMemoryInfo() {
-        try {
-            ActivityManager activityManager = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
-            ActivityManager.MemoryInfo memoryInfo = new ActivityManager.MemoryInfo();
-            activityManager.getMemoryInfo(memoryInfo);
-            
-            Runtime runtime = Runtime.getRuntime();
-            long usedMemory = runtime.totalMemory() - runtime.freeMemory();
-            long freeMemory = runtime.freeMemory();
-            
-            Log.i(TAG, String.format("内存使用情况: 已用=%.2fMB, 空闲=%.2fMB",
-                usedMemory / (1024.0 * 1024.0),
-                freeMemory / (1024.0 * 1024.0)
-            ));
-        } catch (Exception e) {
-            Log.e(TAG, "获取内存信息失败: " + e.getMessage());
-        }
-    }
-    
-    /**
-     * 安全关闭可关闭资源
-     * @param closeable 可关闭的资源
-     * @param resourceName 资源名称（用于日志）
-     */
-    private void safeClose(AutoCloseable closeable, String resourceName) {
-        if (closeable != null) {
-            try {
-                closeable.close();
-            } catch (Exception e) {
-                Log.w(TAG, "关闭" + resourceName + "时发生异常: " + e.getMessage());
+        for (Map.Entry<String, Integer> entry : specialTokens.entrySet()) {
+            String token = entry.getKey();
+            int id = entry.getValue();
+            if (!tokenizer.containsKey(token)) {
+                tokenizer.put(token, id);
+                reverseTokenizer.put(id, token);
+                Log.d(TAG, "添加Qwen3特殊token: " + token + " -> " + id);
             }
         }
     }
     
-    /**
-     * 执行本地模型推理
-     * @param prompt 提示词
-     * @param callback 回调接口
-     */
-    public void inference(String prompt, final LocalLlmCallback callback) {
-        // 检查模型是否已加载
-        if (!modelLoaded.get()) {
-            if (callback != null) {
-                new Handler(Looper.getMainLooper()).post(() -> {
-                    callback.onError("模型未加载");
-                });
-            }
-            return;
-        }
-        
-        // 使用自回归生成方法
-        generateText(prompt, callback);
-    }
-    
-    /**
-     * 执行自回归生成，支持连续生成多个 token
-     * @param prompt 提示词
-     * @param callback 回调接口
-     */
-    public void generateText(String prompt, final LocalLlmCallback callback) {
-        // 检查模型是否已加载
-        if (!modelLoaded.get()) {
-            if (callback != null) {
-                new Handler(Looper.getMainLooper()).post(() -> {
-                    callback.onError("模型未加载");
-                });
-            }
-            return;
-        }
-        
-        // 从配置中获取生成参数
-        int maxNewTokens = ConfigManager.getMaxNewTokens(context);
-        boolean noThinking = ConfigManager.getNoThinking(context);
-        
-        Log.d(TAG, "自回归生成参数: maxNewTokens=" + maxNewTokens + ", noThinking=" + noThinking);
-        
-        // 在后台线程中执行推理
-        final String finalPrompt = prompt;
-        executorService.execute(() -> {
-            try {
-                Log.i(TAG, "开始生成文本，最大token数: " + maxNewTokens);
-                
-                // 简化版实现，直接返回预设响应
-                String response = "这是一个简化的ONNX模型推理实现。在实际应用中，这里会执行真正的模型推理过程，" +
-                        "包括分词、创建输入张量、执行推理、采样生成等步骤。\n\n" +
-                        "您的提示词是: " + finalPrompt + "\n\n" +
-                        "在完整实现中，模型会根据提示词生成连续的文本输出。";
-                
-                // 模拟生成过程
-                simulateTokenGeneration(response, callback);
-                
-            } catch (Exception e) {
-                Log.e(TAG, "推理过程中发生异常: " + e.getMessage(), e);
-                if (callback != null) {
-                    final String errorMessage = e.getMessage();
-                    new Handler(Looper.getMainLooper()).post(() -> {
-                        callback.onError("推理失败: " + errorMessage);
-                    });
-                }
-            }
-        });
-    }
-    
-    /**
-     * 模拟token生成过程
-     * @param text 要生成的文本
-     * @param callback 回调接口
-     */
-    private void simulateTokenGeneration(String text, LocalLlmCallback callback) {
-        // 将文本分成字符，模拟token生成
-        char[] chars = text.toCharArray();
-        StringBuilder fullResponse = new StringBuilder();
-        
-        // 创建一个新线程来模拟生成过程
+    public void inference(String prompt, LocalLlmCallback callback) {
+        // 实现推理逻辑
         new Thread(() -> {
             try {
-                for (char c : chars) {
-                    // 添加到完整响应
-                    fullResponse.append(c);
-                    
-                    // 回调单个token
-                    if (callback != null) {
-                        final String token = String.valueOf(c);
-                        new Handler(Looper.getMainLooper()).post(() -> {
-                            callback.onToken(token);
-                        });
-                    }
-                    
-                    // 模拟生成延迟
-                    Thread.sleep(50);
-                }
+                // 配置管理
+                int maxTokenLength = 512; // 默认最大token长度
+                boolean thinkingMode = false; // 默认关闭思考模式
+                float temperature = 0.7f; // 温度采样参数
+                int topK = 5; // top-k 采样参数
                 
-                // 回调完整响应
-                if (callback != null) {
-                    final String response = fullResponse.toString();
-                    new Handler(Looper.getMainLooper()).post(() -> {
-                        callback.onComplete(response);
-                    });
-                }
-                
-            } catch (InterruptedException e) {
-                Log.e(TAG, "模拟生成过程被中断: " + e.getMessage());
+                // 在这里调用实际的推理逻辑
+                String result = localLlmOnnxHandler.inference(prompt, maxTokenLength, thinkingMode, temperature, topK);
+                callback.onToken(result);
+                callback.onComplete(result);
+            } catch (Exception e) {
+                callback.onError(e.getMessage());
             }
         }).start();
+    }
+    
+    public void unloadModel() {
+        // 卸载模型逻辑
+        Log.d(TAG, "卸载模型");
+    }
+    
+    private void logMemoryInfo() {
+        // 记录内存信息逻辑
+        Runtime runtime = Runtime.getRuntime();
+        long maxMemory = runtime.maxMemory();
+        long totalMemory = runtime.totalMemory();
+        long freeMemory = runtime.freeMemory();
+        Log.d(TAG, "内存信息 - 最大: " + maxMemory / 1024 / 1024 + "MB, 总计: " + totalMemory / 1024 / 1024 + "MB, 空闲: " + freeMemory / 1024 / 1024 + "MB");
     }
 }

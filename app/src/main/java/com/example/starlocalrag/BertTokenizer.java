@@ -19,6 +19,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.Set;
+
+/**
+ * 内部Trie节点结构
+ */
+class TrieNode {
+    Map<Character, TrieNode> children = new HashMap<>();
+    boolean isEnd = false;
+    String token = null;
+}
+
 
 /**
  * BERT分词器实现，支持解析tokenizer.json文件
@@ -43,6 +54,9 @@ public class BertTokenizer {
     // 词汇表 (token -> id)
     private Map<String, Integer> vocab = new HashMap<>();
     
+    // Trie前缀树根节点
+    private TrieNode trieRoot = new TrieNode();
+    
     // 反向词汇表 (id -> token)
     private Map<Integer, String> idToToken = new HashMap<>();
     
@@ -66,6 +80,15 @@ public class BertTokenizer {
     
     // 是否启用调试模式
     private boolean debugMode = false;
+
+    private boolean isQwen3Model = false;
+    private static final String[] QWEN3_SPECIAL_TOKENS = {"<|endoftext|>", "<|im_start|>", "<|im_end|>", "<|object_ref_start|>", "<|object_ref_end|>", "<|box_start|>"};
+    
+    private void detectModelType() {
+        isQwen3Model = vocab.containsKey("<|im_start|>") || vocab.containsKey("<|im_end|>");
+        Log.d(TAG, "模型类型检测: " + (isQwen3Model ? "Qwen3 模型" : "非 Qwen3 模型（可能是 BGE-M3）"));
+    }
+
     
     /**
      * 从目录加载tokenizer
@@ -99,6 +122,12 @@ public class BertTokenizer {
             if (tokenizerFile.exists()) {
                 boolean result = loadTokenizerJson(tokenizerFile);
                 if (result) {
+                    // 构建Trie前缀树
+                    buildTrieFromVocab();
+                    
+                    // 检测模型类型
+                    detectModelType();
+                    
                     Log.d(TAG, "词汇表加载完成，大小：" + vocab.size());
                     // 打印部分词汇表内容作为诊断
                     StringBuilder sampleVocab = new StringBuilder();
@@ -1236,11 +1265,28 @@ public class BertTokenizer {
         
         try {
             // 详细记录输入文本
-            // Log.d(TAG, "开始分词处理，输入文本: '" + text + "', 长度: " + text.length());
+            Log.d(TAG, "分词前提示词: '" + text + "', 长度: " + text.length());
             
             // 添加起始标记 (对应PC端的<s>)
             tokenIds.add(clsTokenId);
-            // Log.d(TAG, "添加起始标记: " + clsTokenId);
+            Log.d(TAG, "添加起始标记: " + clsTokenId);
+            
+            // 打印词汇表样本
+            if (vocab.size() > 0) {
+                StringBuilder vocabSample = new StringBuilder();
+                int count = 0;
+                for (Map.Entry<String, Integer> entry : vocab.entrySet()) {
+                    if (count < 20) {
+                        vocabSample.append("'").append(entry.getKey()).append("'=").append(entry.getValue()).append(", ");
+                        count++;
+                    } else {
+                        break;
+                    }
+                }
+                Log.d(TAG, "词汇表样本: " + vocabSample.toString());
+            } else {
+                Log.e(TAG, "词汇表为空！");
+            }
             
             // 处理文本
             if (text != null && !text.isEmpty()) {
@@ -1253,8 +1299,29 @@ public class BertTokenizer {
                 // 记录词汇表信息
                 // Log.d(TAG, "词汇表大小: " + vocab.size());
                 
-                // 使用一致性分词策略
-                if (useConsistentTokenization) {
+                  // 根据模型类型选择分词策略
+                if (isQwen3Model) {
+                    Log.d(TAG, "使用 Qwen3 分词策略");
+                    List<String> tokens = tokenizeQwen3(text);
+                    
+                    StringBuilder tokenDebug = new StringBuilder();
+                    for (String token : tokens) {
+                        tokenDebug.append("'").append(token).append("' ");
+                    }
+                    Log.d(TAG, "分词结果 (" + tokens.size() + " tokens): " + tokenDebug.toString());
+                    
+                    // 将token转换为ID
+                    for (String token : tokens) {
+                        if (vocab.containsKey(token)) {
+                            int id = vocab.get(token);
+                            tokenIds.add(id);
+                            Log.d(TAG, "找到 token: '" + token + "', ID: " + id);
+                        } else {
+                            Log.d(TAG, "未知 token: '" + token + "', 使用 UNK ID: " + unkTokenId);
+                            tokenIds.add(unkTokenId);
+                        }
+                    }
+                } else if (useConsistentTokenization) {
                     // Log.d(TAG, "使用一致性分词策略");
                     
                     // 使用优化的最长匹配算法
@@ -1481,6 +1548,89 @@ public class BertTokenizer {
         return new long[][] { inputIds, attentionMask };
     }
     
+    private List<String> tokenizeQwen3(String text) {
+        List<String> tokens = new ArrayList<>();
+        int position = 0;
+        
+        Log.d(TAG, "开始 Qwen3 分词处理");
+        
+        while (position < text.length()) {
+            boolean matched = false;
+            
+            // 首先检查特殊 token
+            for (String specialToken : QWEN3_SPECIAL_TOKENS) {
+                if (text.startsWith(specialToken, position)) {
+                    tokens.add(specialToken);
+                    position += specialToken.length();
+                    matched = true;
+                    Log.d(TAG, "匹配到特殊 token: " + specialToken + " 在位置 " + (position - specialToken.length()));
+                    break;
+                }
+            }
+            
+            if (matched) {
+                continue;
+            }
+            
+            // 尝试最长匹配
+            String longestToken = null;
+            int longestLength = 0;
+            
+            for (int endPos = position + 1; endPos <= text.length() && endPos <= position + 10; endPos++) {
+                String substring = text.substring(position, endPos);
+                if (vocab.containsKey(substring) && substring.length() > longestLength) {
+                    longestToken = substring;
+                    longestLength = substring.length();
+                }
+                
+                // 尝试添加前缀
+                if (!substring.startsWith("▁")) {
+                    String withPrefix = "▁" + substring;
+                    if (vocab.containsKey(withPrefix) && withPrefix.length() > longestLength) {
+                        longestToken = withPrefix;
+                        longestLength = withPrefix.length();
+                    }
+                }
+            }
+            
+            if (longestToken != null) {
+                tokens.add(longestToken);
+                position += longestToken.length();
+                if (longestToken.startsWith("▁") && longestToken.length() > 1) {
+                    position -= 1; // 调整位置，因为▁前缀不在原始文本中
+                }
+                Log.d(TAG, "匹配到 token: " + longestToken + " 在位置 " + (position - longestToken.length()));
+            } else {
+                // 处理单个字符
+                char currentChar = text.charAt(position);
+                String charToken = String.valueOf(currentChar);
+                
+                if (isCJKChar(currentChar)) {
+                    if (vocab.containsKey(charToken)) {
+                        tokens.add(charToken);
+                        Log.d(TAG, "匹配到 CJK 字符: " + charToken + " 在位置 " + position);
+                    } else {
+                        String withPrefix = "▁" + charToken;
+                        if (vocab.containsKey(withPrefix)) {
+                            tokens.add(withPrefix);
+                            Log.d(TAG, "匹配到带前缀的 CJK 字符: " + withPrefix + " 在位置 " + position);
+                        } else {
+                            tokens.add(unkToken);
+                            Log.d(TAG, "未知 CJK 字符: " + charToken + " 在位置 " + position + ", 使用 UNK");
+                        }
+                    }
+                } else {
+                    tokens.add(unkToken);
+                    Log.d(TAG, "未知字符: " + charToken + " 在位置 " + position + ", 使用 UNK");
+                }
+                position++;
+            }
+        }
+        
+        return tokens;
+    }
+
+
     /**
      * 判断字符是否为CJK字符（中日韩统一表意文字）
      * @param c 要检查的字符
@@ -1511,6 +1661,42 @@ public class BertTokenizer {
         return token;
     }
 
+    /**
+     * 获取特定ID范围内的token映射
+     * @param startId 起始ID（包含）
+     * @param endId 结束ID（包含）
+     * @return token到ID的映射
+     */
+    public Map<String, Integer> getTokensByIdRange(int startId, int endId) {
+        Map<String, Integer> tokenMap = new HashMap<>();
+        for (int id = startId; id <= endId; id++) {
+            String token = idToToken.getOrDefault(id, null);
+            if (token != null) {
+                tokenMap.put(token, id);
+            }
+        }
+        Log.d(TAG, "获取ID范围 " + startId + "-" + endId + " 的token映射，共 " + tokenMap.size() + " 个token");
+        return tokenMap;
+    }
+    /**
+     * 获取名称匹配特定模式的token映射
+     * @param pattern 名称模式（正则表达式）
+     * @return token到ID的映射
+     */
+    public Map<String, Integer> getTokensByNamePattern(String pattern) {
+        Map<String, Integer> tokenMap = new HashMap<>();
+        Pattern regex = Pattern.compile(pattern);
+        
+        for (Map.Entry<Integer, String> entry : idToToken.entrySet()) {
+            String token = entry.getValue();
+            if (token != null && regex.matcher(token).matches()) {
+                tokenMap.put(token, entry.getKey());
+            }
+        }
+        
+    Log.d(TAG, "获取名称匹配模式 '" + pattern + "' 的token映射，共 " + tokenMap.size() + " 个token");
+    return tokenMap;
+}
     /**
      * 将token ID列表转换为文本
      * @param tokenIds token ID列表
@@ -1722,100 +1908,63 @@ public class BertTokenizer {
     }
     
     /**
-     * 使用最长匹配算法进行分词
-     * 这是一个优化的实现，尝试找到最长的匹配token
+     * 使用Trie前缀树和BPE优化的最长匹配分词算法
      * @param text 输入文本
      * @return 分词结果
      */
     private List<String> longestMatchTokenize(String text) {
         List<String> tokens = new ArrayList<>();
-        
-        // 处理输入文本
         String processedText = text;
         if (addPrefixSpace && !text.startsWith(" ")) {
             processedText = " " + text;
-            // Log.d(TAG, "添加空格前缀: " + processedText);
         }
-        
         int position = 0;
-        
         while (position < processedText.length()) {
-            // 尝试找到最长匹配的token
-            String longestToken = null;
+            TrieNode node = trieRoot;
             int longestLength = 0;
-            int maxLookAhead = Math.min(15, processedText.length() - position); // 增加最大前向查找长度
-            
-            // 对于当前位置，尝试不同长度的子字符串
-            for (int endPos = position + 1; endPos <= processedText.length() && endPos <= position + maxLookAhead; endPos++) {
-                String substring = processedText.substring(position, endPos);
-                
-                // 检查原始子字符串
-                if (vocab.containsKey(substring) && substring.length() > longestLength) {
-                    longestToken = substring;
-                    longestLength = substring.length();
+            String longestToken = null;
+            int curr = position;
+            while (curr < processedText.length()) {
+                char c = processedText.charAt(curr);
+                if (!node.children.containsKey(c)) break;
+                node = node.children.get(c);
+                if (node.isEnd) {
+                    longestToken = node.token;
+                    longestLength = curr - position + 1;
                 }
-                
-                // 检查添加▁前缀的子字符串（对于非空格开头的token）
-                if (!substring.startsWith(" ") && !substring.startsWith("▁")) {
-                    String withPrefix = "▁" + substring;
-                    if (vocab.containsKey(withPrefix) && withPrefix.length() > longestLength) {
-                        longestToken = withPrefix;
-                        longestLength = withPrefix.length();
-                    }
-                }
+                curr++;
             }
-            
-            // 如果找到匹配的token
             if (longestToken != null) {
                 tokens.add(longestToken);
                 position += longestLength;
-                if (longestToken.startsWith("▁") && longestToken.length() > 1) {
-                    position -= 1; // 调整位置，因为▁前缀不在原始文本中
-                }
-                // 移除token日志
-                // Log.d(TAG, "找到token: '" + longestToken + "', 长度: " + longestLength);
             } else {
-                // 如果当前字符是CJK字符，单独处理
+                // fallback: 单字符分词或UNK
                 char currentChar = processedText.charAt(position);
-                if (isCJKChar(currentChar)) {
-                    String cjkToken = String.valueOf(currentChar);
-                    
-                    // 尝试直接查找
-                    if (vocab.containsKey(cjkToken)) {
-                        tokens.add(cjkToken);
-                        // 移除token日志
-                        // Log.d(TAG, "找到CJK token: '" + cjkToken + "'");
-                    } else {
-                        // 尝试添加▁前缀
-                        String withPrefix = "▁" + cjkToken;
-                        if (vocab.containsKey(withPrefix)) {
-                            tokens.add(withPrefix);
-                            // 移除token日志
-                            // Log.d(TAG, "找到带前缀的CJK token: '" + withPrefix + "'");
-                        } else {
-                            // 未知token
-                            // Log.d(TAG, "未知CJK字符: '" + cjkToken + "', 使用UNK");
-                            tokens.add(unkToken);
-                        }
-                    }
-                } else if (currentChar == ' ') {
-                    // 空格处理
-                    String spaceToken = "▁";
-                    if (vocab.containsKey(spaceToken)) {
-                        tokens.add(spaceToken);
-                        // 移除token日志
-                        // Log.d(TAG, "找到空格token: '" + spaceToken + "'");
-                    }
+                String charToken = String.valueOf(currentChar);
+                if (vocab.containsKey(charToken)) {
+                    tokens.add(charToken);
                 } else {
-                    // 其他未知字符
-                    String charToken = String.valueOf(currentChar);
-                    // Log.d(TAG, "未知字符: '" + charToken + "', 使用UNK");
                     tokens.add(unkToken);
                 }
                 position++;
             }
         }
-        
         return tokens;
     }
+
+    /**
+     * 构建Trie前缀树，提升token查找速度
+     */
+    private void buildTrieFromVocab() {
+        trieRoot = new TrieNode();
+        for (String token : vocab.keySet()) {
+            TrieNode node = trieRoot;
+            for (char c : token.toCharArray()) {
+                node = node.children.computeIfAbsent(c, k -> new TrieNode());
+            }
+            node.isEnd = true;
+            node.token = token;
+        }
+    }
+
 }

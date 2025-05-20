@@ -3,6 +3,10 @@ package com.example.starlocalrag.api;
 import android.content.Context;
 import android.util.Log;
 
+import com.example.starlocalrag.ConfigManager;
+
+import java.io.File;
+
 /**
  * 本地LLM适配器
  * 将本地LLM处理程序与LlmApiAdapter接口对齐，方便上层代码无缝切换
@@ -102,8 +106,31 @@ public class LocalLlmAdapter {
      * @return 模型名称数组
      */
     public String[] listAvailableModels() {
-        // 简化实现，返回固定的模型列表
-        return new String[] {"qwen-7b-chat", "deepseek-7b-chat"};
+        // 从配置中获取模型路径
+        String modelPath = ConfigManager.getModelPath(context);
+        Log.d(TAG, "从路径获取模型列表: " + modelPath);
+        
+        File modelDir = new File(modelPath);
+        if (!modelDir.exists() || !modelDir.isDirectory()) {
+            Log.e(TAG, "模型目录不存在: " + modelPath);
+            return new String[0];
+        }
+        
+        // 获取目录下的所有子目录，每个子目录就是一个模型
+        File[] modelDirs = modelDir.listFiles(File::isDirectory);
+        if (modelDirs == null || modelDirs.length == 0) {
+            Log.w(TAG, "模型目录为空: " + modelPath);
+            return new String[0];
+        }
+        
+        // 提取目录名称作为模型名称
+        String[] modelNames = new String[modelDirs.length];
+        for (int i = 0; i < modelDirs.length; i++) {
+            modelNames[i] = modelDirs[i].getName();
+            Log.d(TAG, "发现模型: " + modelNames[i]);
+        }
+        
+        return modelNames;
     }
     
     /**
