@@ -66,3 +66,9 @@ embeddings/
 knowledge_bases/
 knowledge_bases/
 models/
+
+# 特定项目文件
+transformers-main/
+test_onnx.py
+tokenizer_config.json
+tokenizer.json
