@@ -39,11 +39,11 @@ import java.util.Arrays;
  * 负责加载和管理本地模型，执行本地推理
  * 支持多种模型类型，包括ONNX等
  */
-public class LocalLLMHandler {
+public class LocalLlmHandler {
     private static final String TAG = "LocalLLMHandler";
     
     // 单例实例
-    private static LocalLLMHandler instance;
+    private static LocalLlmHandler instance;
     
     // 上下文
     private final Context context;
@@ -72,9 +72,7 @@ public class LocalLLMHandler {
     // 模型配置
     private ModelConfig modelConfig;
     
-    // 词汇表
-    private Map<String, Integer> tokenizer;
-    private Map<Integer, String> reverseTokenizer;
+    // 词汇表相关字段已不再使用，由 Rust tokenizer 处理
     
     // 特殊token
     private int bosToken = 1;
@@ -97,6 +95,9 @@ public class LocalLLMHandler {
         int hiddenSize;   // 隐藏层大小
         int numLayers;    // 层数
         int numHeads;     // 注意力头数
+        private String modelPath; // 模型路径
+        private int bosToken;     // 开始标记ID
+        private int eosToken;     // 结束标记ID
         
         public ModelConfig(String modelType, int vocabSize, int hiddenSize, int numLayers, int numHeads) {
             this.modelType = modelType;
@@ -104,6 +105,92 @@ public class LocalLLMHandler {
             this.hiddenSize = hiddenSize;
             this.numLayers = numLayers;
             this.numHeads = numHeads;
+        }
+        
+        /**
+         * 判断模型是否需要注意力掩码
+         * @return 是否需要注意力掩码
+         */
+        public boolean requiresAttentionMask() {
+            // 大多数模型都需要注意力掩码
+            return true;
+        }
+        
+        /**
+         * 判断模型是否需要位置编码
+         * @return 是否需要位置编码
+         */
+        public boolean requiresPositionIds() {
+            // 根据模型类型判断是否需要位置编码
+            // 例如，某些模型可能使用RoPE等相对位置编码，不需要显式的位置ID
+            return "qwen".equalsIgnoreCase(modelType) || "deepseek".equalsIgnoreCase(modelType);
+        }
+        
+        /**
+         * 获取模型路径
+         * @return 模型路径
+         */
+        public String getModelPath() {
+            return modelPath;
+        }
+        
+        /**
+         * 设置模型路径
+         * @param modelPath 模型路径
+         */
+        public void setModelPath(String modelPath) {
+            this.modelPath = modelPath;
+        }
+        
+        /**
+         * 获取开始标记ID
+         * @return 开始标记ID
+         */
+        public int getBosToken() {
+            return bosToken;
+        }
+        
+        /**
+         * 设置开始标记ID
+         * @param bosToken 开始标记ID
+         */
+        public void setBosToken(int bosToken) {
+            this.bosToken = bosToken;
+        }
+        
+        /**
+         * 获取结束标记ID
+         * @return 结束标记ID
+         */
+        public int getEosToken() {
+            return eosToken;
+        }
+        
+        /**
+         * 设置结束标记ID
+         * @param eosToken 结束标记ID
+         */
+        public void setEosToken(int eosToken) {
+            this.eosToken = eosToken;
+        }
+        
+        /**
+         * 获取模型类型
+         * @return 模型类型
+         */
+        public String getModelType() {
+            return modelType;
+        }
+        
+        /**
+         * 获取tokenizer.json文件路径
+         * @return tokenizer.json文件路径
+         */
+        public String getTokenizerJsonPath() {
+            if (modelPath == null || modelPath.isEmpty()) {
+                return null;
+            }
+            return modelPath + "/tokenizer.json";
         }
     }
     
@@ -119,9 +206,9 @@ public class LocalLLMHandler {
     /**
      * 获取单例实例
      */
-    public static synchronized LocalLLMHandler getInstance(Context context) {
+    public static synchronized LocalLlmHandler getInstance(Context context) {
         if (instance == null) {
-            instance = new LocalLLMHandler(context);
+            instance = new LocalLlmHandler(context);
         }
         return instance;
     }
@@ -129,14 +216,16 @@ public class LocalLLMHandler {
     /**
      * 私有构造函数
      */
-    private LocalLLMHandler(Context context) {
-        this.context = context;
+    private LocalLlmHandler(Context context) {
+        this.context = context.getApplicationContext();
         this.executorService = Executors.newSingleThreadExecutor();
-        
-        // 从配置中获取是否使用GPU
-        this.useGpu = ConfigManager.getBoolean(context, ConfigManager.KEY_USE_GPU, false);
-        
-        Log.d(TAG, "LocalLLMHandler 初始化, 使用GPU: " + useGpu);
+    }
+    
+    /**
+     * 设置是否使用GPU
+     */
+    public void setUseGpu(boolean useGpu) {
+        this.useGpu = useGpu;
     }
     
     /**
@@ -145,30 +234,41 @@ public class LocalLLMHandler {
      * @param callback 回调接口
      */
     public void loadModel(String modelName, final LocalLlmCallback callback) {
-        // 防止重复加载
-        if (modelLoading.get()) {
+        // 如果已经加载了相同的模型，直接返回
+        if (modelLoaded.get() && modelName.equals(currentModelName)) {
             if (callback != null) {
-                new Handler(Looper.getMainLooper()).post(() -> {
-                    callback.onError("模型正在加载中，请稍后再试");
-                });
+                callback.onComplete("模型已加载: " + modelName);
             }
             return;
         }
         
-        // 如果当前有模型已加载，先卸载
-        if (modelLoaded.get()) {
-            unloadModel();
+        // 如果正在加载模型，返回
+        if (modelLoading.get()) {
+            if (callback != null) {
+                callback.onError("模型正在加载中，请稍后再试");
+            }
+            return;
         }
         
         // 标记为正在加载
         modelLoading.set(true);
         currentModelName = modelName;
         
-        // 在后台线程中执行加载
+        // 在后台线程中加载模型
         executorService.execute(() -> {
             try {
-                Log.i(TAG, "开始加载模型: " + modelName);
-                logMemoryInfo();
+                // 释放之前的资源
+                if (ortSession != null) {
+                    ortSession.close();
+                    ortSession = null;
+                }
+                
+                if (ortEnvironment != null) {
+                    ortEnvironment.close();
+                    ortEnvironment = null;
+                }
+                
+                modelLoaded.set(false);
                 
                 // 1. 确保模型文件存在
                 // 从ConfigManager获取模型路径
@@ -186,12 +286,12 @@ public class LocalLLMHandler {
                 }
                 loadModelConfig(configFile);
                 
-                // 3. 加载词汇表
+                // 3. 检查词汇表文件
                 File tokenizerFile = new File(modelDir, "tokenizer.json");
                 if (!tokenizerFile.exists()) {
                     throw new IOException("词汇表文件不存在: " + tokenizerFile.getPath());
                 }
-                loadTokenizer(tokenizerFile);
+                checkTokenizerFile(tokenizerFile);
                 
                 // 4. 初始化ONNX运行时环境
                 ortEnvironment = OrtEnvironment.getEnvironment();
@@ -271,11 +371,11 @@ public class LocalLLMHandler {
                 // 根据模型类型初始化处理器
                 if ("onnx".equals(modelType)) {
                     Log.i(TAG, "初始化ONNX处理器");
-                    localLlmOnnxHandler = new LocalLLMOnnxHandler(context, ortEnvironment, ortSession, tokenizer, reverseTokenizer, modelConfig);
+                    localLlmOnnxHandler = new LocalLLMOnnxHandler(context, ortEnvironment, ortSession, modelConfig);
                 } else {
                     Log.w(TAG, "未知模型类型: " + modelType + "，默认使用ONNX处理器");
                     modelType = "onnx";
-                    localLlmOnnxHandler = new LocalLLMOnnxHandler(context, ortEnvironment, ortSession, tokenizer, reverseTokenizer, modelConfig);
+                    localLlmOnnxHandler = new LocalLLMOnnxHandler(context, ortEnvironment, ortSession, modelConfig);
                 }
                 
                 // 9. 标记为已加载
@@ -333,13 +433,17 @@ public class LocalLLMHandler {
         int numHeads = config.optInt("num_attention_heads", 32);
         
         modelConfig = new ModelConfig(modelType, vocabSize, hiddenSize, numLayers, numHeads);
+        // 设置模型路径
+        modelConfig.setModelPath(configFile.getParentFile().getAbsolutePath());
         
         // 获取特殊token
         if (config.has("bos_token_id")) {
             bosToken = config.getInt("bos_token_id");
+            modelConfig.setBosToken(bosToken);
         }
         if (config.has("eos_token_id")) {
             eosToken = config.getInt("eos_token_id");
+            modelConfig.setEosToken(eosToken);
         }
         if (config.has("pad_token_id")) {
             padToken = config.getInt("pad_token_id");
@@ -351,126 +455,23 @@ public class LocalLLMHandler {
     }
     
     /**
-     * 加载词汇表
+     * 检查词汇表文件
      * @param tokenizerFile 词汇表文件
      * @throws Exception 异常
      */
-    private void loadTokenizer(File tokenizerFile) throws Exception {
-        Log.d(TAG, "加载词汇表: " + tokenizerFile.getPath());
+    private void checkTokenizerFile(File tokenizerFile) throws Exception {
+        Log.d(TAG, "检查词汇表文件: " + tokenizerFile.getPath());
         
-        StringBuilder content = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(new FileReader(tokenizerFile))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                content.append(line);
-            }
+        // 直接检查文件是否存在，不需要读取内容
+        // Rust tokenizer 会处理词汇表和特殊 token
+        if (!tokenizerFile.exists()) {
+            throw new IOException("词汇表文件不存在: " + tokenizerFile.getPath());
         }
         
-        JSONObject tokenizerJson = new JSONObject(content.toString());
-        
-        // 初始化词汇表
-        tokenizer = new HashMap<>();
-        reverseTokenizer = new HashMap<>();
-        
-        boolean vocabLoaded = false;
-        
-        // 1. 首先尝试从model.vocab加载（传统方式）
-        if (tokenizerJson.has("model") && tokenizerJson.getJSONObject("model").has("vocab")) {
-            JSONObject vocab = tokenizerJson.getJSONObject("model").getJSONObject("vocab");
-            Iterator<String> keys = vocab.keys();
-            
-            while (keys.hasNext()) {
-                String token = keys.next();
-                int id = vocab.getInt(token);
-                tokenizer.put(token, id);
-                reverseTokenizer.put(id, token);
-            }
-            vocabLoaded = true;
-            Log.d(TAG, "从model.vocab加载词汇表，数量: " + tokenizer.size());
-        }
-        
-        // 2. 如果没有model.vocab，尝试从added_tokens加载特殊token
-        if (tokenizerJson.has("added_tokens")) {
-            try {
-                JSONArray addedTokens = tokenizerJson.getJSONArray("added_tokens");
-                int addedCount = 0;
-                for (int i = 0; i < addedTokens.length(); i++) {
-                    JSONObject tokenObj = addedTokens.getJSONObject(i);
-                    int id = tokenObj.getInt("id");
-                    String tokenContent = tokenObj.getString("content");
-                    tokenizer.put(tokenContent, id);
-                    reverseTokenizer.put(id, tokenContent);
-                    addedCount++;
-                    Log.d(TAG, "加载特殊token: " + tokenContent + " -> " + id);
-                }
-                Log.d(TAG, "从added_tokens加载特殊token，数量: " + addedCount);
-            } catch (Exception e) {
-                Log.w(TAG, "加载added_tokens失败: " + e.getMessage());
-            }
-        }
-        
-        // 3. 尝试从vocab.json加载完整词汇表（如果存在且词汇表不完整）
-        File vocabFile = new File(tokenizerFile.getParentFile(), "vocab.json");
-        if (vocabFile.exists() && (!vocabLoaded || tokenizer.size() < 1000)) {
-            try {
-                Log.d(TAG, "尝试从vocab.json加载词汇表: " + vocabFile.getPath());
-                StringBuilder vocabContent = new StringBuilder();
-                try (BufferedReader reader = new BufferedReader(new FileReader(vocabFile))) {
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        vocabContent.append(line);
-                    }
-                }
-                
-                JSONObject vocabJson = new JSONObject(vocabContent.toString());
-                Iterator<String> keys = vocabJson.keys();
-                int addedCount = 0;
-                
-                while (keys.hasNext()) {
-                    String token = keys.next();
-                    int id = vocabJson.getInt(token);
-                    if (!tokenizer.containsKey(token)) {
-                        tokenizer.put(token, id);
-                        reverseTokenizer.put(id, token);
-                        addedCount++;
-                    }
-                }
-                Log.d(TAG, "从vocab.json加载词汇表，新增数量: " + addedCount);
-            } catch (Exception e) {
-                Log.w(TAG, "从vocab.json加载词汇表失败: " + e.getMessage());
-            }
-        }
-        
-        // 4. 确保Qwen3特殊token存在
-        ensureQwen3SpecialTokens();
-        
-        Log.d(TAG, "词汇表加载完成，大小: " + tokenizer.size());
+        Log.d(TAG, "词汇表文件检查完成，将由 Rust tokenizer 处理");
     }
     
-    /**
-     * 确保Qwen3模型的特殊token存在
-     * 根据tokenizer_config.json中的信息添加特殊token
-     */
-    private void ensureQwen3SpecialTokens() {
-        // Qwen3模型的特殊token及其ID
-        Map<String, Integer> specialTokens = new HashMap<>();
-        specialTokens.put("endoftext", 151643);
-        specialTokens.put("im_start", 151644);
-        specialTokens.put("im_end", 151645);
-        specialTokens.put("object_ref_start", 151646);
-        specialTokens.put("object_ref_end", 151647);
-        specialTokens.put("box_start", 151648);
-        
-        for (Map.Entry<String, Integer> entry : specialTokens.entrySet()) {
-            String token = entry.getKey();
-            int id = entry.getValue();
-            if (!tokenizer.containsKey(token)) {
-                tokenizer.put(token, id);
-                reverseTokenizer.put(id, token);
-                Log.d(TAG, "添加Qwen3特殊token: " + token + " -> " + id);
-            }
-        }
-    }
+
     
     public void inference(String prompt, LocalLlmCallback callback) {
         // 实现推理逻辑

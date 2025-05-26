@@ -81,7 +81,7 @@ import com.example.starlocalrag.EmbeddingModelUtils;
 import com.example.starlocalrag.SQLiteVectorDatabaseHandler;
 import com.example.starlocalrag.ConfigManager;
 import com.example.starlocalrag.ApiUrlAdapter;
-import com.example.starlocalrag.TokenizerManager;
+import com.example.starlocalrag.api.TokenizerManager;
 import io.noties.markwon.Markwon;
 import io.noties.markwon.html.HtmlPlugin;
 import io.noties.markwon.AbstractMarkwonPlugin;
@@ -1359,7 +1359,7 @@ public class RagQaFragment extends Fragment {
         }
         
         // 添加用户问题
-        fullPrompt.append("用户问题: ").append(userPrompt);
+        fullPrompt.append(userPrompt);
         
         // 记录最终提示词长度
         int promptLength = fullPrompt.length();
@@ -1379,7 +1379,7 @@ public class RagQaFragment extends Fragment {
         }
         
         // 添加用户问题
-        fullPrompt.append("用户问题: ").append(userPrompt);
+        fullPrompt.append(userPrompt);
         
         return fullPrompt.toString();
     }

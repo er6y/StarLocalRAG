@@ -596,3 +596,316 @@ SQLiteVectorDatabaseHandler 存储向量到数据库
 - 提高了代码的健壮性，增强了错误处理能力
 - 改进了路径管理逻辑，支持灵活的模型目录结构
 - 增强了日志记录，便于问题排查和调试
+
+### 3.14 Rust 分词器集成优化
+
+为了提高分词性能和跨平台兼容性，我们集成了基于 Rust 的 Hugging Face Tokenizers 库：
+
+1. **JNI 桥接层设计**：
+   - 实现 `RustTokenizerJNI` 类，通过 JNI 调用 Rust 实现的分词功能
+   - 使用 `System.loadLibrary` 动态加载 `tokenizers_ffi` 和 `tokenizers_jni` 原生库
+   - 实现异常处理机制，确保 JNI 调用失败时能够优雅降级到 Java 实现
+   - 添加资源释放方法，防止内存泄漏
+
+2. **多架构支持**：
+   - 为 ARM 架构（arm64-v8a 和 armeabi-v7a）提供完整的 Rust 实现
+   - 为 x86 和 x86_64 架构提供存根库，确保编译成功
+   - 在运行时检测架构类型，自动回退到 Java 实现（针对不支持的架构）
+   - 使用 CMake 配置文件动态选择正确的库路径
+
+3. **接口适配设计**：
+   - 实现 `RustBertTokenizer` 类，继承自 `BertTokenizer` 接口
+   - 使用适配器模式将 Rust 分词器功能转换为应用所需的接口
+   - 保持与现有 Java 实现的 API 兼容性，确保无缝集成
+   - 实现正确的资源管理，确保分词器实例在不再使用时被释放
+
+4. **编译与打包优化**：
+   - 使用 Gradle 任务自动编译 Rust 代码并生成 `.so` 文件
+   - 配置 CMake 构建脚本，处理不同架构的编译需求
+   - 实现存根库，解决不兼容架构的链接问题
+   - 设置 JAR 文件的重复处理策略，避免打包错误
+
+这些优化措施带来的主要好处：
+- 显著提高了分词性能，特别是在处理大型文本时
+- 增强了跨平台兼容性，支持多种 Android 设备架构
+- 保持了与现有代码的兼容性，无需修改上层应用逻辑
+- 提供了优雅的降级机制，确保在不支持的环境中仍能正常工作
+- 实现了更高效的内存管理，减少了资源消耗
+
+### 3.15 分词器架构重构
+
+为了简化分词器架构并提高代码的可维护性，我们对分词器相关组件进行了全面重构：
+
+1. **架构简化**：
+   - 移除了不必要的 `BertTokenizer` 和 `Tokenizer` 接口，减少了架构复杂性
+   - 将 `RustBertTokenizer` 重命名为 `HuggingfaceTokenizer`，更准确地反映其功能
+   - 合并 `HuggingfaceTokenizerJNI` 和 `HuggingfaceTokenizer` 类，将 JNI 方法直接集成到分词器类中
+   - 实现 `AutoCloseable` 接口，确保资源正确释放
+
+2. **TokenizerManager 增强**：
+   - 将 `TokenizerManager` 作为应用中分词器的唯一入口点
+   - 内部直接使用 `HuggingfaceTokenizer` 进行分词操作
+   - 维护单例模式，确保全局只有一个分词器实例
+   - 提供统一的分词方法和词汇表管理功能
+
+3. **多架构支持**：
+   - 改进 CMakeLists.txt 配置，增加对 x86 和 x86_64 架构的完全支持
+   - 为所有支持的架构配置正确的库路径：
+     - arm64-v8a: aarch64-linux-android
+     - armeabi-v7a: armv7-linux-androideabi
+     - x86: i686-linux-android
+     - x86_64: x86_64-linux-android
+   - 移除存根库实现，使用完整的 Rust 库支持所有架构
+
+4. **JNI 实现优化**：
+   - 更新 tokenizers_jni.cpp 中的 JNI 函数名，与新的 `HuggingfaceTokenizer` 类匹配
+   - 更新日志标签从 "RustTokenizer" 到 "HuggingfaceTokenizer"
+   - 保持 JNI 函数签名不变，确保与原生库的兼容性
+
+5. **EmbeddingModelHandler 集成**：
+   - 更新 `EmbeddingModelHandler` 类，将 tokenizer 字段类型从 `Tokenizer` 改为 `TokenizerManager`
+   - 修改 tokenizeText 方法，确保使用 TokenizerManager 进行分词
+   - 简化一致性分词策略的处理逻辑
+
+这次重构带来的主要改进：
+
+- **架构简化**：移除了不必要的接口层，使代码结构更清晰
+- **命名一致性**：使用 "Huggingface" 前缀替代 "Rust"，更准确地反映底层实现
+- **多架构支持**：增强了对 x86 和 x86_64 架构的支持，提高了应用的兼容性
+- **代码简化**：合并了 JNI 和分词器实现，减少了类的数量
+- **统一入口点**：确保所有分词操作都通过 TokenizerManager 进行，提高了一致性
+
+这些改进显著提高了代码的可维护性和可扩展性，同时保持了与现有功能的兼容性。通过增强对多架构的支持，应用能够在更多的设备上运行，提高了用户体验。
+
+### 3.16 TokenizerManager 集成优化
+
+为了确保分词器正确利用用户选择的模型，并在模型切换时正确管理资源，我们对 TokenizerManager 和 EmbeddingModelHandler 的集成进行了全面优化：
+
+1. **配置文件解析增强**：
+   - 实现从 config.json 文件中读取分词器类型的功能
+   - 支持自动识别并加载不同模型类型的分词器（BERT、RoBERTa、Qwen3 等）
+   - 建立分词器类型与模型类型的映射关系，确保正确匹配
+
+2. **错误处理增强**：
+   - 在分词器加载失败时抛出异常，而不是默默回退到简单分词器
+   - 在 TokenizerManager 中添加详细的错误日志，包含分词器类型、模型路径和失败原因
+   - 实现分词器初始化状态检查，确保在使用前已正确初始化
+
+3. **资源管理优化**：
+   - 在 EmbeddingModelHandler 中添加 reset 方法，确保在切换模型时释放分词器资源
+   - 在 loadTokenizerAndConfig 方法中添加资源清理逻辑，防止内存泄漏
+   - 实现安全的会话恢复机制，在 ONNX 会话失效时自动尝试恢复
+
+4. **一致性分词策略**：
+   - 在 TokenizerManager 中添加 setUseConsistentTokenization 方法，支持全局设置一致性分词策略
+   - 在 EmbeddingModelHandler 中同步设置分词器的一致性分词策略
+   - 确保在知识库构建和查询过程中使用相同的分词逻辑
+
+5. **模型名称提取增强**：
+   - 实现从模型路径、config.json 和 tokenizer.json 文件中提取模型名称的功能
+   - 添加对 BGE-M3 等特定模型的识别支持
+   - 根据 hidden_size 推断模型大小（Tiny、Mini、Small、Medium、Large）
+
+6. **调试信息增强**：
+   - 添加详细的向量生成调试信息，包含向量维度、处理时间和向量样本
+   - 实现 getVectorDebugInfo 方法，提供格式化的调试信息
+   - 在日志中记录分词结果和向量范数信息，便于排查问题
+
+7. **会话管理优化**：
+   - 实现 ONNX 会话状态管理，包括未初始化、加载中、就绪和错误状态
+   - 添加会话重试机制，在会话失效时自动尝试恢复
+   - 使用同步锁确保会话操作的线程安全
+
+这些优化提高了应用的稳定性和可靠性，确保分词器能够正确地与用户选择的模型集成，并在模型切换时正确管理资源。通过增强的错误处理和调试信息，开发者可以更容易地识别和解决分词器相关的问题。
+
+### 3.17 Rust分词器集成
+
+为了提高分词性能和跨平台一致性，我们实现了基于Rust的分词器库，并通过JNI集成到Android应用中。这种实现方式具有以下优势：
+
+1. **高性能分词处理**：
+   - 使用Rust实现的HuggingFace Tokenizers库，性能远优于Java实现
+   - 支持多种分词算法，包括BPE、WordPiece、Unigram等
+   - 通过JNI接口实现Java与Rust代码的无缝集成
+
+2. **分词器架构设计**：
+   - 采用三层架构设计：
+     - Rust原生库（tokenizers-ffi）：实现核心分词功能
+     - JNI绑定层（tokenizers-jni）：提供Java调用Rust的接口
+     - Java包装类（RustTokenizer）：提供友好的Java API
+   - 使用统一的JSON格式进行结果传递，确保数据一致性
+
+3. **LLM模型集成**：
+   - 在`LocalLLMOnnxHandler`中集成Rust分词器，替代原有的Java实现
+   - 从模型配置中读取特殊token（BOS、EOS等），确保分词结果正确
+   - 优化`tokenizeInput`方法，直接调用Rust分词器处理输入文本
+
+4. **词汇表相关代码清理**：
+   - 完全移除`TokenizerManager`中的词汇表加载和管理相关代码：
+     - 删除`vocab`和`vocabReverse`字段及其初始化
+     - 移除`loadVocabFromFile`和`loadVocabFromArray`方法
+     - 移除`getVocabSize`方法及其调用
+   - 更新`EmbeddingModelHandler`中的日志输出，移除对`getVocabSize()`的引用
+   - 简化`TokenizerManager`类，使其专注于Rust分词器的管理和使用
+   - 确保所有分词操作直接使用Rust分词器实现，不再依赖Java词汇表
+
+5. **错误处理与资源管理**：
+   - 实现完善的异常处理机制，捕获并记录分词过程中的错误
+   - 使用`Closeable`接口确保分词器资源正确释放
+   - 添加`finalize`方法作为资源释放的最后保障
+
+6. **模型配置优化**：
+   - 在`ModelConfig`类中添加`bosToken`和`eosToken`字段及相关方法
+   - 在`loadModelConfig`方法中解析并设置特殊token值
+   - 确保模型路径正确传递给分词器，支持从模型目录加载tokenizer.json
+
+7. **构建系统集成**：
+   - 在app模块的build.gradle中添加对tokenizers-jni库的依赖
+   - 确保settings.gradle中包含tokenizers-jni模块
+   - 支持多种CPU架构（arm64-v8a、armeabi-v7a、x86、x86_64）
+
+8. **性能与内存优化**：
+   - 移除Java词汇表相关代码后，显著减少了内存占用
+   - 避免了大型词汇表（通常有5万至25万个token）在内存中的重复存储
+   - 减少了应用启动时间，不再需要加载和解析词汇表文件
+   - 简化了代码结构，提高了可维护性和可读性
+
+9. **JNI接口实现与多架构支持**：
+   - 正确实现符合JNI命名规范的函数，确保与Java代码的无缝集成
+   - 函数名称遵循`Java_包名_类名_方法名`格式，例如`Java_com_starlocalrag_tokenizers_TokenizerJNI_loadTokenizerFromFile`
+   - 支持多种CPU架构，包括：
+     - arm64-v8a：适用于现代高端设备
+     - armeabi-v7a：适用于旧版设备
+     - x86：适用于模拟器和部分平板
+     - x86_64：适用于高性能模拟器和部分设备
+   - 在`.cargo/config.toml`中正确配置交叉编译目标，确保每个架构都能正确编译
+   - 实现库文件的自动复制和部署，简化开发流程
+
+10. **库加载机制优化**：
+    - 改进`NativeLibraryLoader`类，支持多种加载策略：
+      - 直接加载：先尝试使用`System.loadLibrary`直接加载
+      - 资源加载：如果直接加载失败，尝试从资源中加载
+      - 本地文件加载：如果资源加载失败，尝试从本地文件系统加载
+    - 增强错误处理和日志记录，提供详细的调试信息
+    - 使用标准Java日志替代Android特定日志，提高跨平台兼容性
+    - 正确处理临时文件的创建和清理，避免资源泄漏
+
+11. **模型输入格式化优化**：
+    - 实现了类似 Python `apply_chat_template` 的功能，从 tokenizer.json 中获取聊天模板
+    - 使用与原始 Python 实现相同的消息格式，如 `{"role": "user", "content": "..."}`
+    - 支持多种模型的聊天模板格式：
+      - Qwen3: `<|im_start|>user\n{message}<|im_end|>\n<|im_start|>assistant\n`
+      - Llama: `[INST] {message} [/INST]`
+      - 其他模型: 根据 tokenizer.json 中的模板动态处理
+    - 实现了智能回退机制，当无法解析模板时根据模型类型选择适当的格式
+    - 改进了分词结果的一致性，确保与 Python 实现的分词结果一致
+    - 解决了字符编码问题，避免了之前出现的乱码问题
+
+12. **Qwen3 模型集成优化**：
+    - 重构了聊天模板处理逻辑，实现了更灵活的模型支持
+    - 从 tokenizer.json 文件中动态读取 chat_template，不再依赖硬编码的特殊标记
+    - 优化了 `applyTokenizerTemplate` 方法，支持多种模型格式：
+      - 优先使用 tokenizer.json 中的 chat_template
+      - 根据模型类型提供合适的回退模板
+      - 支持特殊标记的动态替换，如 `<|im_start|>`、`<|im_end|>` 等
+    - 添加了 `replaceTemplateVariable` 辅助方法，支持多种变量格式：
+      - 支持 `{{ var }}`, `{{var}}`, `{{ var}}`, `{{var }}` 等多种格式
+      - 支持 `messages[0]["content"]`, `messages[0].content` 等复杂路径
+      - 使用正则表达式处理复杂的模板变量
+    - 简化了 `tokenizeInput` 方法，直接调用 `applyTokenizerTemplate` 处理用户输入
+    - 增强了错误处理机制，提供详细的日志信息
+    - 实现了与 Python 实现的完全兼容性，确保分词结果一致
+    - 提高了代码可维护性，便于未来支持更多模型类型
+    - 在 `ModelConfig` 类中添加了 `getTokenizerJsonPath` 方法，简化了路径处理
+    - 完全移除了对模型类型的硬编码检测，提高了代码的通用性
+
+13. **特殊 Token 动态获取优化**：
+    - 重构了 `LocalLLMOnnxHandler` 中的特殊 token 处理逻辑，消除了硬编码的特殊 token
+    - 增强了 `RustTokenizer` 类，添加了以下新方法：
+      - `getSpecialTokens()`：获取所有特殊 token 的映射
+      - `getSpecialTokenId(String tokenName)`：获取指定特殊 token 的 ID
+      - `getSpecialTokenContent(String tokenName)`：获取指定特殊 token 的内容
+      - `getTokenizerConfig()`：获取分词器的完整配置
+      - `decode(int[] ids)`：将 token ID 数组解码为文本
+    - 修改了 Rust FFI 层，添加了新的函数：
+      - `get_tokenizer_config`：获取分词器配置，包括特殊 token 信息
+      - `decode`：将 token ID 解码为文本
+    - 优化了 Rust 代码中的特殊 token 检测逻辑：
+      - 从词汇表中动态识别特殊 token，如 `im_start`、`im_end` 等
+      - 构建完整的特殊 token 映射，包括 ID 和内容
+      - 支持多种特殊 token 格式，如 `<token>` 和 `token` 格式
+    - 改进了 `applyTokenizerTemplate` 方法，使用动态获取的特殊 token：
+      - 从分词器配置中获取特殊 token，而不是硬编码
+      - 正确处理不同模型的特殊 token 格式
+      - 增强了错误处理，当特殊 token 不存在时提供合理的回退机制
+    - 实现了完整的 JNI 接口，确保 Java 和 Rust 代码之间的无缝集成
+    - 修复了 JNI 方法签名问题：
+      - 将所有 JNI 方法的签名从 `extern "system"` 改为 `extern "C"`，确保方法能被正确导出
+      - 在方法名中添加参数类型签名，如 `getTokenizerConfig__J`，其中 `__J` 表示方法接受一个 `long` 类型参数
+      - 对于带字符串参数的方法，使用 `Ljava_lang_String_2` 表示 `String` 类型
+      - 添加了 `decode` 方法的 JNI 实现，支持将 token ID 解码为文本
+      - 确保 `getTokenizerConfig` 方法能被正确导出和调用
+    - 增强了日志记录，便于调试和监控特殊 token 的使用情况
+    - 这些优化使得代码更加灵活，能够适应不同模型的特殊 token 格式，提高了代码的可维护性和通用性
+
+14. **模型输出处理优化**：
+    - 重构了 `LocalLLMOnnxHandler` 中的模型输出处理逻辑，移除了硬编码的模拟输出
+    - 实现了从模型输出张量中动态提取 token IDs 的逻辑：
+      - 支持多种形状的输出张量（一维、二维和三维）
+      - 根据张量形状和类型自动选择最适合的提取方式
+      - 对二维张量 [batch_size, seq_len] 的正确处理
+      - 对一维张量 [seq_len] 的正确处理
+      - 为三维张量 [batch_size, seq_len, vocab_size] 预留处理逻辑
+    - 使用 `RustTokenizer.decode()` 方法正确解码模型输出：
+      - 将提取的 token IDs 传递给 Rust 分词器进行解码
+      - 正确处理数据类型转换，如 long[] 到 int[] 的转换
+    - 增强了日志记录和错误处理：
+      - 记录张量形状、类型和处理过程的详细信息
+      - 提供清晰的错误信息，如无法提取 token IDs 或解码失败
+      - 在出错时提供合理的回退机制和用户友好的错误提示
+    - 这些优化使得模型输出处理更加灵活和健壮，能够适应不同模型的输出格式，提高了代码的可维护性和通用性
+
+15. **分词日志记录功能优化**：
+    - 改进了 `escapeString` 方法，保留原始 Unicode 字符：
+      - 修改了字符串转换逻辑，不再将所有非ASCII字符转换为转义序列
+      - 只对控制字符（ASCII < 32 或 = 127）进行转义处理
+      - 保留了对敏感 token 的处理逻辑
+    - 优化了 `tokenizeInput` 方法中的日志记录：
+      - 移除了使用 Unicode 转义序列的原始日志，避免日志中出现难以阅读的转义序列
+      - 改进了可读性更强的日志格式，使用格式化字符串确保对齐
+      - 添加了一个简洁的摘要日志，只显示前几个和后几个 token，便于快速查看
+    - 日志输出优化：
+      - 确保 Unicode 字符在日志中以可读文本形式显示，而不是转义序列
+      - 日志输出更加清晰、结构化，便于阅读和调试
+      - 提供了不同粒度的日志信息，既有详细的分词结果，也有简洁的摘要
+    - 优化了模型输入格式：
+      - 修改了 `applyTokenizerTemplate` 方法，构建更紧凑的输入格式
+      - 从提示词中移除了“用户问题: ”前缀，使用更简洁的格式
+      - 修改了 `RagQaFragment` 类中的 `buildPromptWithKnowledgeBase` 和 `buildPromptWithoutKnowledgeBase` 方法，移除了前缀
+      - 确保在日志中保留完整信息，同时在提交给LLM的提示词中使用更简洁的格式
+    - 这些改进大大提高了日志的可读性和调试效率，特别是在处理中文等非ASCII字符时
+
+这种基于Rust的分词器实现显著提高了分词性能和准确性，特别是在处理复杂模型（如Qwen3、Llama3等）时，能够确保分词结果与训练时完全一致，从而提高模型推理质量。同时，由于移除了Java实现的分词器和相关词汇表加载逻辑，应用的内存占用和启动时间也得到了优化。
+
+15. **分词器实现合并优化**：
+    - 将 `RustTokenizerAdapter` 的功能合并到 `RustTokenizer` 中并重命名为 `HuggingfaceTokenizer`：
+      - 实现了 `Model` 接口，保持与现有代码的兼容性
+      - 添加了 `tokenizeToLongArray` 方法，返回与原 `HuggingfaceTokenizer.tokenize` 兼容的 `long[][]` 格式结果
+      - 实现了对特殊token的完整支持，包括 `[CLS]`, `[SEP]`, `[UNK]`, `[PAD]`, `[MASK]` 等
+      - 添加了词汇表加载和管理功能，支持从文件和数组加载词汇表
+    - 实现了完整的聊天模板处理功能：
+      - 添加了 `applyChatTemplate` 方法，支持处理聊天消息数组
+      - 支持自定义聊天模板和默认模板
+      - 支持思考模式和生成提示选项
+      - 支持继续最后一条消息的功能
+      - 实现了模板变量替换和特殊标记处理
+    - 更新了 `TokenizerManager` 和 `LocalLLMOnnxHandler` 类：
+      - 更新了所有引用，使用 `HuggingfaceTokenizer` 替代 `RustTokenizer` 和 `RustTokenizerAdapter`
+      - 改进了错误处理和资源管理，确保分词器资源被正确释放
+    - 完全移除了 `RustTokenizerAdapter` 类：
+      - 将其功能整合到 `HuggingfaceTokenizer` 中
+      - 简化了项目结构，减少了代码冗余
+    - 扩展了 `TokenizerJNI` 类：
+      - 添加了 `getVocab`、`decodeIds` 和 `destroyTokenizer` 等方法
+      - 确保 Java 和 Rust 代码之间的无缝集成
+    - 这些优化使得分词器实现更加统一和高效，减少了代码冗余，提高了性能和可维护性
+    - 通过将功能集中在一个类中，简化了代码结构，使得维护和扩展更加容易

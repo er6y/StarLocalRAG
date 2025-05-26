@@ -51,7 +51,7 @@ import com.example.starlocalrag.EmbeddingModelManager; // 导入 EmbeddingModelM
 import com.example.starlocalrag.EmbeddingModelHandler; // 导入 EmbeddingModelHandler
 import com.example.starlocalrag.SQLiteVectorDatabaseHandler; // 导入 SQLiteVectorDatabaseHandler
 import com.example.starlocalrag.EmbeddingModelUtils; // 导入词嵌入模型工具类
-import com.example.starlocalrag.TokenizerManager; // 导入分词器管理器
+import com.example.starlocalrag.api.TokenizerManager; // 导入分词器管理器
 import com.example.starlocalrag.TextProcessor; // 导入文本处理器
 
 public class KnowledgeNoteFragment extends Fragment {

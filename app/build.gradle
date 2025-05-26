@@ -5,6 +5,9 @@ plugins {
 android {
     namespace 'com.example.starlocalrag'
     compileSdk 34 // Use an appropriate SDK version
+    
+    // 添加NDK配置
+    ndkVersion "25.1.8937393" // 使用合适的NDK版本
 
     def buildTimeStr = new Date().format('yyyyMMddHHmmss')
     defaultConfig {
@@ -39,6 +42,21 @@ android {
     buildFeatures {
         viewBinding true // Enable View Binding for easier UI access
         buildConfig true // Enable BuildConfig for custom fields
+    }
+    
+    // 添加CMake配置
+    externalNativeBuild {
+        cmake {
+            path "src/main/cpp/CMakeLists.txt"
+        }
+    }
+    
+    // 指定支持的ABI
+    defaultConfig {
+        ndk {
+            // 只支持 ARM 架构，因为目前只有这些架构的库文件
+            abiFilters 'arm64-v8a', 'armeabi-v7a'
+        }
     }
     
     lint {
@@ -92,6 +110,9 @@ dependencies {
     
     // ONNX Runtime
     implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.15.1'
+    
+    // Tokenizers JNI
+    implementation project(':libs:tokenizers-jni')
     
     // 文档解析库
     implementation 'org.apache.tika:tika-core:2.7.0'

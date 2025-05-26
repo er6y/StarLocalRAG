@@ -30,3 +30,17 @@
 调用开源库，pytoch等，考虑手机android mobile运行，支持arrch64架构。
 给出readme，给出仿真运行guide，以及推荐模拟器
 给Androidstdio导入指导
+
+如果修改了 Rust 代码，先运行 cargo clean
+然后为 Android 平台重新编译：cargo build --release --target aarch64-linux-android
+
+
+cd D:\yilei.wang\StarLocalRAG\libs\tokenizers-ffi
+cargo clean
+cargo build --release --target aarch64-linux-android
+cargo build --release --target armv7-linux-androideabi
+cargo build --release --target i686-linux-android
+cargo build --release --target x86_64-linux-android
+cd D:\yilei.wang\StarLocalRAG
+.\gradlew.bat clean
+.\gradlew.bat :app:assembleDebug

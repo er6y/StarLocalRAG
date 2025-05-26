@@ -18,7 +18,7 @@ public class LocalLlmAdapter {
     private final Context context;
     
     // 本地LLM处理程序
-    private final LocalLLMHandler localLlmHandler;
+    private final LocalLlmHandler localLlmHandler;
     
     // 单例实例
     private static LocalLlmAdapter instance;
@@ -38,7 +38,7 @@ public class LocalLlmAdapter {
      */
     private LocalLlmAdapter(Context context) {
         this.context = context;
-        this.localLlmHandler = LocalLLMHandler.getInstance(context);
+        this.localLlmHandler = LocalLlmHandler.getInstance(context);
         Log.d(TAG, "LocalLlmAdapter 初始化");
     }
     
@@ -56,7 +56,7 @@ public class LocalLlmAdapter {
         Log.d(TAG, "加载模型: " + modelName);
         
         // 加载模型
-        localLlmHandler.loadModel(modelName, new LocalLLMHandler.LocalLlmCallback() {
+        localLlmHandler.loadModel(modelName, new LocalLlmHandler.LocalLlmCallback() {
             @Override
             public void onToken(String token) {
                 // 加载过程中不会有token回调
@@ -83,7 +83,7 @@ public class LocalLlmAdapter {
      * @param callback 回调接口
      */
     private void executeInference(String prompt, LlmApiAdapter.ApiCallback callback) {
-        localLlmHandler.inference(prompt, new LocalLLMHandler.LocalLlmCallback() {
+        localLlmHandler.inference(prompt, new LocalLlmHandler.LocalLlmCallback() {
             @Override
             public void onToken(String token) {
                 callback.onStreamingData(token);

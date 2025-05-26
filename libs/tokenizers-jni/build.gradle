@@ -1,0 +1,110 @@
+plugins {
+    id 'java-library'
+    id 'cpp'
+}
+
+group 'com.starlocalrag'
+version '1.0-SNAPSHOT'
+
+// 使用项目级别的仓库配置
+
+dependencies {
+    implementation 'org.json:json:20230227'
+    testImplementation 'junit:junit:4.13.2'
+}
+
+// 创建资源目录
+task createResourceDirs {
+    doLast {
+        mkdir "src/main/resources/native/windows/x86_64"
+        mkdir "src/main/resources/native/linux/x86_64"
+        mkdir "src/main/resources/native/macos/x86_64"
+    }
+}
+
+// 编译Rust FFI库
+task compileRustFFI(type: Exec) {
+    workingDir '../tokenizers-ffi'
+    
+    if (System.getProperty('os.name').toLowerCase().contains('windows')) {
+        commandLine 'cmd', '/c', 'cargo', 'build', '--release'
+    } else {
+        commandLine 'cargo', 'build', '--release'
+    }
+}
+
+// 复制编译好的库到资源目录
+task copyNativeLibs(dependsOn: [createResourceDirs, compileRustFFI]) {
+    doLast {
+        def osName = System.getProperty('os.name').toLowerCase()
+        def osArch = System.getProperty('os.arch').toLowerCase()
+        
+        if (osName.contains('windows')) {
+            copy {
+                from '../tokenizers-ffi/target/release/tokenizers_ffi.dll'
+                into "src/main/resources/native/windows/${osArch.contains('amd64') || osArch.contains('x86_64') ? 'x86_64' : osArch}"
+            }
+        } else if (osName.contains('linux')) {
+            copy {
+                from '../tokenizers-ffi/target/release/libtokenizers_ffi.so'
+                into "src/main/resources/native/linux/${osArch.contains('amd64') || osArch.contains('x86_64') ? 'x86_64' : osArch}"
+            }
+        } else if (osName.contains('mac')) {
+            copy {
+                from '../tokenizers-ffi/target/release/libtokenizers_ffi.dylib'
+                into "src/main/resources/native/macos/${osArch.contains('amd64') || osArch.contains('x86_64') ? 'x86_64' : osArch}"
+            }
+        }
+    }
+}
+
+// 编译JNI库
+model {
+    components {
+        tokenizers_jni(NativeLibrarySpec) {
+            sources {
+                cpp {
+                    source {
+                        srcDir "src/main/cpp"
+                        include "**/*.cpp"
+                    }
+                    exportedHeaders {
+                        srcDir "src/main/cpp/include"
+                    }
+                }
+            }
+            
+            binaries.all {
+                if (targetPlatform.operatingSystem.windows) {
+                    cppCompiler.args "/I${System.getenv('JAVA_HOME')}/include"
+                    cppCompiler.args "/I${System.getenv('JAVA_HOME')}/include/win32"
+                    linker.args "/LIBPATH:${project.projectDir}/../tokenizers-ffi/target/release"
+                    linker.args "tokenizers_ffi.lib"
+                } else if (targetPlatform.operatingSystem.macOsX) {
+                    cppCompiler.args "-I${System.getenv('JAVA_HOME')}/include"
+                    cppCompiler.args "-I${System.getenv('JAVA_HOME')}/include/darwin"
+                    linker.args "-L${project.projectDir}/../tokenizers-ffi/target/release"
+                    linker.args "-ltokenizers_ffi"
+                } else {
+                    cppCompiler.args "-I${System.getenv('JAVA_HOME')}/include"
+                    cppCompiler.args "-I${System.getenv('JAVA_HOME')}/include/linux"
+                    linker.args "-L${project.projectDir}/../tokenizers-ffi/target/release"
+                    linker.args "-ltokenizers_ffi"
+                }
+            }
+        }
+    }
+}
+
+// 在编译Java代码前先编译本地库
+compileJava.dependsOn copyNativeLibs
+
+// 打包时包含本地库
+jar {
+    // 设置重复处理策略
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    
+    from("src/main/resources") {
+        include "native/**/*"
+    }
+}

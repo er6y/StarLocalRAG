@@ -3,6 +3,8 @@ package com.example.starlocalrag;
 import android.content.Context;
 import android.util.Log;
 
+import com.example.starlocalrag.api.TokenizerManager;
+
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -72,12 +74,12 @@ public class EmbeddingModelHandler {
     private OrtEnvironment ortEnvironment;
     private ModelType modelType;
     private String modelPath;
-    private BertTokenizer tokenizer; // 添加tokenizer字段
+    private TokenizerManager tokenizer; // 添加tokenizer字段
     private JSONObject configJson; // 添加模型配置字段
     private String modelName; // 添加模型名称字段
     
     // 是否使用一致性处理
-    private boolean useConsistentProcessing = false;
+    private boolean useConsistentProcessing = true; // 默认启用一致性处理
     
     // 是否启用调试模式
     private boolean debugMode = false;
@@ -548,94 +550,93 @@ public class EmbeddingModelHandler {
     
     /**
      * 加载tokenizer和配置文件
+     * @throws IOException 如果加载失败
      */
-    private void loadTokenizerAndConfig() {
-        try {
-            File modelDir = new File(modelPath).getParentFile();
-            if (modelDir == null || !modelDir.exists()) {
-                Log.w(TAG, "模型目录不存在");
-                return;
-            }
-            
-            // 首先尝试从TokenizerManager获取tokenizer
-            if (context != null) {
-                TokenizerManager tokenizerManager = TokenizerManager.getInstance(context);
-                
-                // 如果TokenizerManager已初始化，直接使用其tokenizer
-                if (tokenizerManager.isInitialized()) {
-                    this.tokenizer = tokenizerManager.getTokenizer();
-                    Log.d(TAG, "从TokenizerManager获取已初始化的tokenizer");
-                } 
-                // 否则尝试初始化TokenizerManager
-                else {
-                    boolean success = tokenizerManager.initialize(modelDir);
-                    if (success) {
-                        this.tokenizer = tokenizerManager.getTokenizer();
-                        Log.d(TAG, "通过TokenizerManager初始化tokenizer成功");
-                    } else {
-                        Log.w(TAG, "TokenizerManager初始化失败，将使用本地tokenizer");
-                        loadLocalTokenizer(modelDir);
-                    }
+    private void loadTokenizerAndConfig() throws IOException {
+        File modelDir = new File(modelPath).getParentFile();
+        if (modelDir == null || !modelDir.exists()) {
+            throw new IOException("模型目录不存在: " + modelPath);
+        }
+        
+        // 在加载新的tokenizer之前，确保释放之前的资源
+        if (tokenizer != null) {
+            Log.d(TAG, "释放之前的tokenizer资源");
+            // 如果是我们自己创建的TokenizerManager实例，需要关闭它
+            if (tokenizer instanceof AutoCloseable) {
+                try {
+                    ((AutoCloseable) tokenizer).close();
+                } catch (Exception e) {
+                    Log.w(TAG, "关闭tokenizer资源失败: " + e.getMessage());
                 }
-            } else {
-                // 如果没有Context，使用本地tokenizer
-                Log.d(TAG, "Context为null，使用本地tokenizer");
-                loadLocalTokenizer(modelDir);
             }
-            
-            // 加载模型配置
+            tokenizer = null;
+        }
+        
+        // 重置全局TokenizerManager，确保使用新模型的tokenizer
+        if (context != null) {
+            Log.d(TAG, "重置TokenizerManager以加载新模型");
+            TokenizerManager.reset();
+        }
+        
+        // 初始化TokenizerManager
+        if (context != null) {
+            TokenizerManager tokenizerManager = TokenizerManager.getInstance(context);
             try {
-                File configFile = new File(modelDir, "config.json");
-                if (configFile.exists()) {
-                    String configContent = readFileContent(configFile);
-                    configJson = new JSONObject(configContent);
-                    Log.d(TAG, "模型配置加载成功");
-                    
-                    // 从配置中提取模型名称
-                    if (configJson.has("model_name")) {
-                        modelName = configJson.getString("model_name");
-                        Log.d(TAG, "从配置中提取模型名称: " + modelName);
-                    } else if (configJson.has("model_type")) {
-                        modelName = configJson.getString("model_type");
-                        Log.d(TAG, "从配置中提取模型类型作为名称: " + modelName);
-                    } else if (configJson.has("architectures") && configJson.getJSONArray("architectures").length() > 0) {
-                        modelName = configJson.getJSONArray("architectures").getString(0);
-                        Log.d(TAG, "从配置中提取架构作为名称: " + modelName);
-                    }
+                boolean success = tokenizerManager.initialize(modelDir);
+                if (success) {
+                    this.tokenizer = tokenizerManager;
+                    Log.d(TAG, "成功初始化TokenizerManager");
                 } else {
-                    Log.d(TAG, "未找到config.json文件");
+                    throw new IOException("TokenizerManager初始化失败");
+                }
+            } catch (IOException e) {
+                throw new IOException("TokenizerManager初始化失败: " + e.getMessage(), e);
+            }
+        } else {
+            throw new IOException("Context为null，无法初始化TokenizerManager");
+        }
+        
+        // 加载模型配置
+        File configFile = new File(modelDir, "config.json");
+        if (configFile.exists()) {
+            try {
+                String configContent = readFileContent(configFile);
+                configJson = new JSONObject(configContent);
+                Log.d(TAG, "模型配置加载成功");
+                
+                // 从配置中提取模型名称
+                if (configJson.has("model_name")) {
+                    modelName = configJson.getString("model_name");
+                    Log.d(TAG, "从配置中提取模型名称: " + modelName);
+                } else if (configJson.has("model_type")) {
+                    modelName = configJson.getString("model_type");
+                    Log.d(TAG, "从配置中提取模型类型作为名称: " + modelName);
+                } else if (configJson.has("architectures") && configJson.getJSONArray("architectures").length() > 0) {
+                    modelName = configJson.getJSONArray("architectures").getString(0);
+                    Log.d(TAG, "从配置中提取架构作为名称: " + modelName);
                 }
             } catch (Exception e) {
-                Log.e(TAG, "加载模型配置失败: " + e.getMessage(), e);
+                Log.w(TAG, "加载模型配置失败: " + e.getMessage(), e);
             }
-            
-            // 如果仍然没有模型名称，尝试从路径中提取
-            if (modelName == null || modelName.isEmpty()) {
-                modelName = extractModelNameFromPath(modelPath);
-                Log.d(TAG, "从路径中提取模型名称: " + modelName);
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "加载tokenizer和配置失败: " + e.getMessage(), e);
+        } else {
+            Log.d(TAG, "未找到config.json文件");
+        }
+        
+        // 如果仍然没有模型名称，尝试从路径中提取
+        if (modelName == null || modelName.isEmpty()) {
+            modelName = extractModelNameFromPath(modelPath);
+            Log.d(TAG, "从路径中提取模型名称: " + modelName);
         }
     }
     
     /**
-     * 加载本地tokenizer（当TokenizerManager不可用时）
+     * 加载本地tokenizer（已废弃，由loadTokenizerAndConfig替代）
      * @param modelDir 模型目录
+     * @throws IOException 如果加载失败
      */
-    private void loadLocalTokenizer(File modelDir) {
-        try {
-            // 加载tokenizer
-            tokenizer = new BertTokenizer();
-            boolean tokenizerLoaded = tokenizer.loadFromDirectory(modelDir);
-            if (tokenizerLoaded) {
-                Log.d(TAG, "本地Tokenizer加载成功，词汇表大小: " + tokenizer.getVocabSize());
-            } else {
-                Log.w(TAG, "本地Tokenizer加载失败，将使用简化的分词方法");
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "加载本地tokenizer失败: " + e.getMessage(), e);
-        }
+    @Deprecated
+    private void loadLocalTokenizer(File modelDir) throws IOException {
+        throw new IOException("此方法已废弃，请使用loadTokenizerAndConfig");
     }
     
     /**
@@ -644,41 +645,52 @@ public class EmbeddingModelHandler {
      * @return 嵌入向量
      * @throws Exception 如果生成失败
      */
-    private synchronized float[] generateEmbeddingWithOnnx(String text) {
+    private float[] generateEmbeddingWithOnnx(String text) throws Exception {
         if (onnxSession == null) {
-            Log.e(TAG, "ONNX会话为空，无法生成嵌入");
-            throw new RuntimeException("ONNX会话为空，无法生成嵌入");
+            throw new IllegalStateException("ONNX会话未初始化");
         }
-
-        // 记录模型推理开始时间
-        long inferenceStartTime = System.currentTimeMillis();
+        
+        // 检查并恢复会话状态
+        if (!checkAndRecoverOnnxSession()) {
+            throw new IllegalStateException("ONNX会话不可用且无法恢复");
+        }
+        
+        // 对文本进行分词
+        long[][] tokenizeResult;
+        try {
+            tokenizeResult = tokenizeText(text);
+        } catch (IOException e) {
+            throw new Exception("分词失败: " + e.getMessage(), e);
+        }
+        
+        if (tokenizeResult.length == 0 || tokenizeResult[0].length == 0) {
+            throw new IllegalArgumentException("分词结果为空");
+        }
+        
+        long[] inputIds = tokenizeResult[0];
+        
+        // 限制序列长度
+        if (inputIds.length > maxSequenceLength) {
+            debugLog("输入序列长度超过最大限制，将被截断: " + inputIds.length + " -> " + maxSequenceLength);
+            long[] truncatedIds = new long[maxSequenceLength];
+            System.arraycopy(inputIds, 0, truncatedIds, 0, maxSequenceLength - 1);
+            truncatedIds[maxSequenceLength - 1] = 2; // [SEP] token
+            inputIds = truncatedIds;
+        }
+        
+        // 创建注意力掩码数组，全部填充为1
+        long[] attentionMask = new long[inputIds.length];
+        Arrays.fill(attentionMask, 1L);
+        
+        // 记录输入张量形状和示例
+        Log.d(TAG, "输入张量形状: [1, " + inputIds.length + "]");
+        Log.d(TAG, "输入ID示例: " + Arrays.toString(Arrays.copyOfRange(inputIds, 0, Math.min(10, inputIds.length))));
+        Log.d(TAG, "输入数据类型: INT64 (与PC端保持一致)");
+        
+        // 记录推理开始时间
+        long startTime = System.currentTimeMillis();
         
         try {
-            // 检查文本输入是否有效
-            if (text == null || text.isEmpty()) {
-                Log.e(TAG, "输入文本为null或空");
-                throw new RuntimeException("输入文本为null或空");
-            }
-            
-            // 使用tokenizer处理文本
-            long[][] tokenResults = tokenizeText(text);
-            if (tokenResults == null || tokenResults.length == 0) {
-                Log.e(TAG, "分词结果为空");
-                throw new RuntimeException("分词结果为空");
-            }
-            
-            // 提取第一个批次的结果
-            long[] inputIds = tokenResults[0];
-            
-            // 创建注意力掩码数组，全部填充为1
-            long[] attentionMask = new long[inputIds.length];
-            Arrays.fill(attentionMask, 1L);
-            
-            // 记录输入张量形状和示例
-            Log.d(TAG, "输入张量形状: [1, " + inputIds.length + "]");
-            Log.d(TAG, "输入ID示例: " + Arrays.toString(Arrays.copyOfRange(inputIds, 0, Math.min(10, inputIds.length))));
-            Log.d(TAG, "输入数据类型: INT64 (与PC端保持一致)");
-            
             // 将数组转换为LongBuffer (对应INT64类型)
             LongBuffer inputIdsBuffer = LongBuffer.allocate(inputIds.length);
             inputIdsBuffer.put(inputIds);
@@ -718,8 +730,33 @@ public class EmbeddingModelHandler {
             Log.d(TAG, "嵌入向量样例 (前5个值): " + 
                 Arrays.toString(Arrays.copyOfRange(embedding, 0, Math.min(5, embedding.length))));
             
-            // 对embedding进行L2归一化
+            // 记录生成时间
+            long endTime = System.currentTimeMillis();
+            Log.d(TAG, "生成嵌入向量耗时: " + (endTime - startTime) + "ms");
+            
+            // 对向量进行L2归一化
             embedding = normalizeVector(embedding);
+            
+            // 打印前5个和后5个向量值，帮助调试
+            if (embedding != null && embedding.length > 10) {
+                StringBuilder sb = new StringBuilder("嵌入向量样例 (前5个值): ");
+                for (int i = 0; i < 5; i++) {
+                    sb.append(embedding[i]).append(", ");
+                }
+                sb.append(" ... (后5个值): ");
+                for (int i = embedding.length - 5; i < embedding.length; i++) {
+                    sb.append(embedding[i]).append(", ");
+                }
+                Log.d(TAG, sb.toString());
+                
+                // 计算向量范数，帮助确认归一化是否有效
+                double norm = 0.0;
+                for (float v : embedding) {
+                    norm += v * v;
+                }
+                norm = Math.sqrt(norm);
+                Log.d(TAG, "嵌入向量L2范数: " + norm + " (应接近1.0)");
+            }
             
             // 创建一个副本，避免在关闭张量后访问其内存
             float[] embeddingCopy = Arrays.copyOf(embedding, embedding.length);
@@ -727,127 +764,226 @@ public class EmbeddingModelHandler {
             // 清空输入映射
             inputs.clear();
             
-            // 记录总耗时
-            long inferenceEndTime = System.currentTimeMillis();
-            Log.d(TAG, "ONNX推理总耗时: " + (inferenceEndTime - inferenceStartTime) + "ms");
-            
-            // 注意：我们不显式关闭任何资源，以避免崩溃
-            // 让垃圾回收器处理这些资源
-            
             return embeddingCopy;
         } catch (Exception e) {
-            Log.e(TAG, "执行ONNX推理失败: " + e.getMessage(), e);
-            throw new RuntimeException("执行ONNX推理失败", e);
+            Log.e(TAG, "生成嵌入向量失败: " + e.getMessage(), e);
+            throw e;
         }
     }
     
     /**
-     * 检查ONNX会话状态并尝试恢复
-     * @return 会话是否可用
+     * 生成文本的嵌入向量
+     * @param text 输入文本
+     * @return 嵌入向量（浮点数数组）
+     * @throws Exception 如果生成嵌入失败
      */
-    private boolean checkAndRecoverOnnxSession() {
-        // 记录当前线程信息
-        Log.d(TAG, "检查会话状态 [线程ID: " + Thread.currentThread().getId() + "]");
+    public float[] generateEmbedding(String text) throws Exception {
+        Log.d(TAG, "开始生成嵌入向量，文本长度: " + text.length());
         
-        synchronized (sessionLock) {
-            // 记录上次检查时间
-            lastSessionCheckTime = System.currentTimeMillis();
-            
-            // 检查会话是否可用
-            if (onnxSession != null && sessionState == SESSION_STATE_READY) {
-                Log.d(TAG, "会话状态正常，可以使用");
-                return true;
-            }
-            
-            // 如果会话正在加载中，等待一段时间
-            if (sessionState == SESSION_STATE_LOADING) {
-                Log.d(TAG, "会话正在加载中，等待...");
-                try {
-                    // 等待最多3秒
-                    for (int i = 0; i < 30; i++) {
-                        // 每100毫秒检查一次
-                        Thread.sleep(100);
-                        if (onnxSession != null && sessionState == SESSION_STATE_READY) {
-                            Log.d(TAG, "会话已加载完成，可以使用");
-                            return true;
-                        }
-                    }
-                } catch (InterruptedException e) {
-                    Log.e(TAG, "等待会话加载被中断: " + e.getMessage());
-                    Thread.currentThread().interrupt();
-                }
-            }
-            
-            // 如果会话不可用或处于错误状态，尝试恢复
-            if (onnxSession == null || sessionState == SESSION_STATE_ERROR) {
-                // 检查重试次数
-                if (sessionRetryCount >= MAX_SESSION_RETRY) {
-                    Log.e(TAG, "会话恢复失败，已达到最大重试次数: " + sessionRetryCount);
-                    return false;
-                }
-                
-                Log.d(TAG, "尝试恢复会话，当前重试次数: " + sessionRetryCount);
-                
-                // 更新会话状态
-                int oldState = sessionState;
-                sessionState = SESSION_STATE_LOADING;
-                Log.d(TAG, "会话状态变更: " + oldState + " -> " + sessionState + " (开始恢复)");
-                
-                // 增加重试计数
-                sessionRetryCount++;
-                
-                try {
-                    // 先关闭之前的会话
-                    if (onnxSession != null) {
-                        try {
-                            onnxSession.close();
-                            Log.d(TAG, "已关闭旧的ONNX会话");
-                        } catch (Exception e) {
-                            Log.e(TAG, "关闭旧的ONNX会话失败: " + e.getMessage(), e);
-                        } finally {
-                            onnxSession = null;
-                        }
-                    }
-                    
-                    // 重新加载ONNX模型
-                    try {
-                        Log.d(TAG, "重新加载ONNX模型: " + modelPath);
-                        loadOnnxModel(modelPath);
-                        
-                        // 检查会话是否加载成功
-                        if (onnxSession != null) {
-                            Log.d(TAG, "ONNX会话恢复成功");
-                            sessionState = SESSION_STATE_READY;
-                            return true;
-                        } else {
-                            Log.e(TAG, "ONNX会话恢复失败，会话为null");
-                            sessionState = SESSION_STATE_ERROR;
-                            return false;
-                        }
-                    } catch (Exception e) {
-                        Log.e(TAG, "重新加载ONNX模型失败: " + e.getMessage(), e);
-                        sessionState = SESSION_STATE_ERROR;
-                        return false;
-                    }
-                } finally {
-                    // 如果会话仍然为null，确保状态为ERROR
-                    if (onnxSession == null && sessionState != SESSION_STATE_ERROR) {
-                        Log.e(TAG, "会话为null但状态不是ERROR，更正状态");
-                        sessionState = SESSION_STATE_ERROR;
-                    }
-                    
-                    // 记录会话恢复结果
-                    boolean success = onnxSession != null && sessionState == SESSION_STATE_READY;
-                    Log.d(TAG, "会话恢复" + (success ? "成功" : "失败") + 
-                           "，最终状态: " + sessionState + 
-                           "，重试次数: " + sessionRetryCount + "/" + MAX_SESSION_RETRY);
-                }
-            }
-            
-            // 会话仍然不可用
-            Log.e(TAG, "会话检查结束，会话仍然不可用，状态: " + sessionState);
-            return false;
+        if (text == null || text.isEmpty()) {
+            Log.w(TAG, "输入文本为空，返回空向量");
+            return new float[0];
         }
+        
+        try {
+            // 根据模型类型生成嵌入向量
+            float[] embedding;
+            long startTime = System.currentTimeMillis();
+            
+            if (modelType == ModelType.ONNX) {
+                // 检查ONNX会话状态并尝试恢复
+                if (!checkAndRecoverOnnxSession()) {
+                    Log.e(TAG, "ONNX会话不可用，无法生成嵌入向量");
+                    throw new RuntimeException("ONNX会话不可用");
+                }
+                
+                embedding = generateEmbeddingWithOnnx(text);
+            } else if (modelType == ModelType.TORCH_SCRIPT) {
+                // Torch模型的实现（暂未实现）
+                Log.e(TAG, "TorchScript模型尚未实现");
+                return null;
+            } else {
+                Log.e(TAG, "未知的模型类型");
+                return null;
+            }
+            
+            // 记录生成时间
+            long endTime = System.currentTimeMillis();
+            Log.d(TAG, "生成嵌入向量耗时: " + (endTime - startTime) + "ms");
+            
+            // 对向量进行L2归一化
+            embedding = normalizeVector(embedding);
+            
+            // 打印前5个和后5个向量值，帮助调试
+            if (embedding != null && embedding.length > 10) {
+                StringBuilder sb = new StringBuilder("嵌入向量样例 (前5个值): ");
+                for (int i = 0; i < 5; i++) {
+                    sb.append(embedding[i]).append(", ");
+                }
+                sb.append(" ... (后5个值): ");
+                for (int i = embedding.length - 5; i < embedding.length; i++) {
+                    sb.append(embedding[i]).append(", ");
+                }
+                Log.d(TAG, sb.toString());
+                
+                // 计算向量范数，帮助确认归一化是否有效
+                double norm = 0.0;
+                for (float v : embedding) {
+                    norm += v * v;
+                }
+                norm = Math.sqrt(norm);
+                Log.d(TAG, "嵌入向量L2范数: " + norm + " (应接近1.0)");
+            }
+            
+            return embedding;
+        } catch (Exception e) {
+            Log.e(TAG, "生成嵌入向量失败: " + e.getMessage(), e);
+            throw e;
+        }
+    }
+    
+    /**
+     * 获取向量生成的调试信息
+     * @param text 输入文本
+     * @param embedding 生成的向量
+     * @param startTime 开始时间
+     * @return 向量生成的调试信息
+     */
+    public String getVectorDebugInfo(String text, float[] embedding, long startTime) {
+        long endTime = System.currentTimeMillis();
+        long duration = endTime - startTime;
+        
+        StringBuilder vectorInfo = new StringBuilder();
+        vectorInfo.append("向量生成信息:\n");
+        vectorInfo.append("模型: ").append(modelName).append("\n");
+        vectorInfo.append("输入文本长度: ").append(text.length()).append(" 字符\n");
+        vectorInfo.append("向量维度: ").append(embedding.length).append("\n");
+        vectorInfo.append("处理时间: ").append(duration).append(" 毫秒\n");
+        
+        // 添加向量前10个和后10个值的样本
+        vectorInfo.append("向量样本(前10个值): ");
+        for (int i = 0; i < Math.min(10, embedding.length); i++) {
+            vectorInfo.append(String.format("%.4f", embedding[i]));
+            if (i < Math.min(10, embedding.length) - 1) {
+                vectorInfo.append(", ");
+            }
+        }
+        vectorInfo.append("\n");
+        
+        if (embedding.length > 20) {
+            vectorInfo.append("向量样本(后10个值): ");
+            for (int i = Math.max(0, embedding.length - 10); i < embedding.length; i++) {
+                vectorInfo.append(String.format("%.4f", embedding[i]));
+                if (i < embedding.length - 1) {
+                    vectorInfo.append(", ");
+                }
+            }
+            vectorInfo.append("\n");
+        }
+        
+        return vectorInfo.toString();
+    }
+    
+    /**
+     * 获取嵌入向量维度
+     * @return 嵌入向量维度
+     */
+    public int getEmbeddingDimension() {
+        try {
+            // 尝试从模型配置中获取维度
+            if (configJson != null && configJson.has("hidden_size")) {
+                int hiddenSize = configJson.getInt("hidden_size");
+                Log.d(TAG, "从配置文件获取向量维度: " + hiddenSize + ", 模型路径: " + modelPath);
+                return hiddenSize;
+            }
+            
+            // 如果配置中没有，则使用默认值
+            if (modelName != null) {
+                if (modelName.contains("bge-small") || modelName.contains("bge-base")) {
+                    Log.d(TAG, "根据模型名称判断向量维度: 768, 模型名称: " + modelName + ", 模型路径: " + modelPath);
+                    return 768;
+                } else if (modelName.contains("bge-large")) {
+                    Log.d(TAG, "根据模型名称判断向量维度: 1024, 模型名称: " + modelName + ", 模型路径: " + modelPath);
+                    return 1024;
+                } else if (modelName.contains("bge-m3")) {
+                    Log.d(TAG, "根据模型名称判断向量维度: 1024, 模型名称: " + modelName + ", 模型路径: " + modelPath);
+                    return 1024;
+                }
+            }
+            
+            // 默认维度
+            Log.w(TAG, "无法确定向量维度，使用默认值1024, 模型名称: " + modelName + ", 模型路径: " + modelPath);
+            return 1024; // 修改默认值为1024
+        } catch (Exception e) {
+            Log.e(TAG, "获取嵌入向量维度失败: " + e.getMessage() + ", 模型名称: " + modelName + ", 模型路径: " + modelPath, e);
+            return 1024; // 修改默认值为1024
+        }
+    }
+    
+    /**
+     * 设置是否使用一致性处理
+     * 确保在知识库构建和查询过程中使用相同的分词逻辑
+     * @param consistent 是否使用一致性处理
+     */
+    public void setUseConsistentProcessing(boolean consistent) {
+        this.useConsistentProcessing = consistent;
+        Log.d(TAG, "设置一致性处理: " + consistent);
+        
+        // 如果tokenizer已初始化，同步设置其一致性分词策略
+        if (tokenizer != null) {
+            tokenizer.setUseConsistentTokenization(consistent);
+            Log.d(TAG, "同步设置tokenizer的一致性分词策略: " + consistent);
+        }
+    }
+    
+    /**
+     * 获取当前是否使用一致性处理
+     * @return 是否使用一致性处理
+     */
+    public boolean isUsingConsistentProcessing() {
+        return this.useConsistentProcessing;
+    }
+    
+    /**
+     * 设置调试模式
+     * @param debug 是否启用调试
+     */
+    public void setDebugMode(boolean debug) {
+        this.debugMode = debug;
+        Log.d(TAG, "设置调试模式: " + debug);
+        
+        // 如果tokenizer已初始化，同步设置其调试模式
+        if (tokenizer != null) {
+            tokenizer.setDebugMode(debug);
+            Log.d(TAG, "同步设置tokenizer的调试模式: " + debug);
+        }
+    }
+    
+    /**
+     * 获取当前是否启用调试模式
+     * @return 是否启用调试模式
+     */
+    public boolean isDebugModeEnabled() {
+        return this.debugMode;
+    }
+    
+    /**
+     * 输出调试日志
+     * 只有在调试模式启用时才会输出
+     * @param message 日志信息
+     */
+    private void debugLog(String message) {
+        if (debugMode) {
+            Log.d(TAG, message);
+        }
+    }
+
+    /**
+     * 获取嵌入模型名称
+     * @return 嵌入模型名称
+     */
+    public String getEmbeddingModel() {
+        return modelName != null ? modelName : extractModelNameFromPath(modelPath);
     }
     
     /**
@@ -1011,16 +1147,10 @@ public class EmbeddingModelHandler {
             Log.d(TAG, "尝试从config.json提取模型名称: " + configFile.getAbsolutePath());
             
             // 读取config.json文件内容
-            StringBuilder content = new StringBuilder();
-            try (BufferedReader reader = new BufferedReader(new FileReader(configFile))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    content.append(line);
-                }
-            }
+            String content = readFileContent(configFile);
             
             // 解析JSON
-            JSONObject config = new JSONObject(content.toString());
+            JSONObject config = new JSONObject(content);
             Log.d(TAG, "成功解析config.json");
             
             // 尝试从不同字段提取模型名称
@@ -1105,221 +1235,6 @@ public class EmbeddingModelHandler {
         }
         return content.toString();
     }
-
-    /**
-     * 获取向量生成的调试信息
-     * @param text 输入文本
-     * @param embedding 生成的向量
-     * @param startTime 开始时间
-     * @return 向量生成的调试信息
-     */
-    public String getVectorDebugInfo(String text, float[] embedding, long startTime) {
-        long endTime = System.currentTimeMillis();
-        long duration = endTime - startTime;
-        
-        StringBuilder vectorInfo = new StringBuilder();
-        vectorInfo.append("向量生成信息:\n");
-        vectorInfo.append("模型: ").append(modelName).append("\n");
-        vectorInfo.append("输入文本长度: ").append(text.length()).append(" 字符\n");
-        vectorInfo.append("向量维度: ").append(embedding.length).append("\n");
-        vectorInfo.append("处理时间: ").append(duration).append(" 毫秒\n");
-        
-        // 添加向量前10个和后10个值的样本
-        vectorInfo.append("向量样本(前10个值): ");
-        for (int i = 0; i < Math.min(10, embedding.length); i++) {
-            vectorInfo.append(String.format("%.4f", embedding[i]));
-            if (i < Math.min(10, embedding.length) - 1) {
-                vectorInfo.append(", ");
-            }
-        }
-        vectorInfo.append("\n");
-        
-        if (embedding.length > 20) {
-            vectorInfo.append("向量样本(后10个值): ");
-            for (int i = Math.max(0, embedding.length - 10); i < embedding.length; i++) {
-                vectorInfo.append(String.format("%.4f", embedding[i]));
-                if (i < embedding.length - 1) {
-                    vectorInfo.append(", ");
-                }
-            }
-            vectorInfo.append("\n");
-        }
-        
-        return vectorInfo.toString();
-    }
-
-    /**
-     * 生成文本的嵌入向量
-     * @param text 输入文本
-     * @return 嵌入向量（浮点数数组）
-     * @throws Exception 如果生成嵌入失败
-     */
-    public float[] generateEmbedding(String text) throws Exception {
-        Log.d(TAG, "开始生成嵌入向量，文本长度: " + text.length());
-        
-        if (text == null || text.isEmpty()) {
-            Log.w(TAG, "输入文本为空，返回空向量");
-            return new float[0];
-        }
-        
-        try {
-            // 根据模型类型生成嵌入向量
-            float[] embedding;
-            long startTime = System.currentTimeMillis();
-            
-            if (modelType == ModelType.ONNX) {
-                // 检查ONNX会话状态并尝试恢复
-                if (!checkAndRecoverOnnxSession()) {
-                    Log.e(TAG, "ONNX会话不可用，无法生成嵌入向量");
-                    throw new RuntimeException("ONNX会话不可用");
-                }
-                
-                embedding = generateEmbeddingWithOnnx(text);
-            } else if (modelType == ModelType.TORCH_SCRIPT) {
-                // Torch模型的实现（暂未实现）
-                Log.e(TAG, "TorchScript模型尚未实现");
-                return null;
-            } else {
-                Log.e(TAG, "未知的模型类型");
-                return null;
-            }
-            
-            // 记录生成时间
-            long endTime = System.currentTimeMillis();
-            Log.d(TAG, "生成嵌入向量耗时: " + (endTime - startTime) + "ms");
-            
-            // 对向量进行L2归一化
-            embedding = normalizeVector(embedding);
-            
-            // 打印前5个和后5个向量值，帮助调试
-            if (embedding != null && embedding.length > 10) {
-                StringBuilder sb = new StringBuilder("嵌入向量样例 (前5个值): ");
-                for (int i = 0; i < 5; i++) {
-                    sb.append(embedding[i]).append(", ");
-                }
-                sb.append(" ... (后5个值): ");
-                for (int i = embedding.length - 5; i < embedding.length; i++) {
-                    sb.append(embedding[i]).append(", ");
-                }
-                Log.d(TAG, sb.toString());
-                
-                // 计算向量范数，帮助确认归一化是否有效
-                double norm = 0.0;
-                for (float v : embedding) {
-                    norm += v * v;
-                }
-                norm = Math.sqrt(norm);
-                Log.d(TAG, "嵌入向量L2范数: " + norm + " (应接近1.0)");
-            }
-            
-            return embedding;
-        } catch (Exception e) {
-            Log.e(TAG, "生成嵌入向量失败: " + e.getMessage(), e);
-            throw e;
-        }
-    }
-    
-    /**
-     * 获取嵌入向量维度
-     * @return 嵌入向量维度
-     */
-    public int getEmbeddingDimension() {
-        try {
-            // 尝试从模型配置中获取维度
-            if (configJson != null && configJson.has("hidden_size")) {
-                int hiddenSize = configJson.getInt("hidden_size");
-                Log.d(TAG, "从配置文件获取向量维度: " + hiddenSize + ", 模型路径: " + modelPath);
-                return hiddenSize;
-            }
-            
-            // 如果配置中没有，则使用默认值
-            if (modelName != null) {
-                if (modelName.contains("bge-small") || modelName.contains("bge-base")) {
-                    Log.d(TAG, "根据模型名称判断向量维度: 768, 模型名称: " + modelName + ", 模型路径: " + modelPath);
-                    return 768;
-                } else if (modelName.contains("bge-large")) {
-                    Log.d(TAG, "根据模型名称判断向量维度: 1024, 模型名称: " + modelName + ", 模型路径: " + modelPath);
-                    return 1024;
-                } else if (modelName.contains("bge-m3")) {
-                    Log.d(TAG, "根据模型名称判断向量维度: 1024, 模型名称: " + modelName + ", 模型路径: " + modelPath);
-                    return 1024;
-                }
-            }
-            
-            // 默认维度
-            Log.w(TAG, "无法确定向量维度，使用默认值1024, 模型名称: " + modelName + ", 模型路径: " + modelPath);
-            return 1024; // 修改默认值为1024
-        } catch (Exception e) {
-            Log.e(TAG, "获取嵌入向量维度失败: " + e.getMessage() + ", 模型名称: " + modelName + ", 模型路径: " + modelPath, e);
-            return 1024; // 修改默认值为1024
-        }
-    }
-    
-    /**
-     * 设置是否使用一致性处理
-     * 确保在知识库构建和查询过程中使用相同的分词逻辑
-     * @param consistent 是否使用一致性处理
-     */
-    public void setUseConsistentProcessing(boolean consistent) {
-        this.useConsistentProcessing = consistent;
-        Log.d(TAG, "设置一致性处理: " + consistent);
-        
-        // 如果tokenizer已初始化，同步设置其一致性分词策略
-        if (tokenizer != null) {
-            tokenizer.setUseConsistentTokenization(consistent);
-            Log.d(TAG, "同步设置tokenizer的一致性分词策略: " + consistent);
-        }
-    }
-    
-    /**
-     * 获取当前是否使用一致性处理
-     * @return 是否使用一致性处理
-     */
-    public boolean isUsingConsistentProcessing() {
-        return this.useConsistentProcessing;
-    }
-    
-    /**
-     * 设置调试模式
-     * @param debug 是否启用调试
-     */
-    public void setDebugMode(boolean debug) {
-        this.debugMode = debug;
-        Log.d(TAG, "设置调试模式: " + debug);
-        
-        // 如果tokenizer已初始化，同步设置其调试模式
-        if (tokenizer != null) {
-            tokenizer.setDebugMode(debug);
-            Log.d(TAG, "同步设置tokenizer的调试模式: " + debug);
-        }
-    }
-    
-    /**
-     * 获取当前是否启用调试模式
-     * @return 是否启用调试模式
-     */
-    public boolean isDebugModeEnabled() {
-        return this.debugMode;
-    }
-    
-    /**
-     * 输出调试日志
-     * 只有在调试模式启用时才会输出
-     * @param message 日志信息
-     */
-    private void debugLog(String message) {
-        if (debugMode) {
-            Log.d(TAG, message);
-        }
-    }
-
-    /**
-     * 获取嵌入模型名称
-     * @return 嵌入模型名称
-     */
-    public String getEmbeddingModel() {
-        return modelName != null ? modelName : extractModelNameFromPath(modelPath);
-    }
     
     /**
      * 获取模型名称
@@ -1353,6 +1268,115 @@ public class EmbeddingModelHandler {
      */
     public String getModelPath() {
         return modelPath;
+    }
+    
+    /**
+     * 检查ONNX会话状态并尝试恢复
+     * @return 会话是否可用
+     */
+    private boolean checkAndRecoverOnnxSession() {
+        // 记录当前线程信息
+        Log.d(TAG, "检查会话状态 [线程ID: " + Thread.currentThread().getId() + "]");
+        
+        synchronized (sessionLock) {
+            // 记录上次检查时间
+            lastSessionCheckTime = System.currentTimeMillis();
+            
+            // 检查会话是否可用
+            if (onnxSession != null && sessionState == SESSION_STATE_READY) {
+                Log.d(TAG, "会话状态正常，可以使用");
+                return true;
+            }
+            
+            // 如果会话正在加载中，等待一段时间
+            if (sessionState == SESSION_STATE_LOADING) {
+                Log.d(TAG, "会话正在加载中，等待...");
+                try {
+                    // 等待最多3秒
+                    for (int i = 0; i < 30; i++) {
+                        // 每100毫秒检查一次
+                        Thread.sleep(100);
+                        if (onnxSession != null && sessionState == SESSION_STATE_READY) {
+                            Log.d(TAG, "会话已加载完成，可以使用");
+                            return true;
+                        }
+                    }
+                } catch (InterruptedException e) {
+                    Log.e(TAG, "等待会话加载被中断: " + e.getMessage());
+                    Thread.currentThread().interrupt();
+                }
+            }
+            
+            // 如果会话不可用或处于错误状态，尝试恢复
+            if (onnxSession == null || sessionState == SESSION_STATE_ERROR) {
+                // 检查重试次数
+                if (sessionRetryCount >= MAX_SESSION_RETRY) {
+                    Log.e(TAG, "会话恢复失败，已达到最大重试次数: " + sessionRetryCount);
+                    return false;
+                }
+                
+                Log.d(TAG, "尝试恢复会话，当前重试次数: " + sessionRetryCount);
+                
+                // 更新会话状态
+                int oldState = sessionState;
+                sessionState = SESSION_STATE_LOADING;
+                Log.d(TAG, "会话状态变更: " + oldState + " -> " + sessionState + " (开始恢复)");
+                
+                // 增加重试计数
+                sessionRetryCount++;
+                
+                try {
+                    // 先关闭之前的会话
+                    if (onnxSession != null) {
+                        try {
+                            onnxSession.close();
+                            Log.d(TAG, "已关闭旧的ONNX会话");
+                        } catch (Exception e) {
+                            Log.e(TAG, "关闭旧的ONNX会话失败: " + e.getMessage(), e);
+                        } finally {
+                            onnxSession = null;
+                        }
+                    }
+                    
+                    // 重新加载ONNX模型
+                    try {
+                        Log.d(TAG, "重新加载ONNX模型: " + modelPath);
+                        loadOnnxModel(modelPath);
+                        
+                        // 检查会话是否加载成功
+                        if (onnxSession != null) {
+                            Log.d(TAG, "ONNX会话恢复成功");
+                            sessionState = SESSION_STATE_READY;
+                            return true;
+                        } else {
+                            Log.e(TAG, "ONNX会话恢复失败，会话为null");
+                            sessionState = SESSION_STATE_ERROR;
+                            return false;
+                        }
+                    } catch (Exception e) {
+                        Log.e(TAG, "重新加载ONNX模型失败: " + e.getMessage(), e);
+                        sessionState = SESSION_STATE_ERROR;
+                        return false;
+                    }
+                } finally {
+                    // 如果会话仍然为null，确保状态为ERROR
+                    if (onnxSession == null && sessionState != SESSION_STATE_ERROR) {
+                        Log.e(TAG, "会话为null但状态不是ERROR，更正状态");
+                        sessionState = SESSION_STATE_ERROR;
+                    }
+                    
+                    // 记录会话恢复结果
+                    boolean success = onnxSession != null && sessionState == SESSION_STATE_READY;
+                    Log.d(TAG, "会话恢复" + (success ? "成功" : "失败") + 
+                           "，最终状态: " + sessionState + 
+                           "，重试次数: " + sessionRetryCount + "/" + MAX_SESSION_RETRY);
+                }
+            }
+            
+            // 会话仍然不可用
+            Log.e(TAG, "会话检查结束，会话仍然不可用，状态: " + sessionState);
+            return false;
+        }
     }
     
     /**
@@ -1437,80 +1461,24 @@ public class EmbeddingModelHandler {
     
     /**
      * 对文本进行分词处理
-     * 这是一个改进的实现，尝试模拟专业tokenizer的行为
      * @param text 输入文本
      * @return 包含input_ids和attention_mask的数组
+     * @throws IOException 如果分词失败
      */
-    private long[][] tokenizeText(String text) {
-        try {
-            // 首先尝试从TokenizerManager获取tokenizer
-            if (context != null) {
-                TokenizerManager tokenizerManager = TokenizerManager.getInstance(context);
-                
-                // 如果TokenizerManager已初始化，直接使用其tokenizer
-                if (tokenizerManager.isInitialized()) {
-                    BertTokenizer globalTokenizer = tokenizerManager.getTokenizer();
-                    if (globalTokenizer != null) {
-                        debugLog("使用TokenizerManager中的全局tokenizer进行分词");
-                        
-                        // 设置一致性分词策略
-                        if (useConsistentProcessing) {
-                            tokenizerManager.setUseConsistentTokenization(true);
-                            debugLog("设置一致性分词策略: " + useConsistentProcessing);
-                            debugLog("为当前分词操作启用一致性分词策略");
-                        }
-                        
-                        return globalTokenizer.tokenize(text);
-                    }
-                }
-            }
-            
-            // 如果TokenizerManager不可用，使用本地tokenizer
-            if (tokenizer != null) {
-                debugLog("使用本地tokenizer进行分词");
-                
-                // 使用一致性分词策略
-                if (useConsistentProcessing && !tokenizer.isUseConsistentTokenization()) {
-                    tokenizer.setUseConsistentTokenization(true);
-                    debugLog("为当前分词操作启用一致性分词策略");
-                }
-                
-                return tokenizer.tokenize(text);
-            }
-            
-            // 如果tokenizer未初始化，使用简单的分词方法
-            Log.d(TAG, "tokenizer未初始化，使用简单分词方法");
-            
-            // 简单的空格分词
-            String[] words = text.split("\\s+");
-            
-            // 创建input_ids和attention_mask
-            int seqLength = words.length + 2; // 加上[CLS]和[SEP]
-            long[] inputIds = new long[seqLength];
-            long[] attentionMask = new long[seqLength];
-            
-            // 添加[CLS]标记
-            inputIds[0] = 0; // [CLS] token ID
-            attentionMask[0] = 1;
-            
-            // 填充单词ID (这里只是简单地使用位置作为ID)
-            for (int i = 0; i < words.length; i++) {
-                inputIds[i + 1] = i + 4; // 从4开始，避开特殊token ID
-                attentionMask[i + 1] = 1;
-            }
-            
-            // 添加[SEP]标记
-            inputIds[seqLength - 1] = 2; // [SEP] token ID
-            attentionMask[seqLength - 1] = 1;
-            
-            return new long[][] { inputIds, attentionMask };
-        } catch (Exception e) {
-            Log.e(TAG, "分词处理失败: " + e.getMessage(), e);
-            
-            // 返回最基本的序列：只包含[CLS]和[SEP]
-            long[] inputIds = new long[] { 0, 2 }; // [CLS], [SEP]
-            long[] attentionMask = new long[] { 1, 1 };
-            return new long[][] { inputIds, attentionMask };
+    private long[][] tokenizeText(String text) throws IOException {
+        if (tokenizer == null) {
+            throw new IOException("分词器未初始化");
         }
+        
+        // 确保设置一致性分词策略
+        if (tokenizer instanceof TokenizerManager) {
+            TokenizerManager tokenizerManager = (TokenizerManager) tokenizer;
+            tokenizerManager.setUseConsistentTokenization(useConsistentProcessing);
+            debugLog("设置一致性分词策略: " + useConsistentProcessing);
+        }
+        
+        // 执行分词
+        debugLog("使用TokenizerManager进行分词");
+        return tokenizer.tokenize(text);
     }
 }
