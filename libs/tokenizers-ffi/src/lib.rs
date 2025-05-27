@@ -174,31 +174,35 @@ pub extern "C" fn free_string(ptr: *mut c_char) {
 // 解码token ID为文本 - C API
 #[no_mangle]
 pub extern "C" fn decode(tokenizer_ptr: *mut c_void, ids_json: *const c_char) -> *mut c_char {
+    // 默认不跳过特殊token
+    decode_with_skip(tokenizer_ptr, ids_json, false)
+}
+
+// 解码token ID为文本，可选择是否跳过特殊token - C API
+#[no_mangle]
+pub extern "C" fn decode_with_skip(tokenizer_ptr: *mut c_void, ids_json: *const c_char, skip_special_tokens: bool) -> *mut c_char {
     if tokenizer_ptr.is_null() || ids_json.is_null() {
         return std::ptr::null_mut();
     }
     
     let tokenizer = unsafe { &*(tokenizer_ptr as *mut Tokenizer) };
-    
-    // 将C字符串转换为Rust字符串
-    let ids_str = match unsafe { CStr::from_ptr(ids_json) }.to_str() {
-        Ok(s) => s,
-        Err(_) => return std::ptr::null_mut(),
+    let ids_str = unsafe {
+        match CStr::from_ptr(ids_json).to_str() {
+            Ok(s) => s,
+            Err(_) => return std::ptr::null_mut(),
+        }
     };
     
-    // 解析JSON数组
     let ids: Vec<u32> = match serde_json::from_str(ids_str) {
         Ok(i) => i,
         Err(_) => return std::ptr::null_mut(),
     };
     
-    // 解码token ID
-    let decoded = match tokenizer.decode(&ids, false) {
-        Ok(text) => text,
+    let decoded = match tokenizer.decode(&ids, skip_special_tokens) {
+        Ok(d) => d,
         Err(_) => return std::ptr::null_mut(),
     };
     
-    // 将结果转换为C字符串
     match CString::new(decoded) {
         Ok(c_str) => c_str.into_raw(),
         Err(_) => std::ptr::null_mut(),
@@ -383,8 +387,69 @@ pub extern "C" fn Java_com_starlocalrag_tokenizers_TokenizerJNI_decode__JLjava_l
         }
     };
     
-    // 调用 C 函数进行解码
-    let result = decode(tokenizer_ptr as *mut c_void, c_ids.as_ptr());
+    // 调用 C 函数进行解码，默认不跳过特殊token
+    let result = decode_with_skip(tokenizer_ptr as *mut c_void, c_ids.as_ptr(), false);
+    
+    if result.is_null() {
+        eprintln!("Decoding returned null result");
+        return std::ptr::null_mut();
+    }
+    
+    // 将 C 字符串转换回 Rust 字符串，然后转换为 Java 字符串
+    let result_str = unsafe { CStr::from_ptr(result) };
+    let result_rust_str = match result_str.to_str() {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Error converting CStr to Rust str: {:?}", e);
+            free_string(result);
+            return std::ptr::null_mut();
+        }
+    };
+    
+    // 创建 Java 字符串
+    let java_string = match env.new_string(result_rust_str) {
+        Ok(s) => s.into_inner(),
+        Err(e) => {
+            eprintln!("Error creating Java string: {:?}", e);
+            free_string(result);
+            std::ptr::null_mut()
+        }
+    };
+    
+    // 释放 C 字符串
+    free_string(result);
+    
+    java_string
+}
+
+#[no_mangle]
+pub extern "C" fn Java_com_starlocalrag_tokenizers_TokenizerJNI_decode__JLjava_lang_String_2Z(
+    env: JNIEnv,
+    _class: JClass,
+    tokenizer_ptr: jlong,
+    ids_json: JString,
+    skip_special_tokens: bool,
+) -> jstring {
+    // 从 JString 获取 Rust String，确保正确处理 UTF-8
+    let ids_str: String = match env.get_string(ids_json) {
+        Ok(s) => s.into(),
+        Err(e) => {
+            eprintln!("Error converting JString to Rust String: {:?}", e);
+            return std::ptr::null_mut();
+        }
+    };
+    
+    // 将 Rust String 转换为 C 字符串
+    let c_ids = match CString::new(ids_str) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Error converting Rust String to CString: {:?}", e);
+            return std::ptr::null_mut();
+        }
+    };
+    
+    // 调用 C 函数进行解码，使用传入的 skip_special_tokens 参数
+    let result = decode_with_skip(tokenizer_ptr as *mut c_void, c_ids.as_ptr(), skip_special_tokens);
     
     if result.is_null() {
         eprintln!("Decoding returned null result");
