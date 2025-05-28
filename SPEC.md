@@ -296,7 +296,13 @@ SQLiteVectorDatabaseHandler 存储向量到数据库
 
 为了优化应用体积和确保用户体验，我们对嵌入模型管理进行了以下优化：
 
-1. **移除内置嵌入模型**：
+1. **模型路径处理优化**：
+   - 简化了`EmbeddingModelHandler`中的`loadTokenizerAndConfig`方法，使用更直接的路径处理逻辑
+   - 优化了tokenizer.json文件的定位策略，使用与模型目录结构一致的方式
+   - 当使用量化模型（如bge-m3_static_quant_INT8）时，自动在同级目录中查找原始模型（如bge-m3）的tokenizer.json
+   - 增强了日志记录，便于跟踪模型和分词器的加载过程
+
+2. **移除内置嵌入模型**：
    - 移除了应用中内置的嵌入模型（如xim-roberta模型），减少应用体积
    - 修改EmbeddingModelUtils类，移除基于模型名称推断维度的逻辑，仅保留通过加载模型确定维度的方法
    - 确保应用只使用用户自定义的模型，提高灵活性和可扩展性
@@ -909,3 +915,73 @@ SQLiteVectorDatabaseHandler 存储向量到数据库
       - 确保 Java 和 Rust 代码之间的无缝集成
     - 这些优化使得分词器实现更加统一和高效，减少了代码冗余，提高了性能和可维护性
     - 通过将功能集中在一个类中，简化了代码结构，使得维护和扩展更加容易
+
+16. **分词器接口统一与优化**：
+    - 统一了`EmbeddingModelHandler`和`LocalLLMOnnxHandler`中的分词器接口：
+      - 创建了完整的`TokenizerInterface`接口，标准化分词器功能
+      - 所有分词操作都通过`TokenizerManager`进行，确保一致性
+      - 移除了Java层的token处理逻辑，将其委托给JNI层
+    - 增强了特殊token的处理能力：
+      - 添加了`getSpecialTokenId`、`getSpecialTokenContent`、`isSpecialToken`等方法
+      - 实现了`loadModelSpecialTokens`方法，从分词器中加载特殊token
+      - 增强了错误处理和日志记录，便于调试
+    - 优化了`LocalLLMOnnxHandler`类的分词器使用：
+      - 修改`tokenizeInput`方法，使用`TokenizerManager`替代直接使用`HuggingfaceTokenizer`
+      - 优化资源释放机制，使用`resetManager`方法重置分词器
+      - 增强了错误处理和日志记录，提高稳定性
+    - 添加了`decodeIds`方法，支持将token ID解码回文本：
+      - 在`TokenizerInterface`接口中定义了方法签名
+      - 在`TokenizerManager`类中实现了方法逻辑
+      - 确保了分词和解码操作的一致性
+    - 这些优化提高了代码的一致性和可维护性：
+      - 所有分词操作都通过统一的接口进行，减少了重复代码
+      - 简化了错误处理和资源管理，提高了程序稳定性
+      - 使得代码结构更加清晰，便于后续维护和扩展
+
+17. **分词器加载优化**：
+    - 重构了`TokenizerManager`类的词汇表和特殊token加载流程：
+      - 移除了冗余的`loadVocabFromJson`、`loadSpecialTokensFromJson`、`loadModelSpecialTokens`和`loadVocabFromFile`方法
+      - 添加了更高效的`syncSpecialTokensFromTokenizer`方法，直接从HuggingfaceTokenizer实例获取特殊token信息
+      - 避免了重复加载词汇表和特殊token，减少内存使用和日志输出
+      - 简化了初始化流程，提高了代码可维护性
+    - 优化了`HuggingfaceTokenizer`类的词汇表加载：
+      - 不再加载完整词汇表，只记录词汇表大小
+      - 只加载关键特殊token（如CLS、SEP、UNK、PAD、MASK），不加载全部token
+      - 减少了内存使用和不必要的日志输出
+
+18. **本地LLM流式输出功能实现**：
+    - 添加了`StreamingCallback`接口，用于处理流式输出：
+      - `onToken`方法：接收生成的单个token
+      - `onComplete`方法：标记生成完成
+      - `onError`方法：处理生成过程中的错误
+    - 修改了`inference`方法，使其调用新的`inferenceStream`方法：
+      - 使用`CountDownLatch`同步机制等待流式推理完成
+      - 收集流式生成的所有token，组合成完整响应
+      - 优化了错误处理，将`OrtException`转换为更通用的`RuntimeException`
+    - 实现了`inferenceStream`方法，支持实时token生成：
+      - 在单独线程中执行推理过程，避免阻塞UI线程
+      - 使用`StreamingCallback`将生成的token实时发送回UI
+      - 实现了完整的错误处理和资源释放机制
+    - 优化了批量解码功能：
+      - 比较逐个解码和批量解码的结果，选择最优解码方式
+      - 添加了详细的日志记录，便于调试和分析
+      - 实现了异常处理机制，在批量解码失败时回退到逐个解码
+    - 优化了模板处理逻辑：
+      - 修改`applyTokenizerTemplate`方法，使用JNI层的`applyChatTemplate`方法处理模板
+      - 移除Java层硬编码的模板格式，将模板处理逻辑完全交由JNI层负责
+      - 在出错时直接抛出异常，避免使用不一致的回退模板
+      - 保持代码层次清晰，提高可维护性和一致性
+    - 实现了本地LLM与现有UI的集成：
+      - 修改了`LocalLlmAdapter`类中的`executeInference`方法，模拟在线模型的行为
+      - 添加了模型回答标题行，确保与在线模型的输出格式一致
+      - 增强了日志记录，便于跟踪token的生成和传递过程
+      - 确保每个token都正确地传递给UI，实现实时显示
+    - 这些改进使本地LLM能够提供与在线模型类似的流式输出体验，显著提升了用户交互体验：
+      - 用户可以实时看到模型生成的内容，无需等待完整响应
+      - 应用保持响应性，即使在处理长文本生成时
+      - 统一了本地和在线模型的用户体验，提供一致的交互模式
+    - 流式输出模块的设计考虑了以下因素：
+      - **层次化的回调机制**：从底层的`LocalLLMOnnxHandler`到中间层的`LocalLlmHandler`再到适配层的`LocalLlmAdapter`，最终到UI层的`RagQaFragment`
+      - **一致的接口设计**：确保本地和在线模型使用相同的接口，便于统一处理
+      - **完善的错误处理**：在每一层都实现了错误处理机制，确保异常情况下的稳定性
+      - **统一的模板处理**：将模板处理逻辑统一放在JNI层，避免在Java层重复实现，减少代码冗余

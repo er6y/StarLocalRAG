@@ -7,7 +7,6 @@ import java.util.List;
 import java.util.ArrayList;
 import java.util.Map;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.io.Closeable;
 import java.io.File;
 import java.io.BufferedReader;
@@ -24,6 +23,8 @@ import java.time.format.DateTimeFormatter;
 public class HuggingfaceTokenizer implements Closeable, Model {
     private long nativePtr;
     private boolean isClosed = false;
+    // 模型路径
+    private String modelPath;
     
     // 词汇表 (token -> id)
     private Map<String, Integer> vocab = new HashMap<>();
@@ -42,7 +43,7 @@ public class HuggingfaceTokenizer implements Closeable, Model {
         return TokenizerJNI.getTokenizerConfig(nativePtr);
     }
     
-    private String decodeIdsToString(int[] ids) {
+    private String decodeIdsToString(int[] ids, boolean skipSpecialTokens) {
         // 将 int[] 转换为 JSON 字符串
         StringBuilder sb = new StringBuilder();
         sb.append("[");
@@ -51,7 +52,12 @@ public class HuggingfaceTokenizer implements Closeable, Model {
             sb.append(ids[i]);
         }
         sb.append("]");
-        return TokenizerJNI.decode(nativePtr, sb.toString());
+        return TokenizerJNI.decode(nativePtr, sb.toString(), skipSpecialTokens);
+    }
+    
+    private String decodeIdsToString(int[] ids) {
+        // 默认不跳过特殊token
+        return decodeIdsToString(ids, false);
     }
     
     // 特殊token常量 - 这些常量可能在未来的方法中使用
@@ -75,6 +81,14 @@ public class HuggingfaceTokenizer implements Closeable, Model {
     private boolean debugMode = false;
     
     /**
+     * 获取当前加载的模型路径
+     * @return 模型路径字符串
+     */
+    public String getModelPath() {
+        return modelPath;
+    }
+    
+    /**
      * 使用指定的模型类型创建分词器
      * @param modelType 模型类型，如"bpe"或"wordpiece"
      * @throws IllegalArgumentException 如果创建分词器失败
@@ -87,31 +101,44 @@ public class HuggingfaceTokenizer implements Closeable, Model {
     }
     
     /**
-     * 从文件加载分词器
-     * @param path 分词器文件路径
-     * @throws IllegalArgumentException 如果加载分词器失败
+     * 从文件创建分词器
+     * @param path 模型文件路径或模型类型
+     * @param isFile 是否是文件路径，如果为false则表示是模型类型
      */
     public HuggingfaceTokenizer(String path, boolean isFile) {
-        if (isFile) {
-            this.nativePtr = TokenizerJNI.loadTokenizerFromFile(path);
-            if (this.nativePtr == 0) {
-                throw new IllegalArgumentException("从文件加载分词器失败: " + path);
+        try {
+            // 保存模型路径
+            this.modelPath = path;
+            
+            if (isFile) {
+                // 从文件加载
+                nativePtr = TokenizerJNI.loadTokenizerFromFile(path);
+                
+                // 加载词汇表
+                try {
+                    loadVocabFromFile(new File(path));
+                } catch (Exception e) {
+                    System.err.println("加载词汇表时出错: " + e.getMessage());
+                    // 不抛出异常，因为词汇表加载失败不应影响分词器的基本功能
+                }
+            } else {
+                // 使用模型类型创建
+                nativePtr = TokenizerJNI.createTokenizer(path);
             }
             
-            // 加载词汇表
-            try {
-                loadVocabFromFile(new File(path));
-            } catch (Exception e) {
-                System.err.println("加载词汇表时出错: " + e.getMessage());
-                // 不抛出异常，因为词汇表加载失败不应影响分词器的基本功能
+            if (nativePtr == 0) {
+                throw new IllegalArgumentException("创建分词器失败，可能是文件路径错误或格式不兼容");
             }
-        } else {
-            this.nativePtr = TokenizerJNI.createTokenizer(path);
-            if (this.nativePtr == 0) {
-                throw new IllegalArgumentException("创建分词器失败，模型类型: " + path);
-            }
+        } catch (UnsatisfiedLinkError e) {
+            System.err.println("加载本地库失败: " + e.getMessage());
+            throw e;
+        } catch (Exception e) {
+            System.err.println("创建分词器失败: " + e.getMessage());
+            throw e;
         }
     }
+    
+
     
     /**
      * 对文本进行分词
@@ -314,13 +341,24 @@ public class HuggingfaceTokenizer implements Closeable, Model {
      * @throws IllegalStateException 如果分词器已关闭
      */
     public String decode(int[] ids) {
+        return decode(ids, false);
+    }
+    
+    /**
+     * 将token ID数组解码为文本，可选择是否跳过特殊token
+     * @param ids token ID数组
+     * @param skipSpecialTokens 是否跳过特殊token
+     * @return 解码后的文本
+     * @throws IllegalStateException 如果分词器已关闭
+     */
+    public String decode(int[] ids, boolean skipSpecialTokens) {
         checkClosed();
         
         if (ids == null || ids.length == 0) {
             return "";
         }
         
-        String result = decodeIdsToString(ids);
+        String result = decodeIdsToString(ids, skipSpecialTokens);
         if (result == null) {
             throw new IllegalStateException("解码失败");
         }
@@ -549,68 +587,104 @@ public class HuggingfaceTokenizer implements Closeable, Model {
     }
     
     /**
-     * 从文件加载词汇表
-     * @param file 词汇表文件
+     * 从文件加载特殊token
+     * @param file 分词器文件
      * @throws IOException 如果文件读取失败
      * @throws JSONException 如果JSON解析失败
      */
     private void loadVocabFromFile(File file) throws IOException, JSONException {
-        // 尝试从同目录下的vocab.json文件加载词汇表
-        File vocabFile = new File(file.getParentFile(), "vocab.json");
-        if (!vocabFile.exists()) {
-            // 尝试从tokenizer.json文件中提取词汇表
-            vocabFile = new File(file.getParentFile(), "tokenizer.json");
-        }
+        // 直接使用tokenizer.json文件，不再尝试加载vocab.json
+        File tokenizerFile = new File(file.getParentFile(), "tokenizer.json");
         
-        if (vocabFile.exists()) {
-            StringBuilder content = new StringBuilder();
-            try (BufferedReader reader = new BufferedReader(new FileReader(vocabFile))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    content.append(line);
+        if (tokenizerFile.exists()) {
+            try {
+                StringBuilder content = new StringBuilder();
+                try (BufferedReader reader = new BufferedReader(new FileReader(tokenizerFile))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        content.append(line);
+                    }
                 }
-            }
-            
-            JSONObject json = new JSONObject(content.toString());
-            
-            // 尝试从不同的路径获取词汇表
-            if (json.has("model") && json.getJSONObject("model").has("vocab")) {
-                JSONObject vocabJson = json.getJSONObject("model").getJSONObject("vocab");
-                loadVocabFromMap(vocabJson);
-            } else if (json.has("vocab")) {
-                JSONObject vocabJson = json.getJSONObject("vocab");
-                loadVocabFromMap(vocabJson);
-            }
-            
-            // 检查特殊token
-            if (json.has("added_tokens")) {
-                JSONArray addedTokens = json.getJSONArray("added_tokens");
-                for (int i = 0; i < addedTokens.length(); i++) {
-                    JSONObject tokenObj = addedTokens.getJSONObject(i);
-                    if (tokenObj.has("content") && tokenObj.has("id")) {
-                        String tokenContent = tokenObj.getString("content");
-                        int tokenId = tokenObj.getInt("id");
-                        vocab.put(tokenContent, tokenId);
-                        vocabReverse.put(tokenId, tokenContent);
-                        
-                        // 检查是否是特殊token
-                        if (tokenObj.has("special") && tokenObj.getBoolean("special")) {
+                
+                JSONObject json = new JSONObject(content.toString());
+                
+                // 不再加载完整词汇表，只提取关键特殊token
+                
+                // 从 special_tokens_map 中提取特殊token
+                if (json.has("special_tokens_map")) {
+                    JSONObject specialTokensMap = json.getJSONObject("special_tokens_map");
+                    
+                    // 提取常用特殊token
+                    if (specialTokensMap.has("cls_token")) {
+                        clsToken = specialTokensMap.getString("cls_token");
+                    }
+                    if (specialTokensMap.has("sep_token")) {
+                        sepToken = specialTokensMap.getString("sep_token");
+                    }
+                    if (specialTokensMap.has("unk_token")) {
+                        unkToken = specialTokensMap.getString("unk_token");
+                    }
+                    if (specialTokensMap.has("pad_token")) {
+                        padToken = specialTokensMap.getString("pad_token");
+                    }
+                    if (specialTokensMap.has("mask_token")) {
+                        maskToken = specialTokensMap.getString("mask_token");
+                    }
+                }
+                
+                // 如果没有找到special_tokens_map，尝试从added_tokens中提取
+                if (json.has("added_tokens")) {
+                    JSONArray addedTokens = json.getJSONArray("added_tokens");
+                    for (int i = 0; i < addedTokens.length(); i++) {
+                        JSONObject tokenObj = addedTokens.getJSONObject(i);
+                        if (tokenObj.has("content") && tokenObj.has("special") && tokenObj.getBoolean("special")) {
+                            String tokenContent = tokenObj.getString("content");
+                            int tokenId = -1;
+                            if (tokenObj.has("id")) {
+                                tokenId = tokenObj.getInt("id");
+                            }
+                            
+                            // 只记录关键特殊token
                             if (tokenContent.contains("[CLS]") || tokenContent.equals("<s>")) {
                                 clsToken = tokenContent;
+                                if (tokenId >= 0) {
+                                    vocab.put(tokenContent, tokenId);
+                                    vocabReverse.put(tokenId, tokenContent);
+                                }
                             } else if (tokenContent.contains("[SEP]") || tokenContent.equals("</s>")) {
                                 sepToken = tokenContent;
+                                if (tokenId >= 0) {
+                                    vocab.put(tokenContent, tokenId);
+                                    vocabReverse.put(tokenId, tokenContent);
+                                }
                             } else if (tokenContent.contains("[UNK]") || tokenContent.equals("<unk>")) {
                                 unkToken = tokenContent;
+                                if (tokenId >= 0) {
+                                    vocab.put(tokenContent, tokenId);
+                                    vocabReverse.put(tokenId, tokenContent);
+                                }
                             } else if (tokenContent.contains("[PAD]") || tokenContent.equals("<pad>")) {
                                 padToken = tokenContent;
+                                if (tokenId >= 0) {
+                                    vocab.put(tokenContent, tokenId);
+                                    vocabReverse.put(tokenId, tokenContent);
+                                }
                             } else if (tokenContent.contains("[MASK]") || tokenContent.equals("<mask>")) {
                                 maskToken = tokenContent;
+                                if (tokenId >= 0) {
+                                    vocab.put(tokenContent, tokenId);
+                                    vocabReverse.put(tokenId, tokenContent);
+                                }
                             }
                         }
                     }
                 }
+            } catch (Exception e) {
+                // 捕获异常但不抛出，因为特殊token加载失败不应影响分词器的基本功能
+                // 不打印详细错误信息，避免日志过大
             }
         }
+        // 如果文件不存在，不抛出异常，使用默认特殊token
     }
     
     /**
@@ -633,13 +707,11 @@ public class HuggingfaceTokenizer implements Closeable, Model {
                 longResult[0][i] = ids.get(i);
             }
             
-            if (debugMode) {
-                System.out.println("分词结果: " + ids.size() + " tokens");
-            }
+            // 不打印分词结果，避免日志过大
             
             return longResult;
         } catch (Exception e) {
-            System.err.println("分词失败: " + e.getMessage());
+            // 不打印错误信息，避免日志过大
             return new long[1][0]; // 返回空结果
         }
     }
@@ -771,17 +843,29 @@ public class HuggingfaceTokenizer implements Closeable, Model {
      */
     @Override
     public void loadVocabFromMap(JSONObject vocabJson) throws JSONException {
-        vocab.clear();
-        vocabReverse.clear();
-        
-        for (String key : vocabJson.keySet()) {
-            int id = vocabJson.getInt(key);
-            vocab.put(key, id);
-            vocabReverse.put(id, key);
-        }
-        
-        if (debugMode) {
-            System.out.println("从JSONObject加载词汇表，大小: " + vocab.size());
+        try {
+            vocab.clear();
+            vocabReverse.clear();
+            
+            int count = 0;
+            for (String key : vocabJson.keySet()) {
+                int id = vocabJson.getInt(key);
+                vocab.put(key, id);
+                vocabReverse.put(id, key);
+                count++;
+                
+                // 每加载10000个打印一次进度，避免日志过多
+                if (debugMode && count % 10000 == 0) {
+                    System.out.println("词汇表加载进度: " + count + " 个token");
+                }
+            }
+            
+            if (debugMode) {
+                System.out.println("成功加载词汇表，大小: " + count + " 个token");
+            }
+        } catch (Exception e) {
+            System.err.println("加载词汇表映射失败");
+            throw e; // 重新抛出异常，使调用者知道出错了
         }
     }
     

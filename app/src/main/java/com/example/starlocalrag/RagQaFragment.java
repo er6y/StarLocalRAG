@@ -1159,40 +1159,54 @@ public class RagQaFragment extends Fragment {
             }
             
             // 查询向量数据库
+            // 在try块外部声明 vectorDb 变量，以便在catch块中也可以访问
+            // 声明为 final，以便在 lambda 表达式中使用
+            final SQLiteVectorDatabaseHandler[] vectorDbRef = new SQLiteVectorDatabaseHandler[1];
             try {
                 // 创建SQLite向量数据库处理器
                 Log.i(TAG, "开始创建SQLite向量数据库处理器，知识库目录: " + knowledgeBaseDir.getAbsolutePath());
                 logToFile("开始创建SQLite向量数据库处理器，知识库目录: " + knowledgeBaseDir.getAbsolutePath());
                 
-                SQLiteVectorDatabaseHandler vectorDb = new SQLiteVectorDatabaseHandler(knowledgeBaseDir, "unknown");
-                //updateProgressOnUiThread("正在加载SQLite向量数据库...");
+                try {
+                    vectorDbRef[0] = new SQLiteVectorDatabaseHandler(knowledgeBaseDir, "unknown");
+                    //updateProgressOnUiThread("正在加载SQLite向量数据库...");
 
-                // 加载向量数据库
-                Log.i(TAG, "开始加载SQLite向量数据库...");
-                logToFile("开始加载SQLite向量数据库...");
-                
-                if (!vectorDb.loadDatabase()) {
-                    String errorMsg = "错误: 加载SQLite向量数据库失败";
-                    Log.e(TAG, errorMsg);
+                    // 加载向量数据库
+                    Log.i(TAG, "开始加载SQLite向量数据库...");
+                    logToFile("开始加载SQLite向量数据库...");
+                    
+                    if (!vectorDbRef[0].loadDatabase()) {
+                        String errorMsg = "错误: 加载SQLite向量数据库失败";
+                        Log.e(TAG, errorMsg);
+                        logToFile(errorMsg);
+                        updateProgressOnUiThread(errorMsg);
+                        return relevantDocs;
+                    }
+                } catch (Exception e) {
+                    String errorMsg = "创建或加载SQLite向量数据库时发生错误: " + e.getMessage();
+                    Log.e(TAG, errorMsg, e);
                     logToFile(errorMsg);
                     updateProgressOnUiThread(errorMsg);
+                    if (vectorDbRef[0] != null) {
+                        vectorDbRef[0].closeDatabase();
+                    }
                     return relevantDocs;
                 }
 
                 // 获取数据库统计信息
-                int totalChunks = vectorDb.getChunkCount();
+                int totalChunks = vectorDbRef[0].getChunkCount();
                 String dbInfo = "SQLite向量数据库加载成功，共包含 " + totalChunks + " 个文本块";
                 Log.d(TAG, dbInfo);
                 logToFile(dbInfo);
                 updateProgressOnUiThread(dbInfo);
 
                 // 获取嵌入模型
-                String embModelName = vectorDb.getMetadata().getEmbeddingModel();
+                String embModelName = vectorDbRef[0].getMetadata().getEmbeddingModel();
                 String embeddingModelPath = ConfigManager.getEmbeddingModelPath(requireContext());
                 String foundModelPath = null;
                 
                 // 检查元数据中是否有modeldir配置
-                String modeldir = vectorDb.getMetadata().getModeldir();
+                String modeldir = vectorDbRef[0].getMetadata().getModeldir();
                 if (modeldir != null && !modeldir.isEmpty()) {
                     // 使用modeldir指定的目录
                     File modeldirFile = new File(embeddingModelPath, modeldir);
@@ -1253,11 +1267,14 @@ public class RagQaFragment extends Fragment {
                         
                         if (!availableModels.isEmpty()) {
                             // 弹出模型选择对话框
-                            selectModelAndContinueQuery(embModelName, availableModels, knowledgeBase, embeddingModelPath, vectorDb);
+                            selectModelAndContinueQuery(embModelName, availableModels, knowledgeBase, embeddingModelPath, vectorDbRef[0]);
+                            // 注意：此处不关闭数据库，因为selectModelAndContinueQuery方法会继续使用它
                             return relevantDocs; // 提前返回，等待用户选择模型
                         } else {
                             Log.e(TAG, "在嵌入模型目录中未找到可用的模型文件");
                             updateProgressOnUiThread("错误: 在嵌入模型目录中未找到可用的模型文件");
+                            // 关闭数据库连接
+                            vectorDbRef[0].closeDatabase();
                             return relevantDocs; // 提前返回，因为没有可用的模型
                         }
                     }
@@ -1266,7 +1283,7 @@ public class RagQaFragment extends Fragment {
                 // 使用工具类检查并加载词嵌入模型
                 EmbeddingModelUtils.checkAndLoadEmbeddingModel(
                     requireContext(),
-                    vectorDb,
+                    vectorDbRef[0],
                     modelFoundPath -> {
                         if (modelFoundPath == null) {
                             // 模型不存在或需要用户选择，已由工具类处理
@@ -1280,7 +1297,7 @@ public class RagQaFragment extends Fragment {
                         updateProgressOnUiThread("正在使用嵌入模型: " + embModelName);
                         
                         // 加载嵌入模型
-                        loadModelAndProcessQuery(modelFoundPath, query, vectorDb);
+                        loadModelAndProcessQuery(modelFoundPath, query, vectorDbRef[0]);
                     },
                     (selectedModel, selectedModelPath) -> {
                         // 用户选择了模型，继续处理
@@ -1290,10 +1307,11 @@ public class RagQaFragment extends Fragment {
                         updateProgressOnUiThread("正在使用选定的嵌入模型: " + selectedModel);
                         
                         // 加载嵌入模型
-                        loadModelAndProcessQuery(selectedModelPath, query, vectorDb);
+                        loadModelAndProcessQuery(selectedModelPath, query, vectorDbRef[0]);
                     }
                 );
                 
+                // 注意：此处不关闭数据库，因为loadModelAndProcessQuery方法会继续使用它
                 return relevantDocs;
             } catch (Exception e) {
                 String errorMsg = "查询向量数据库时发生错误: " + e.getMessage();
@@ -1307,6 +1325,12 @@ public class RagQaFragment extends Fragment {
                 EmbeddingModelManager modelManager = EmbeddingModelManager.getInstance(requireContext());
                 modelManager.markModelNotInUse();
                 Log.d(TAG, "异常情况下标记模型使用结束，允许自动卸载");
+                
+                // 关闭数据库连接
+                if (vectorDbRef[0] != null) {
+                    vectorDbRef[0].closeDatabase();
+                    Log.d(TAG, "异常情况下关闭数据库连接");
+                }
                 
                 return relevantDocs;
             }
@@ -1503,7 +1527,7 @@ public class RagQaFragment extends Fragment {
                     if (getActivity() == null) return;
                     
                     // 记录收到的数据块
-                    Log.d(TAG, "收到数据块: [" + chunk + "]");
+                    //Log.d(TAG, "收到数据块: [" + chunk + "]");
                     
                     // 累积响应内容
                     responseBuilder.append(chunk);
