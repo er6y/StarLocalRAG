@@ -85,52 +85,9 @@ public class LogManager {
         checkLogFileSize();
         
         // 开始捕获logcat输出
-        startLogcatCapture();
+
     }
-    
-    /**
-     * 开始捕获logcat输出
-     */
-    private void startLogcatCapture() {
-        if (isCapturingLogcat) {
-            return;
-        }
-        
-        executor.execute(() -> {
-            try {
-                // 清除之前的logcat内容
-                Runtime.getRuntime().exec(new String[]{"logcat", "-c"});
-                
-                // 启动logcat进程，捕获所有日志
-                logcatProcess = Runtime.getRuntime().exec(new String[]{"logcat", "-v", "threadtime"});
-                isCapturingLogcat = true;
-                
-                // 读取logcat输出
-                BufferedReader reader = new BufferedReader(new InputStreamReader(logcatProcess.getInputStream()));
-                String line;
-                
-                while (isCapturingLogcat && (line = reader.readLine()) != null) {
-                    // 记录所有日志行，不再过滤
-                    writeToLogFile("L", "Logcat", line);
-                }
-            } catch (IOException e) {
-                Log.e(TAG, "捕获logcat输出失败: " + e.getMessage(), e);
-            } finally {
-                stopLogcatCapture();
-            }
-        });
-    }
-    
-    /**
-     * 停止捕获logcat输出
-     */
-    private void stopLogcatCapture() {
-        isCapturingLogcat = false;
-        if (logcatProcess != null) {
-            logcatProcess.destroy();
-            logcatProcess = null;
-        }
-    }
+
     
     /**
      * 记录调试日志
@@ -165,6 +122,19 @@ public class LogManager {
         if (currentLogLevel <= LOG_LEVEL_WARNING || forceLogToFile) {
             Log.w(tag, message);
             writeToLogFile("W", tag, message);
+        }
+    }
+    
+    /**
+     * 记录警告日志（带异常）
+     * @param tag 日志标签
+     * @param message 日志消息
+     * @param throwable 异常
+     */
+    public void w(String tag, String message, Throwable throwable) {
+        if (currentLogLevel <= LOG_LEVEL_WARNING || forceLogToFile) {
+            Log.w(tag, message, throwable);
+            writeToLogFile("W", tag, message + "\n" + Log.getStackTraceString(throwable));
         }
     }
     
@@ -213,7 +183,7 @@ public class LogManager {
                 writer.write(logMessage);
             }
         } catch (IOException e) {
-            Log.e(TAG, "写入日志文件失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "写入日志文件失败: " + e.getMessage(), e);
         }
     }
     
@@ -230,7 +200,7 @@ public class LogManager {
                 
                 // 记录清空信息
                 String clearMessage = "日志文件已超过1MB，已清空";
-                Log.i(TAG, clearMessage);
+                LogManager.logI(TAG, clearMessage);
                 
                 // 写入清空信息作为新日志的第一条
                 String timestamp = dateFormat.format(new Date());
@@ -240,7 +210,7 @@ public class LogManager {
                     writer.write(logMessage);
                 }
             } catch (IOException e) {
-                Log.e(TAG, "清空日志文件失败: " + e.getMessage(), e);
+                LogManager.logE(TAG, "清空日志文件失败: " + e.getMessage(), e);
             }
         }
     }
@@ -259,7 +229,7 @@ public class LogManager {
                     executor.submit(() -> {}).get(2000, TimeUnit.MILLISECONDS);
                 } catch (TimeoutException e) {
                     // 如果等待超时，记录警告但继续尝试读取文件
-                    Log.w(TAG, "等待写入操作完成超时，继续尝试读取文件", e);
+                    LogManager.logW(TAG, "等待写入操作完成超时，继续尝试读取文件", e);
                 }
                 
                 // 使用 FileInputStream 而不是 FileReader 来避免潜在的缓存问题
@@ -270,10 +240,10 @@ public class LogManager {
                     }
                 }
             } catch (IOException e) {
-                Log.e(TAG, "读取日志文件失败: " + e.getMessage(), e);
+                LogManager.logE(TAG, "读取日志文件失败: " + e.getMessage(), e);
                 return "读取日志文件失败: " + e.getMessage();
             } catch (InterruptedException | ExecutionException e) {
-                Log.e(TAG, "等待写入操作完成失败: " + e.getMessage(), e);
+                LogManager.logE(TAG, "等待写入操作完成失败: " + e.getMessage(), e);
                 // 继续尝试读取文件
             }
         } else {
@@ -297,7 +267,7 @@ public class LogManager {
                 
                 // 记录清空信息
                 String clearMessage = "日志文件已被用户手动清空";
-                Log.i(TAG, clearMessage);
+                LogManager.logI(TAG, clearMessage);
                 
                 // 写入清空信息作为新日志的第一条
                 String timestamp = dateFormat.format(new Date());
@@ -309,7 +279,7 @@ public class LogManager {
                 
                 return true;
             } catch (IOException e) {
-                Log.e(TAG, "清空日志文件失败: " + e.getMessage(), e);
+                LogManager.logE(TAG, "清空日志文件失败: " + e.getMessage(), e);
                 return false;
             }
         }
@@ -321,7 +291,6 @@ public class LogManager {
      * 在应用退出时调用
      */
     public void close() {
-        stopLogcatCapture();
         executor.shutdown();
     }
     
@@ -332,7 +301,7 @@ public class LogManager {
     public static void setLogLevel(int logLevel) {
         if (logLevel >= LOG_LEVEL_VERBOSE && logLevel <= LOG_LEVEL_NONE) {
             currentLogLevel = logLevel;
-            Log.i(TAG, "日志级别已设置为: " + logLevel);
+            LogManager.logI(TAG, "日志级别已设置为: " + logLevel);
         }
     }
     
@@ -350,7 +319,7 @@ public class LogManager {
      */
     public static void setForceLogToFile(boolean force) {
         forceLogToFile = force;
-        Log.i(TAG, "强制记录日志到文件已设置为: " + force);
+        LogManager.logI(TAG, "强制记录日志到文件已设置为: " + force);
     }
     
     /**
@@ -362,13 +331,23 @@ public class LogManager {
     }
     
     /**
+     * 检查指定的日志级别是否可以记录
+     * @param tag 日志标签
+     * @param level 日志级别
+     * @return 是否可以记录
+     */
+    public static boolean logIsLoggable(String tag, int level) {
+        return level >= currentLogLevel;
+    }
+    
+    /**
      * 强制记录INFO级别日志，无论当前日志级别如何
      * 在Release模式下用于诊断问题
      * @param tag 日志标签
      * @param message 日志消息
      */
     public static void logForceInfo(String tag, String message) {
-        Log.i(tag, message);
+        LogManager.logI(tag, message);
         
         // 获取LogManager实例并记录到文件
         if (instance != null) {
@@ -383,7 +362,7 @@ public class LogManager {
      * @param message 日志消息
      */
     public static void logForceError(String tag, String message) {
-        Log.e(tag, message);
+        LogManager.logE(tag, message);
         
         // 获取LogManager实例并记录到文件
         if (instance != null) {
@@ -398,7 +377,7 @@ public class LogManager {
      * @param message 日志消息
      */
     public static void logForceDebug(String tag, String message) {
-        Log.d(tag, message);
+        LogManager.logD(tag, message);
         
         // 获取LogManager实例并记录到文件
         if (instance != null) {
@@ -419,7 +398,7 @@ public class LogManager {
         boolean savedForceLogToFile = ConfigManager.getBoolean(context, "force_log_to_file", false);
         setForceLogToFile(savedForceLogToFile);
         
-        Log.i(TAG, "已加载日志配置: 级别=" + savedLogLevel + ", 强制记录=" + savedForceLogToFile);
+        LogManager.logI(TAG, "已加载日志配置: 级别=" + savedLogLevel + ", 强制记录=" + savedForceLogToFile);
     }
     
     /**
@@ -433,6 +412,164 @@ public class LogManager {
         // 保存是否强制记录日志
         ConfigManager.setBoolean(context, "force_log_to_file", forceLogToFile);
         
-        Log.i(TAG, "已保存日志配置: 级别=" + currentLogLevel + ", 强制记录=" + forceLogToFile);
+        LogManager.logI(TAG, "已保存日志配置: 级别=" + currentLogLevel + ", 强制记录=" + forceLogToFile);
+    }
+    
+    /**
+     * 静态方法：记录调试日志
+     * 会检查debug_mode配置，只有在调试模式开启时才记录
+     * @param tag 日志标签
+     * @param message 日志消息
+     */
+    public static void logD(String tag, String message) {
+        try {
+            Context context = getApplicationContext();
+            if (context != null) {
+                // 检查debug_mode配置
+                boolean debugMode = ConfigManager.getBoolean(context, ConfigManager.KEY_DEBUG_MODE, false);
+                if (debugMode) {
+                    LogManager logManager = LogManager.getInstance(context);
+                    logManager.d(tag, message);
+                } else {
+                    // 调试模式关闭时，只输出到logcat，不记录到文件
+                    Log.d(tag, message);
+                }
+            } else {
+                // 无法获取Context时，降级到标准Log
+                Log.d(tag, message);
+            }
+        } catch (Exception e) {
+            // 异常情况下降级到标准Log
+            Log.d(tag, message);
+        }
+    }
+    
+    /**
+     * 静态方法：记录信息日志
+     * 会检查debug_mode配置，只有在调试模式开启时才记录到文件
+     * @param tag 日志标签
+     * @param message 日志消息
+     */
+    public static void logI(String tag, String message) {
+        try {
+            Context context = getApplicationContext();
+            if (context != null) {
+                // 检查debug_mode配置
+                boolean debugMode = ConfigManager.getBoolean(context, ConfigManager.KEY_DEBUG_MODE, false);
+                if (debugMode) {
+                    LogManager logManager = LogManager.getInstance(context);
+                    logManager.i(tag, message);
+                } else {
+                    // 调试模式关闭时，只输出到logcat，不记录到文件
+                    Log.i(tag, message);
+                }
+            } else {
+                // 无法获取Context时，降级到标准Log
+                Log.i(tag, message);
+            }
+        } catch (Exception e) {
+            // 异常情况下降级到标准Log
+            Log.i(tag, message);
+        }
+    }
+    
+    /**
+     * 静态方法：记录警告日志
+     * 始终记录，不受debug_mode配置影响
+     * @param tag 日志标签
+     * @param message 日志消息
+     */
+    public static void logW(String tag, String message) {
+        try {
+            Context context = getApplicationContext();
+            if (context != null) {
+                LogManager logManager = LogManager.getInstance(context);
+                logManager.w(tag, message);
+            } else {
+                Log.w(tag, message);
+            }
+        } catch (Exception e) {
+            Log.w(tag, message);
+        }
+    }
+    
+    /**
+     * 静态方法：记录警告日志（带异常）
+     * 始终记录，不受debug_mode配置影响
+     * @param tag 日志标签
+     * @param message 日志消息
+     * @param throwable 异常
+     */
+    public static void logW(String tag, String message, Throwable throwable) {
+        try {
+            Context context = getApplicationContext();
+            if (context != null) {
+                LogManager logManager = LogManager.getInstance(context);
+                logManager.w(tag, message, throwable);
+            } else {
+                Log.w(tag, message, throwable);
+            }
+        } catch (Exception e) {
+            Log.w(tag, message, throwable);
+        }
+    }
+    
+    /**
+     * 静态方法：记录错误日志
+     * 始终记录，不受debug_mode配置影响
+     * @param tag 日志标签
+     * @param message 日志消息
+     */
+    public static void logE(String tag, String message) {
+        try {
+            Context context = getApplicationContext();
+            if (context != null) {
+                LogManager logManager = LogManager.getInstance(context);
+                logManager.e(tag, message);
+            } else {
+                Log.e(tag, message);
+            }
+        } catch (Exception e) {
+            Log.e(tag, message);
+        }
+    }
+    
+    /**
+     * 静态方法：记录错误日志（带异常）
+     * 始终记录，不受debug_mode配置影响
+     * @param tag 日志标签
+     * @param message 日志消息
+     * @param throwable 异常
+     */
+    public static void logE(String tag, String message, Throwable throwable) {
+        try {
+            Context context = getApplicationContext();
+            if (context != null) {
+                LogManager logManager = LogManager.getInstance(context);
+                logManager.e(tag, message, throwable);
+            } else {
+                Log.e(tag, message, throwable);
+            }
+        } catch (Exception e) {
+            Log.e(tag, message, throwable);
+        }
+    }
+    
+    /**
+     * 获取Application Context的辅助方法
+     * 通过反射获取当前应用的Context
+     * @return Application Context，如果获取失败返回null
+     */
+    private static Context getApplicationContext() {
+        try {
+            // 通过反射获取ActivityThread的currentApplication方法
+            Class<?> activityThreadClass = Class.forName("android.app.ActivityThread");
+            java.lang.reflect.Method currentApplicationMethod = activityThreadClass.getMethod("currentApplication");
+            android.app.Application application = (android.app.Application) currentApplicationMethod.invoke(null);
+            return application;
+        } catch (Exception e) {
+            // 如果反射失败，返回null，调用方会降级处理
+            return null;
+        }
     }
 }

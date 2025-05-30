@@ -1,5 +1,8 @@
 package com.example.starlocalrag;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
@@ -27,6 +30,11 @@ import android.os.Looper;
 import android.os.PowerManager;
 import android.provider.Settings;
 import android.util.Log;
+import com.example.starlocalrag.LogManager;
+import com.example.starlocalrag.EmbeddingModelManager;
+import com.example.starlocalrag.api.LocalLlmAdapter;
+import com.example.starlocalrag.GPUConfigChecker;
+import com.example.starlocalrag.GPUDiagnosticTool;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
@@ -57,6 +65,10 @@ public class MainActivity extends AppCompatActivity implements SettingsFragment.
     private KnowledgeBaseBuilderService knowledgeBaseBuilderService;
     private ServiceConnection serviceConnection;
     
+    // ActivityResultLauncher替代startActivityForResult
+    private ActivityResultLauncher<Intent> manageStorageLauncher;
+    private ActivityResultLauncher<Intent> batteryOptimizationLauncher;
+    
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         // 初始化GPU错误处理
@@ -64,6 +76,12 @@ public class MainActivity extends AppCompatActivity implements SettingsFragment.
         
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main_tabbed);
+        
+        // 初始化ActivityResultLauncher
+        initializeActivityResultLaunchers();
+        
+        // 初始化返回按键处理
+        initializeOnBackPressedCallback();
         
         // 初始化日志管理器
         logManager = LogManager.getInstance(this);
@@ -87,6 +105,9 @@ public class MainActivity extends AppCompatActivity implements SettingsFragment.
         
         // 初始化配置
         initializeConfig();
+        
+        // 执行GPU配置检查
+        performGPUConfigCheck();
         
         // 初始化ViewPager2和BottomNavigationView
         viewPager = findViewById(R.id.viewPager);
@@ -189,7 +210,7 @@ public class MainActivity extends AppCompatActivity implements SettingsFragment.
                         Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
                         Uri uri = Uri.fromParts("package", getPackageName(), null);
                         intent.setData(uri);
-                        startActivityForResult(intent, MANAGE_STORAGE_REQUEST_CODE);
+                        manageStorageLauncher.launch(intent);
                     });
                     builder.setNegativeButton("取消", (dialog, which) -> {
                         Toast.makeText(this, "应用可能无法正常工作", Toast.LENGTH_LONG).show();
@@ -197,13 +218,13 @@ public class MainActivity extends AppCompatActivity implements SettingsFragment.
                     builder.setCancelable(false);
                     builder.show();
                 } catch (Exception e) {
-                    Log.e(TAG, "无法打开文件访问权限设置: " + e.getMessage());
+                    LogManager.logE(TAG, "无法打开文件访问权限设置: " + e.getMessage());
                     Toast.makeText(this, "无法打开文件访问权限设置，请手动授予权限", Toast.LENGTH_LONG).show();
                 }
             } else if (Environment.isExternalStorageManager() && !hasStoragePermission) {
                 // 如果已经有权限但没有保存状态，则保存状态
                 ConfigManager.setBoolean(this, "has_storage_permission", true);
-                Log.d(TAG, "已获得完全文件访问权限并保存状态");
+                LogManager.logD(TAG, "已获得完全文件访问权限并保存状态");
             }
         }
     }
@@ -213,7 +234,7 @@ public class MainActivity extends AppCompatActivity implements SettingsFragment.
      */
     private void requestIgnoreBatteryOptimization() {
         // 不再在应用启动时自动请求，而是在需要时才请求
-        Log.d(TAG, "电池优化状态: " + (isIgnoringBatteryOptimizations() ? "已忽略" : "未忽略"));
+        LogManager.logD(TAG, "电池优化状态: " + (isIgnoringBatteryOptimizations() ? "已忽略" : "未忽略"));
     }
     
     /**
@@ -226,10 +247,10 @@ public class MainActivity extends AppCompatActivity implements SettingsFragment.
                 Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
                 intent.setData(Uri.parse("package:" + getPackageName()));
                 try {
-                    startActivityForResult(intent, BATTERY_OPTIMIZATION_REQUEST_CODE);
+                    batteryOptimizationLauncher.launch(intent);
                     return true;
                 } catch (Exception e) {
-                    Log.e(TAG, "请求忽略电池优化失败: " + e.getMessage(), e);
+                    LogManager.logE(TAG, "请求忽略电池优化失败: " + e.getMessage(), e);
                     return false;
                 }
             }
@@ -250,7 +271,7 @@ public class MainActivity extends AppCompatActivity implements SettingsFragment.
                     startActivity(intent);
                     return true;
                 } catch (Exception e) {
-                    Log.e(TAG, "恢复电池优化失败: " + e.getMessage(), e);
+                    LogManager.logE(TAG, "恢复电池优化失败: " + e.getMessage(), e);
                     return false;
                 }
             }
@@ -265,14 +286,14 @@ public class MainActivity extends AppCompatActivity implements SettingsFragment.
         try {
             // 加载配置，如果不存在会创建默认配置
             JSONObject config = ConfigManager.loadConfig(this);
-            Log.d(TAG, "应用启动时加载配置: " + config.toString(2));
+            LogManager.logD(TAG, "应用启动时加载配置: " + config.toString(2));
             
             // 确保配置文件存在
             File configFile = new File(getFilesDir(), ".config");
             if (configFile.exists()) {
-                Log.d(TAG, "配置文件已存在: " + configFile.getAbsolutePath());
+                LogManager.logD(TAG, "配置文件已存在: " + configFile.getAbsolutePath());
             } else {
-                Log.d(TAG, "配置文件不存在，创建默认配置");
+                LogManager.logD(TAG, "配置文件不存在，创建默认配置");
                 ConfigManager.saveConfig(this, config);
             }
             
@@ -287,7 +308,7 @@ public class MainActivity extends AppCompatActivity implements SettingsFragment.
                 ConfigManager.setInt(this, ConfigManager.KEY_OVERLAP_SIZE, 200);
             }
         } catch (Exception e) {
-            Log.e(TAG, "初始化配置失败", e);
+            LogManager.logE(TAG, "初始化配置失败", e);
         }
     }
     
@@ -304,11 +325,11 @@ public class MainActivity extends AppCompatActivity implements SettingsFragment.
             }
             
             if (allGranted) {
-                Log.d(TAG, "所有权限已授予");
+                LogManager.logD(TAG, "所有权限已授予");
                 // 重新加载配置
                 initializeConfig();
             } else {
-                Log.e(TAG, "权限被拒绝");
+                LogManager.logE(TAG, "权限被拒绝");
                 Toast.makeText(this, "需要存储权限才能访问模型和知识库文件", Toast.LENGTH_LONG).show();
                 
                 // 显示权限说明对话框
@@ -326,20 +347,20 @@ public class MainActivity extends AppCompatActivity implements SettingsFragment.
                 if (Environment.isExternalStorageManager()) {
                     // 已获得权限，保存状态
                     ConfigManager.setBoolean(this, "has_storage_permission", true);
-                    Log.d(TAG, "已获得完全文件访问权限");
+                    LogManager.logD(TAG, "已获得完全文件访问权限");
                     Toast.makeText(this, "已获得文件访问权限", Toast.LENGTH_SHORT).show();
                 } else {
                     // 未获得权限
-                    Log.w(TAG, "未获得完全文件访问权限");
+                    LogManager.logW(TAG, "未获得完全文件访问权限");
                     Toast.makeText(this, "未获得文件访问权限，应用可能无法正常工作", Toast.LENGTH_LONG).show();
                 }
             }
         } else if (requestCode == BATTERY_OPTIMIZATION_REQUEST_CODE) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 if (isIgnoringBatteryOptimizations()) {
-                    Log.d(TAG, "已忽略电池优化");
+                    LogManager.logD(TAG, "已忽略电池优化");
                 } else {
-                    Log.w(TAG, "未忽略电池优化");
+                    LogManager.logW(TAG, "未忽略电池优化");
                 }
             }
         }
@@ -420,17 +441,7 @@ public class MainActivity extends AppCompatActivity implements SettingsFragment.
         return super.onOptionsItemSelected(item);
     }
     
-    @Override
-    public void onBackPressed() {
-        if (findViewById(R.id.container).getVisibility() == View.VISIBLE) {
-            // 如果设置页面可见，返回时恢复ViewPager2
-            viewPager.setVisibility(View.VISIBLE);
-            findViewById(R.id.container).setVisibility(View.GONE);
-            getSupportFragmentManager().popBackStack();
-        } else {
-            super.onBackPressed();
-        }
-    }
+
     
     private void showAboutDialog() {
         // 使用BuildConfig中的构建时间作为版本号
@@ -446,7 +457,36 @@ public class MainActivity extends AppCompatActivity implements SettingsFragment.
     @Override
     public void onSettingsChanged() {
         // 设置已更改，刷新相关数据
-        Log.d(TAG, "设置已更改，刷新数据");
+        LogManager.logD(TAG, "设置已更改，刷新数据");
+        
+        // 获取最新的GPU设置
+        boolean useGpu = ConfigManager.getBoolean(this, ConfigManager.KEY_USE_GPU, false);
+        LogManager.logI(TAG, "GPU设置变更通知: " + (useGpu ? "启用" : "禁用") + "GPU加速");
+        
+        // 更新LocalLlmAdapter的GPU设置
+        try {
+            LocalLlmAdapter localLlmAdapter = LocalLlmAdapter.getInstance(this);
+            if (localLlmAdapter != null) {
+                localLlmAdapter.updateGpuSetting(useGpu);
+            } else {
+                LogManager.logW(TAG, "GPU设置变更: LocalLlmAdapter实例为null，无法更新GPU设置");
+            }
+        } catch (Exception e) {
+            LogManager.logE(TAG, "GPU设置变更: 更新LocalLlmAdapter GPU设置失败: " + e.getMessage(), e);
+        }
+        
+        // 更新EmbeddingModelManager的GPU设置
+        try {
+            EmbeddingModelManager embeddingModelManager = EmbeddingModelManager.getInstance(this);
+            if (embeddingModelManager != null) {
+                embeddingModelManager.updateGpuSetting(useGpu);
+                LogManager.logI(TAG, "GPU设置变更: 成功更新EmbeddingModelManager GPU设置");
+            } else {
+                LogManager.logW(TAG, "GPU设置变更: EmbeddingModelManager实例为null，无法更新GPU设置");
+            }
+        } catch (Exception e) {
+            LogManager.logE(TAG, "GPU设置变更: 更新EmbeddingModelManager GPU设置失败: " + e.getMessage(), e);
+        }
         
         // 重新加载当前Fragment
         int currentItem = viewPager.getCurrentItem();
@@ -474,26 +514,26 @@ public class MainActivity extends AppCompatActivity implements SettingsFragment.
     @Override
     protected void onStart() {
         super.onStart();
-        Log.d(TAG, "MainActivity.onStart()");
+        LogManager.logD(TAG, "MainActivity.onStart()");
         isInForeground = true;
         
         // 如果服务正在运行，通知服务应用已切换到前台
         if (knowledgeBaseBuilderService != null) {
             knowledgeBaseBuilderService.onAppForegrounded();
-            Log.d(TAG, "已通知知识库构建服务：应用切换到前台");
+            LogManager.logD(TAG, "已通知知识库构建服务：应用切换到前台");
         }
     }
     
     @Override
     protected void onStop() {
         super.onStop();
-        Log.d(TAG, "MainActivity.onStop()");
+        LogManager.logD(TAG, "MainActivity.onStop()");
         isInForeground = false;
         
         // 如果服务正在运行，通知服务应用已切换到后台
         if (knowledgeBaseBuilderService != null) {
             knowledgeBaseBuilderService.onAppBackgrounded();
-            Log.d(TAG, "已通知知识库构建服务：应用切换到后台");
+            LogManager.logD(TAG, "已通知知识库构建服务：应用切换到后台");
         }
     }
     
@@ -501,25 +541,25 @@ public class MainActivity extends AppCompatActivity implements SettingsFragment.
      * 绑定到知识库构建服务
      */
     private void bindToKnowledgeBaseBuilderService() {
-        Log.d(TAG, "尝试绑定到知识库构建服务");
+        LogManager.logD(TAG, "尝试绑定到知识库构建服务");
         if (serviceConnection == null) {
             serviceConnection = new ServiceConnection() {
                 @Override
                 public void onServiceConnected(ComponentName name, IBinder service) {
                     KnowledgeBaseBuilderService.LocalBinder binder = (KnowledgeBaseBuilderService.LocalBinder) service;
                     knowledgeBaseBuilderService = binder.getService();
-                    Log.d(TAG, "已成功绑定到知识库构建服务");
+                    LogManager.logD(TAG, "已成功绑定到知识库构建服务");
                     
                     // 如果应用当前在后台，通知服务
                     if (!isInForeground && knowledgeBaseBuilderService != null) {
                         knowledgeBaseBuilderService.onAppBackgrounded();
-                        Log.d(TAG, "绑定后通知服务：应用在后台");
+                        LogManager.logD(TAG, "绑定后通知服务：应用在后台");
                     }
                 }
                 
                 @Override
                 public void onServiceDisconnected(ComponentName name) {
-                    Log.d(TAG, "与知识库构建服务的连接已断开");
+                    LogManager.logD(TAG, "与知识库构建服务的连接已断开");
                     knowledgeBaseBuilderService = null;
                 }
             };
@@ -536,9 +576,9 @@ public class MainActivity extends AppCompatActivity implements SettingsFragment.
         if (serviceConnection != null) {
             try {
                 unbindService(serviceConnection);
-                Log.d(TAG, "已解绑知识库构建服务");
+                LogManager.logD(TAG, "已解绑知识库构建服务");
             } catch (IllegalArgumentException e) {
-                Log.e(TAG, "解绑服务失败：" + e.getMessage());
+                LogManager.logE(TAG, "解绑服务失败：" + e.getMessage());
             }
             knowledgeBaseBuilderService = null;
         }
@@ -547,9 +587,84 @@ public class MainActivity extends AppCompatActivity implements SettingsFragment.
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        Log.d(TAG, "MainActivity.onDestroy()");
+        LogManager.logD(TAG, "MainActivity.onDestroy()");
         
         // 解绑知识库构建服务
         unbindKnowledgeBaseBuilderService();
+    }
+    
+    /**
+     * 执行GPU配置检查
+     */
+    private void performGPUConfigCheck() {
+        try {
+            // 检查GPU配置是否有效
+            boolean isConfigValid = GPUConfigChecker.isGPUConfigValid(this);
+            
+            if (isConfigValid) {
+                LogManager.logI(TAG, "GPU配置检查: 配置有效，支持GPU加速");
+            } else {
+                LogManager.logW(TAG, "GPU配置检查: 配置可能存在问题，建议查看详细报告");
+                
+                // 生成详细的配置检查报告
+                String configReport = GPUConfigChecker.performConfigCheck(this);
+                LogManager.logI(TAG, "GPU配置详细报告:\n" + configReport);
+            }
+            
+        } catch (Exception e) {
+            LogManager.logE(TAG, "GPU配置检查失败: " + e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * 初始化ActivityResultLauncher
+     */
+    private void initializeActivityResultLaunchers() {
+        // 管理存储权限的Launcher
+        manageStorageLauncher = registerForActivityResult(
+            new ActivityResultContracts.StartActivityForResult(),
+            result -> {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    if (Environment.isExternalStorageManager()) {
+                        logManager.i(TAG, "存储管理权限已获取");
+                    } else {
+                        logManager.w(TAG, "用户拒绝了存储管理权限");
+                    }
+                }
+            }
+        );
+        
+        // 电池优化的Launcher
+        batteryOptimizationLauncher = registerForActivityResult(
+            new ActivityResultContracts.StartActivityForResult(),
+            result -> {
+                PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+                if (pm != null && pm.isIgnoringBatteryOptimizations(getPackageName())) {
+                    logManager.i(TAG, "电池优化已忽略");
+                } else {
+                    logManager.w(TAG, "用户未忽略电池优化");
+                }
+            }
+        );
+    }
+    
+    /**
+     * 初始化返回按键处理
+     */
+    private void initializeOnBackPressedCallback() {
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+             @Override
+             public void handleOnBackPressed() {
+                 if (findViewById(R.id.container).getVisibility() == View.VISIBLE) {
+                     // 如果设置页面可见，返回时恢复ViewPager2
+                     viewPager.setVisibility(View.VISIBLE);
+                     findViewById(R.id.container).setVisibility(View.GONE);
+                     getSupportFragmentManager().popBackStack();
+                 } else {
+                     // 否则执行默认的返回操作
+                     finish();
+                 }
+             }
+         });
     }
 }

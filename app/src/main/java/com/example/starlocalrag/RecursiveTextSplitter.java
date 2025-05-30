@@ -2,6 +2,7 @@ package com.example.starlocalrag;
 
 import android.content.Context;
 import android.util.Log;
+import com.example.starlocalrag.LogManager;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -46,7 +47,7 @@ public class RecursiveTextSplitter {
         this.minChunkSize = ConfigManager.getMinChunkSize(context);
         this.separators = DEFAULT_SEPARATORS;
         
-        Log.d(TAG, "创建RecursiveTextSplitter实例，使用ConfigManager配置：" +
+        LogManager.logD(TAG, "创建RecursiveTextSplitter实例，使用ConfigManager配置：" +
               "分块大小=" + chunkSize + ", 重叠大小=" + chunkOverlap + ", 最小分块大小=" + minChunkSize);
     }
     
@@ -83,7 +84,7 @@ public class RecursiveTextSplitter {
         this.minChunkSize = minChunkSize;
         this.separators = separators;
         
-        Log.d(TAG, "创建RecursiveTextSplitter实例，使用指定参数：" +
+        LogManager.logD(TAG, "创建RecursiveTextSplitter实例，使用指定参数：" +
               "分块大小=" + chunkSize + ", 重叠大小=" + chunkOverlap + ", 最小分块大小=" + minChunkSize);
     }
     
@@ -97,7 +98,7 @@ public class RecursiveTextSplitter {
             return new ArrayList<>();
         }
         
-        Log.d(TAG, "开始分割文本，长度: " + text.length() + " 字符，分块大小: " + chunkSize + 
+        LogManager.logD(TAG, "开始分割文本，长度: " + text.length() + " 字符，分块大小: " + chunkSize + 
               "，重叠大小: " + chunkOverlap + "，最小分块大小: " + minChunkSize);
         
         List<String> finalChunks = new ArrayList<>();
@@ -111,11 +112,11 @@ public class RecursiveTextSplitter {
             if (chunk.length() >= minChunkSize) {
                 filteredChunks.add(chunk);
             } else {
-                Log.d(TAG, "过滤掉过小的文本块，长度: " + chunk.length() + " 字符");
+                LogManager.logD(TAG, "过滤掉过小的文本块，长度: " + chunk.length() + " 字符");
             }
         }
         
-        Log.d(TAG, "分割完成，共生成 " + finalChunks.size() + " 个文本块，过滤后剩余 " + 
+        LogManager.logD(TAG, "分割完成，共生成 " + finalChunks.size() + " 个文本块，过滤后剩余 " + 
               filteredChunks.size() + " 个");
         
         return filteredChunks;
@@ -216,7 +217,7 @@ public class RecursiveTextSplitter {
      * @param chunks 存储结果的文本块列表
      */
     private void forceSplitText(String text, List<String> chunks) {
-        Log.d(TAG, "强制分割文本，长度: " + text.length() + " 字符");
+        LogManager.logD(TAG, "强制分割文本，长度: " + text.length() + " 字符");
         
         for (int i = 0; i < text.length(); i += chunkSize - chunkOverlap) {
             int end = Math.min(i + chunkSize, text.length());

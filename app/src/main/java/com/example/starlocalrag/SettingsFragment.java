@@ -7,6 +7,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
 import android.util.Log;
+import com.example.starlocalrag.LogManager;
 import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuInflater;
@@ -53,7 +54,7 @@ public class SettingsFragment extends Fragment {
     // LLM 推理设置相关UI组件
     private EditText editTextMaxNewTokens; // 最大生成token数
     private EditText editTextThreads; // 推理线程数
-    private SwitchCompat switchNoThinking; // 思考模式开关
+    // 思考模式开关已移动到RAG问答界面
     
     // 设置变更监听器
     private SettingsChangeListener settingsChangeListener;
@@ -74,7 +75,7 @@ public class SettingsFragment extends Fragment {
         try {
             settingsChangeListener = (SettingsChangeListener) context;
         } catch (ClassCastException e) {
-            Log.e(TAG, "Activity must implement SettingsChangeListener", e);
+            LogManager.logE(TAG, "Activity must implement SettingsChangeListener", e);
         }
     }
     
@@ -108,7 +109,7 @@ public class SettingsFragment extends Fragment {
         // 初始化 LLM 推理设置相关UI组件
         editTextMaxNewTokens = view.findViewById(R.id.editTextMaxNewTokens);
         editTextThreads = view.findViewById(R.id.editTextThreads);
-        switchNoThinking = view.findViewById(R.id.switchNoThinking);
+        // switchNoThinking已移动到RAG问答界面
         seekBarFontSize = view.findViewById(R.id.seekBarFontSize); // 字体大小拖动条
         textViewFontSizeValue = view.findViewById(R.id.textViewFontSizeValue); // 字体大小值显示
         
@@ -239,11 +240,11 @@ public class SettingsFragment extends Fragment {
             // 设置 LLM 推理设置UI
             editTextMaxNewTokens.setText(String.valueOf(maxNewTokens));
             editTextThreads.setText(String.valueOf(threads));
-            switchNoThinking.setChecked(noThinking);
+            // switchNoThinking已移动到RAG问答界面
             
-            Log.d(TAG, "设置加载完成");
+            LogManager.logD(TAG, "设置加载完成");
         } catch (Exception e) {
-            Log.e(TAG, "加载设置失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "加载设置失败: " + e.getMessage(), e);
             Toast.makeText(requireContext(), "加载设置失败", Toast.LENGTH_SHORT).show();
         }
     }
@@ -314,7 +315,7 @@ public class SettingsFragment extends Fragment {
             // 获取 LLM 推理设置
             String maxNewTokensStr = editTextMaxNewTokens.getText().toString().trim();
             String threadsStr = editTextThreads.getText().toString().trim();
-            boolean noThinking = switchNoThinking.isChecked();
+            // noThinking已移动到RAG问答界面
             
             // 验证 LLM 推理设置
             if (maxNewTokensStr.isEmpty() || threadsStr.isEmpty()) {
@@ -352,7 +353,7 @@ public class SettingsFragment extends Fragment {
             // 保存 LLM 推理设置
             ConfigManager.setMaxNewTokens(context, maxNewTokens);
             ConfigManager.setThreads(context, threads);
-            ConfigManager.setNoThinking(context, noThinking);
+            // noThinking已移动到RAG问答界面
             
             // 创建JSON格式的设置摘要
             JSONObject settingsSummary = new JSONObject();
@@ -369,9 +370,9 @@ public class SettingsFragment extends Fragment {
             // 添加 LLM 推理设置信息
             settingsSummary.put("maxNewTokens", maxNewTokens);
             settingsSummary.put("threads", threads);
-            settingsSummary.put("noThinking", noThinking);
+            // noThinking已移动到RAG问答界面
             
-            Log.d(TAG, "设置已保存: " + settingsSummary.toString());
+            LogManager.logD(TAG, "设置已保存: " + settingsSummary.toString());
             
             // 显示成功消息
             Toast.makeText(context, "设置已保存", Toast.LENGTH_SHORT).show();
@@ -381,10 +382,10 @@ public class SettingsFragment extends Fragment {
                 settingsChangeListener.onSettingsChanged();
             }
         } catch (NumberFormatException e) {
-            Log.e(TAG, "解析数字失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "解析数字失败: " + e.getMessage(), e);
             Toast.makeText(context, "请输入有效的数字", Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
-            Log.e(TAG, "保存设置失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "保存设置失败: " + e.getMessage(), e);
             Toast.makeText(context, "保存设置失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
@@ -400,8 +401,8 @@ public class SettingsFragment extends Fragment {
                 try {
                     // 将 URI 转换为实际可用的文件路径
                     String realPath = getPathFromUri(uri);
-                    Log.d(TAG, "选择的路径 URI: " + uri);
-                    Log.d(TAG, "转换后的实际路径: " + realPath);
+                    LogManager.logD(TAG, "选择的路径 URI: " + uri);
+                    LogManager.logD(TAG, "转换后的实际路径: " + realPath);
                     
                     switch (requestCode) {
                         case REQUEST_CODE_MODEL_PATH:
@@ -415,7 +416,7 @@ public class SettingsFragment extends Fragment {
                             break;
                     }
                 } catch (Exception e) {
-                    Log.e(TAG, "转换路径失败: " + e.getMessage(), e);
+                    LogManager.logE(TAG, "转换路径失败: " + e.getMessage(), e);
                     Toast.makeText(requireContext(), "无法获取选择的路径", Toast.LENGTH_SHORT).show();
                 }
             }
@@ -447,7 +448,7 @@ public class SettingsFragment extends Fragment {
                     // 构建实际路径
                     File externalStorage = Environment.getExternalStorageDirectory();
                     path = new File(externalStorage, relativePath).getAbsolutePath();
-                    Log.d(TAG, "转换 primary: 路径: " + path);
+                    LogManager.logD(TAG, "转换 primary: 路径: " + path);
                 }
             }
         }

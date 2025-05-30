@@ -5,6 +5,7 @@ import android.database.Cursor;
 import android.net.Uri;
 import android.provider.OpenableColumns;
 import android.util.Log;
+import com.example.starlocalrag.LogManager;
 
 /**
  * Uri 工具类
@@ -44,7 +45,7 @@ public class UriUtils {
                 }
             }
         } catch (Exception e) {
-            Log.e(TAG, "获取文件名失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "获取文件名失败: " + e.getMessage(), e);
             result = uri.toString();
         }
         

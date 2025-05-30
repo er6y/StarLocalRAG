@@ -121,7 +121,7 @@ public class ConfigManager {
             
             // 如果配置文件不存在，创建默认配置
             if (!configFile.exists()) {
-                Log.d(TAG, "配置文件不存在，创建默认配置");
+                LogManager.logD(TAG, "配置文件不存在，创建默认配置");
                 JSONObject defaultConfig = createDefaultConfig();
                 saveConfig(context, defaultConfig);
                 return defaultConfig;
@@ -135,7 +135,7 @@ public class ConfigManager {
                     content.append(line);
                 }
             } catch (IOException e) {
-                Log.e(TAG, "读取配置文件失败", e);
+                LogManager.logE(TAG, "读取配置文件失败", e);
                 JSONObject defaultConfig = createDefaultConfig();
                 saveConfig(context, defaultConfig);
                 return defaultConfig;
@@ -146,7 +146,7 @@ public class ConfigManager {
             try {
                 config = new JSONObject(content.toString());
             } catch (JSONException e) {
-                Log.e(TAG, "解析配置文件失败", e);
+                LogManager.logE(TAG, "解析配置文件失败", e);
                 JSONObject defaultConfig = createDefaultConfig();
                 saveConfig(context, defaultConfig);
                 return defaultConfig;
@@ -171,9 +171,9 @@ public class ConfigManager {
                             defaultConfig = createDefaultConfig();
                         }
                         config.put(key, defaultConfig.get(key));
-                        Log.d(TAG, "配置文件缺少必要项: " + key + "，添加默认值");
+                        LogManager.logD(TAG, "配置文件缺少必要项: " + key + "，添加默认值");
                     } catch (JSONException ex) {
-                        Log.e(TAG, "添加默认配置项失败: " + key, ex);
+                        LogManager.logE(TAG, "添加默认配置项失败: " + key, ex);
                         needReset = true;
                         break;
                     }
@@ -187,15 +187,15 @@ public class ConfigManager {
                         defaultConfig = createDefaultConfig();
                     }
                     config.put("api_keys", defaultConfig.getJSONObject("api_keys"));
-                    Log.d(TAG, "配置文件缺少API Keys，添加默认值");
+                    LogManager.logD(TAG, "配置文件缺少API Keys，添加默认值");
                 } catch (JSONException ex) {
-                    Log.e(TAG, "添加默认API Keys失败", ex);
+                    LogManager.logE(TAG, "添加默认API Keys失败", ex);
                     needReset = true;
                 }
             }
             
             if (needReset) {
-                Log.d(TAG, "配置文件损坏，重置为默认配置");
+                LogManager.logD(TAG, "配置文件损坏，重置为默认配置");
                 if (defaultConfig == null) {
                     defaultConfig = createDefaultConfig();
                 }
@@ -211,12 +211,12 @@ public class ConfigManager {
             
             return config;
         } catch (Exception e) {
-            Log.e(TAG, "加载配置失败", e);
+            LogManager.logE(TAG, "加载配置失败", e);
             JSONObject defaultConfig = createDefaultConfig();
             try {
                 saveConfig(context, defaultConfig);
             } catch (Exception ex) {
-                Log.e(TAG, "保存默认配置失败", ex);
+                LogManager.logE(TAG, "保存默认配置失败", ex);
             }
             return defaultConfig;
         }
@@ -265,13 +265,13 @@ public class ConfigManager {
                 // 更新缓存
                 configCache = new JSONObject(config.toString());
                 
-                Log.d(TAG, "配置已保存到: " + configFile.getAbsolutePath());
-                Log.d(TAG, "保存的配置内容: " + config.toString(2));
+                LogManager.logD(TAG, "配置已保存到: " + configFile.getAbsolutePath());
+                //LogManager.logD(TAG, "保存的配置内容: " + config.toString(2));
             } catch (IOException e) {
-                Log.e(TAG, "保存配置失败", e);
+                LogManager.logE(TAG, "保存配置失败", e);
             }
         } catch (Exception e) {
-            Log.e(TAG, "保存配置失败", e);
+            LogManager.logE(TAG, "保存配置失败", e);
         }
     }
 
@@ -289,7 +289,7 @@ public class ConfigManager {
                 return config.getString(key);
             }
         } catch (JSONException e) {
-            Log.e(TAG, "获取字符串配置失败: " + key, e);
+            LogManager.logE(TAG, "获取字符串配置失败: " + key, e);
         }
         return defaultValue;
     }
@@ -308,7 +308,7 @@ public class ConfigManager {
                 return config.getInt(key);
             }
         } catch (JSONException e) {
-            Log.e(TAG, "获取整数配置失败: " + key, e);
+            LogManager.logE(TAG, "获取整数配置失败: " + key, e);
         }
         return defaultValue;
     }
@@ -327,7 +327,7 @@ public class ConfigManager {
                 return config.getBoolean(key);
             }
         } catch (JSONException e) {
-            Log.e(TAG, "获取布尔值配置失败: " + key, e);
+            LogManager.logE(TAG, "获取布尔值配置失败: " + key, e);
         }
         return defaultValue;
     }
@@ -487,17 +487,17 @@ public class ConfigManager {
         String knowledgeBasePath = SettingsFragment.getKnowledgeBasePath(context);
         File knowledgeBaseDir = new File(knowledgeBasePath, knowledgeBaseName);
         
-        Log.d(TAG, "尝试读取知识库元数据: " + knowledgeBaseName);
+        LogManager.logD(TAG, "尝试读取知识库元数据: " + knowledgeBaseName);
         
         if (!knowledgeBaseDir.exists()) {
-            Log.e(TAG, "知识库目录不存在: " + knowledgeBaseDir.getAbsolutePath());
+            LogManager.logE(TAG, "知识库目录不存在: " + knowledgeBaseDir.getAbsolutePath());
             return null;
         }
         
         // 首先尝试从SQLite数据库中读取嵌入模型信息
         File sqliteDbFile = new File(knowledgeBaseDir, "vectorstore.db");
         if (sqliteDbFile.exists()) {
-            Log.d(TAG, "找到SQLite数据库文件，尝试读取嵌入模型信息");
+            LogManager.logD(TAG, "找到SQLite数据库文件，尝试读取嵌入模型信息");
             SQLiteVectorDatabaseHandler vectorDb = null;
             try {
                 vectorDb = new SQLiteVectorDatabaseHandler(knowledgeBaseDir, "unknown");
@@ -505,7 +505,7 @@ public class ConfigManager {
                     SQLiteVectorDatabaseHandler.DatabaseMetadata metadata = vectorDb.getMetadata();
                     if (metadata != null) {
                         String embeddingModel = metadata.getEmbeddingModel();
-                        Log.d(TAG, "从SQLite数据库中读取到嵌入模型: " + embeddingModel);
+                        LogManager.logD(TAG, "从SQLite数据库中读取到嵌入模型: " + embeddingModel);
                         
                         if (embeddingModel != null && !embeddingModel.isEmpty()) {
                             // 获取设置中的嵌入模型路径
@@ -516,27 +516,27 @@ public class ConfigManager {
                             if (!modelFile.exists()) {
                                 // 尝试在设置的嵌入模型路径中查找
                                 modelFile = new File(embeddingModelPath, embeddingModel);
-                                Log.d(TAG, "尝试在设置的嵌入模型路径中查找: " + modelFile.getAbsolutePath());
+                                LogManager.logD(TAG, "尝试在设置的嵌入模型路径中查找: " + modelFile.getAbsolutePath());
                             }
                             
                             if (modelFile.exists()) {
-                                Log.d(TAG, "找到嵌入模型文件: " + modelFile.getAbsolutePath());
+                                LogManager.logD(TAG, "找到嵌入模型文件: " + modelFile.getAbsolutePath());
                                 return modelFile.getAbsolutePath();
                             } else {
-                                Log.e(TAG, "嵌入模型文件不存在: " + embeddingModel);
+                                LogManager.logE(TAG, "嵌入模型文件不存在: " + embeddingModel);
                                 return null; // 直接返回null，让调用者处理模型不存在的情况
                             }
                         }
                     }
                 }
             } catch (Exception e) {
-                Log.e(TAG, "读取SQLite数据库失败", e);
+                LogManager.logE(TAG, "读取SQLite数据库失败", e);
             } finally {
                 if (vectorDb != null) {
                     try {
                         vectorDb.close();
                     } catch (Exception e) {
-                        Log.e(TAG, "关闭SQLite数据库失败", e);
+                        LogManager.logE(TAG, "关闭SQLite数据库失败", e);
                     }
                 }
             }
@@ -545,14 +545,14 @@ public class ConfigManager {
         // 如果无法从SQLite数据库中获取，尝试从metadata.json文件中读取
         File jsonMetadataFile = new File(knowledgeBaseDir, "metadata.json");
         if (jsonMetadataFile.exists()) {
-            Log.d(TAG, "找到metadata.json文件，尝试读取嵌入模型信息");
+            LogManager.logD(TAG, "找到metadata.json文件，尝试读取嵌入模型信息");
             try {
                 String jsonContent = FileUtil.readFile(jsonMetadataFile);
                 if (jsonContent != null && !jsonContent.isEmpty()) {
                     JSONObject metadata = new JSONObject(jsonContent);
                     if (metadata.has("embeddingModel")) {
                         String embeddingModel = metadata.getString("embeddingModel");
-                        Log.d(TAG, "从metadata.json中读取到嵌入模型: " + embeddingModel);
+                        LogManager.logD(TAG, "从metadata.json中读取到嵌入模型: " + embeddingModel);
                         
                         if (embeddingModel != null && !embeddingModel.isEmpty()) {
                             // 获取设置中的嵌入模型路径
@@ -563,34 +563,34 @@ public class ConfigManager {
                             if (!modelFile.exists()) {
                                 // 尝试在设置的嵌入模型路径中查找
                                 modelFile = new File(embeddingModelPath, embeddingModel);
-                                Log.d(TAG, "尝试在设置的嵌入模型路径中查找: " + modelFile.getAbsolutePath());
+                                LogManager.logD(TAG, "尝试在设置的嵌入模型路径中查找: " + modelFile.getAbsolutePath());
                             }
                             
                             if (modelFile.exists()) {
-                                Log.d(TAG, "找到嵌入模型文件: " + modelFile.getAbsolutePath());
+                                LogManager.logD(TAG, "找到嵌入模型文件: " + modelFile.getAbsolutePath());
                                 return modelFile.getAbsolutePath();
                             } else {
-                                Log.e(TAG, "嵌入模型文件不存在: " + embeddingModel);
+                                LogManager.logE(TAG, "嵌入模型文件不存在: " + embeddingModel);
                                 return null; // 直接返回null，让调用者处理模型不存在的情况
                             }
                         }
                     }
                 }
             } catch (Exception e) {
-                Log.e(TAG, "读取metadata.json文件失败", e);
+                LogManager.logE(TAG, "读取metadata.json文件失败", e);
             }
         }
         
         // 兼容旧版本：如果无法从SQLite数据库和metadata.json中获取，尝试从metadata.dat文件中读取
         File metadataFile = new File(knowledgeBaseDir, "metadata.dat");
         if (metadataFile.exists()) {
-            Log.d(TAG, "找到metadata.dat文件，尝试读取嵌入模型信息（兼容旧版本）");
+            LogManager.logD(TAG, "找到metadata.dat文件，尝试读取嵌入模型信息（兼容旧版本）");
             try (ObjectInputStream ois = new ObjectInputStream(new FileInputStream(metadataFile))) {
                 Object obj = ois.readObject();
                 if (obj instanceof VectorDatabaseHandler.DatabaseMetadata) {
                     VectorDatabaseHandler.DatabaseMetadata metadata = (VectorDatabaseHandler.DatabaseMetadata) obj;
                     String embeddingModel = metadata.getEmbeddingModel();
-                    Log.d(TAG, "从metadata.dat中读取到嵌入模型: " + embeddingModel);
+                    LogManager.logD(TAG, "从metadata.dat中读取到嵌入模型: " + embeddingModel);
                     
                     if (embeddingModel != null && !embeddingModel.isEmpty()) {
                         // 获取设置中的嵌入模型路径
@@ -601,33 +601,33 @@ public class ConfigManager {
                         if (!modelFile.exists()) {
                             // 尝试在设置的嵌入模型路径中查找
                             modelFile = new File(embeddingModelPath, embeddingModel);
-                            Log.d(TAG, "尝试在设置的嵌入模型路径中查找: " + modelFile.getAbsolutePath());
+                            LogManager.logD(TAG, "尝试在设置的嵌入模型路径中查找: " + modelFile.getAbsolutePath());
                         }
                         
                         if (modelFile.exists()) {
-                            Log.d(TAG, "找到嵌入模型文件: " + modelFile.getAbsolutePath());
+                            LogManager.logD(TAG, "找到嵌入模型文件: " + modelFile.getAbsolutePath());
                             return modelFile.getAbsolutePath();
                         } else {
-                            Log.e(TAG, "嵌入模型文件不存在: " + embeddingModel);
+                            LogManager.logE(TAG, "嵌入模型文件不存在: " + embeddingModel);
                             return null; // 直接返回null，让调用者处理模型不存在的情况
                         }
                     }
                 }
             } catch (IOException | ClassNotFoundException e) {
-                Log.e(TAG, "读取metadata.dat文件失败", e);
+                LogManager.logE(TAG, "读取metadata.dat文件失败", e);
             }
         } else {
-            Log.d(TAG, "metadata.dat文件不存在（这是正常的，使用新版本数据库格式）");
+            LogManager.logD(TAG, "metadata.dat文件不存在（这是正常的，使用新版本数据库格式）");
         }
         
         // 如果无法从元数据中获取，尝试查找知识库目录中的任何嵌入模型文件
-        Log.d(TAG, "尝试在知识库目录中查找嵌入模型文件");
+        LogManager.logD(TAG, "尝试在知识库目录中查找嵌入模型文件");
         try {
             File[] files = knowledgeBaseDir.listFiles();
             if (files != null) {
                 for (File file : files) {
                     if (file.isFile() && file.getName().toLowerCase().contains("embedding")) {
-                        Log.d(TAG, "找到可能的嵌入模型文件: " + file.getAbsolutePath());
+                        LogManager.logD(TAG, "找到可能的嵌入模型文件: " + file.getAbsolutePath());
                         return file.getAbsolutePath();
                     }
                 }
@@ -636,17 +636,17 @@ public class ConfigManager {
                 for (File file : files) {
                     String name = file.getName().toLowerCase();
                     if (file.isFile() && (name.endsWith(".pt") || name.endsWith(".pth") || name.endsWith(".onnx"))) {
-                        Log.d(TAG, "找到可能的模型文件: " + file.getAbsolutePath());
+                        LogManager.logD(TAG, "找到可能的模型文件: " + file.getAbsolutePath());
                         return file.getAbsolutePath();
                     }
                 }
             }
         } catch (Exception e) {
-            Log.e(TAG, "搜索嵌入模型文件时出错", e);
+            LogManager.logE(TAG, "搜索嵌入模型文件时出错", e);
         }
         
         // 不再尝试在设置的嵌入模型路径中查找默认模型，直接返回null
-        Log.e(TAG, "无法找到任何可用的嵌入模型");
+        LogManager.logE(TAG, "无法找到任何可用的嵌入模型");
         return null;
     }
 
@@ -672,7 +672,7 @@ public class ConfigManager {
             apiKeys.put(apiUrl, apiKey);
             saveConfig(context, config);
         } catch (JSONException e) {
-            Log.e(TAG, "保存API Key映射失败", e);
+            LogManager.logE(TAG, "保存API Key映射失败", e);
         }
     }
 
@@ -690,7 +690,7 @@ public class ConfigManager {
                 return apiKeys.optString(apiUrl, "");
             }
         } catch (JSONException e) {
-            Log.e(TAG, "获取API Key映射失败", e);
+            LogManager.logE(TAG, "获取API Key映射失败", e);
         }
         return "";
     }
@@ -714,7 +714,7 @@ public class ConfigManager {
                 }
             }
         } catch (JSONException e) {
-            Log.e(TAG, "获取系统提示词列表失败", e);
+            LogManager.logE(TAG, "获取系统提示词列表失败", e);
         }
         
         return prompts;
@@ -742,7 +742,7 @@ public class ConfigManager {
             prompts.put(name, prompt);
             saveConfig(context, config);
         } catch (JSONException e) {
-            Log.e(TAG, "保存系统提示词失败", e);
+            LogManager.logE(TAG, "保存系统提示词失败", e);
         }
     }
 
@@ -857,7 +857,7 @@ public class ConfigManager {
             config.put(key, value);
             saveConfig(context, config);
         } catch (JSONException e) {
-            Log.e(TAG, "设置字符串配置失败: " + key, e);
+            LogManager.logE(TAG, "设置字符串配置失败: " + key, e);
         }
     }
     
@@ -927,7 +927,7 @@ public class ConfigManager {
             config.put(key, value);
             saveConfig(context, config);
         } catch (JSONException e) {
-            Log.e(TAG, "设置整数配置失败: " + key, e);
+            LogManager.logE(TAG, "设置整数配置失败: " + key, e);
         }
     }
 
@@ -943,7 +943,7 @@ public class ConfigManager {
             config.put(key, value);
             saveConfig(context, config);
         } catch (JSONException e) {
-            Log.e(TAG, "设置布尔值配置失败: " + key, e);
+            LogManager.logE(TAG, "设置布尔值配置失败: " + key, e);
         }
     }
 
@@ -973,9 +973,9 @@ public class ConfigManager {
             // 保存配置
             saveConfig(context, config);
             
-            Log.d(TAG, "保存API Key: " + apiUrl + " -> " + maskApiKey(apiKey));
+            LogManager.logD(TAG, "保存API Key: " + apiUrl + " -> " + maskApiKey(apiKey));
         } catch (Exception e) {
-            Log.e(TAG, "保存API Key失败", e);
+            LogManager.logE(TAG, "保存API Key失败", e);
         }
     }
     
@@ -996,14 +996,14 @@ public class ConfigManager {
             // 获取API Key
             if (apiKeys.has(apiUrl)) {
                 String apiKey = apiKeys.getString(apiUrl);
-                Log.d(TAG, "获取API Key: " + apiUrl + " -> " + maskApiKey(apiKey));
+                LogManager.logD(TAG, "获取API Key: " + apiUrl + " -> " + maskApiKey(apiKey));
                 return apiKey;
             }
             
-            Log.d(TAG, "未找到API Key: " + apiUrl);
+            LogManager.logD(TAG, "未找到API Key: " + apiUrl);
             return "";
         } catch (JSONException e) {
-            Log.e(TAG, "获取API Key失败", e);
+            LogManager.logE(TAG, "获取API Key失败", e);
             return "";
         }
     }
@@ -1044,7 +1044,7 @@ public class ConfigManager {
                 }
             }
         } catch (JSONException e) {
-            Log.e(TAG, "获取系统提示词列表失败", e);
+            LogManager.logE(TAG, "获取系统提示词列表失败", e);
         }
         
         return prompts;
@@ -1070,20 +1070,20 @@ public class ConfigManager {
             for (String key : requiredKeys) {
                 if (!config.has(key)) {
                     config.put(key, defaultConfig.get(key));
-                    Log.d(TAG, "添加缺失的配置项: " + key);
+                    LogManager.logD(TAG, "添加缺失的配置项: " + key);
                 }
             }
             
             // 确保有API Keys
             if (!config.has("api_keys")) {
                 config.put("api_keys", defaultConfig.getJSONObject("api_keys"));
-                Log.d(TAG, "添加缺失的API Keys");
+                LogManager.logD(TAG, "添加缺失的API Keys");
             }
             
             // 确保有系统提示词（一级项）
             if (!config.has(KEY_SYSTEM_PROMPT)) {
                 config.put(KEY_SYSTEM_PROMPT, defaultConfig.getString(KEY_SYSTEM_PROMPT));
-                Log.d(TAG, "添加缺失的系统提示词");
+                LogManager.logD(TAG, "添加缺失的系统提示词");
             }
             
             // 如果存在旧的系统提示词格式（多级项），则迁移到新格式
@@ -1092,20 +1092,20 @@ public class ConfigManager {
                     JSONObject systemPrompts = config.getJSONObject("system_prompts");
                     if (systemPrompts.has("default") && !config.has(KEY_SYSTEM_PROMPT)) {
                         config.put(KEY_SYSTEM_PROMPT, systemPrompts.getString("default"));
-                        Log.d(TAG, "从多级项迁移系统提示词到一级项");
+                        LogManager.logD(TAG, "从多级项迁移系统提示词到一级项");
                     }
                     // 移除旧的多级项
                     config.remove("system_prompts");
-                    Log.d(TAG, "移除旧的系统提示词多级项");
+                    LogManager.logD(TAG, "移除旧的系统提示词多级项");
                 } catch (JSONException e) {
                     // 忽略错误，继续使用新格式
-                    Log.d(TAG, "处理旧系统提示词格式时出错，使用新格式");
+                    LogManager.logD(TAG, "处理旧系统提示词格式时出错，使用新格式");
                 }
             }
             
             return config;
         } catch (JSONException e) {
-            Log.e(TAG, "清理配置失败", e);
+            LogManager.logE(TAG, "清理配置失败", e);
             return config;
         }
     }
@@ -1133,10 +1133,10 @@ public class ConfigManager {
                 
                 // 保存配置
                 saveConfig(context, config);
-                Log.d(TAG, "已初始化默认API Keys");
+                LogManager.logD(TAG, "已初始化默认API Keys");
             }
         } catch (Exception e) {
-            Log.e(TAG, "初始化默认API Keys失败", e);
+            LogManager.logE(TAG, "初始化默认API Keys失败", e);
         }
     }
     
@@ -1161,10 +1161,10 @@ public class ConfigManager {
                 }
             }
             
-            Log.d(TAG, "获取所有API Keys: " + apiKeys.size() + "个");
+            LogManager.logD(TAG, "获取所有API Keys: " + apiKeys.size() + "个");
             return apiKeys;
         } catch (JSONException e) {
-            Log.e(TAG, "获取所有API Keys失败", e);
+            LogManager.logE(TAG, "获取所有API Keys失败", e);
             return apiKeys;
         }
     }
@@ -1194,10 +1194,10 @@ public class ConfigManager {
             String[] apiUrls = new String[apiUrlsList.size()];
             apiUrlsList.toArray(apiUrls);
             
-            Log.d(TAG, "获取所有API URLs: " + apiUrlsList.size() + "个");
+            LogManager.logD(TAG, "获取所有API URLs: " + apiUrlsList.size() + "个");
             return apiUrls;
         } catch (JSONException e) {
-            Log.e(TAG, "获取API URLs失败", e);
+            LogManager.logE(TAG, "获取API URLs失败", e);
             return new String[0];
         }
     }
@@ -1222,9 +1222,9 @@ public class ConfigManager {
             // 保存配置
             saveConfig(context, config);
             
-            Log.d(TAG, "添加新的API URL: " + apiUrl);
+            LogManager.logD(TAG, "添加新的API URL: " + apiUrl);
         } catch (JSONException e) {
-            Log.e(TAG, "添加API URL失败", e);
+            LogManager.logE(TAG, "添加API URL失败", e);
         }
     }
 
@@ -1244,13 +1244,13 @@ public class ConfigManager {
             // 删除API URL
             if (apiKeys.has(apiUrl)) {
                 apiKeys.remove(apiUrl);
-                Log.d(TAG, "删除API URL: " + apiUrl);
+                LogManager.logD(TAG, "删除API URL: " + apiUrl);
                 
                 // 保存配置
                 saveConfig(context, config);
             }
         } catch (JSONException e) {
-            Log.e(TAG, "删除API URL失败: " + apiUrl, e);
+            LogManager.logE(TAG, "删除API URL失败: " + apiUrl, e);
         }
     }
 
@@ -1268,7 +1268,7 @@ public class ConfigManager {
                 return (float)config.getDouble(key);
             }
         } catch (JSONException e) {
-            Log.e(TAG, "获取浮点数配置失败: " + key, e);
+            LogManager.logE(TAG, "获取浮点数配置失败: " + key, e);
         }
         return defaultValue;
     }
@@ -1285,7 +1285,7 @@ public class ConfigManager {
             config.put(key, value);
             saveConfig(context, config);
         } catch (JSONException e) {
-            Log.e(TAG, "设置浮点数配置失败: " + key, e);
+            LogManager.logE(TAG, "设置浮点数配置失败: " + key, e);
         }
     }
 
@@ -1300,9 +1300,9 @@ public class ConfigManager {
             JSONObject config = loadConfig(context);
             config.put(key, value);
             saveConfig(context, config);
-            Log.d(TAG, "设置模型映射配置: " + key + " = " + value);
+            LogManager.logD(TAG, "设置模型映射配置: " + key + " = " + value);
         } catch (Exception e) {
-            Log.e(TAG, "设置模型映射配置失败: " + key, e);
+            LogManager.logE(TAG, "设置模型映射配置失败: " + key, e);
         }
     }
     
@@ -1324,7 +1324,7 @@ public class ConfigManager {
             }
             return defaultValue;
         } catch (Exception e) {
-            Log.e(TAG, "获取模型映射配置失败: " + key, e);
+            LogManager.logE(TAG, "获取模型映射配置失败: " + key, e);
             return defaultValue;
         }
     }
@@ -1446,10 +1446,10 @@ public class ConfigManager {
             config.put(KEY_NOTE_CONTENT_TEXT_SIZE, DEFAULT_TEXT_SIZE);
             config.put(KEY_LOG_CONTENT_TEXT_SIZE, DEFAULT_TEXT_SIZE);
             
-            Log.d(TAG, "创建默认配置: " + config.toString(2));
+            LogManager.logD(TAG, "创建默认配置: " + config.toString(2));
             return config;
         } catch (JSONException e) {
-            Log.e(TAG, "创建默认配置失败", e);
+            LogManager.logE(TAG, "创建默认配置失败", e);
             return new JSONObject();
         }
     }

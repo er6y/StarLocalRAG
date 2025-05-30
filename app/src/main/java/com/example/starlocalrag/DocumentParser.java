@@ -73,7 +73,7 @@ public class DocumentParser {
         // 设置ZIP文件的最小膨胀比例，解决Office文档中的ZIP炸弹检测问题
         // 默认值是0.01，降低到0.001允许更高的压缩比
         ZipSecureFile.setMinInflateRatio(0.001);
-        Log.d(TAG, "已设置ZipSecureFile的最小膨胀比例为0.001");
+        LogManager.logD(TAG, "已设置ZipSecureFile的最小膨胀比例为0.001");
     }
     
     /**
@@ -85,7 +85,7 @@ public class DocumentParser {
         try {
             String mimeType = detectMimeType(uri);
             String fileName = getFileName(uri);
-            Log.d(TAG, "文件类型: " + mimeType + ", 文件名: " + fileName);
+            LogManager.logD(TAG, "文件类型: " + mimeType + ", 文件名: " + fileName);
             
             // 根据文件类型选择合适的解析方法
             if (isOfficeDocument(fileName) || mimeType.contains("officedocument") || mimeType.contains("msword") || 
@@ -93,7 +93,7 @@ public class DocumentParser {
                 try {
                     return extractFromOfficeDocument(uri, fileName);
                 } catch (Exception e) {
-                    Log.e(TAG, "Office文档处理失败，尝试使用Tika: " + e.getMessage(), e);
+                    LogManager.logE(TAG, "Office文档处理失败，尝试使用Tika: " + e.getMessage(), e);
                     // 使用Tika作为备用方法
                     try (InputStream inputStream = context.getContentResolver().openInputStream(uri)) {
                         if (inputStream != null) {
@@ -110,7 +110,7 @@ public class DocumentParser {
                 return extractFromTextFile(uri);
             }
         } catch (Exception e) {
-            Log.e(TAG, "提取文本失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "提取文本失败: " + e.getMessage(), e);
             return "【文本提取失败】" + e.getMessage();
         }
     }
@@ -121,13 +121,13 @@ public class DocumentParser {
     private String detectMimeType(Uri uri) {
         try (InputStream inputStream = context.getContentResolver().openInputStream(uri)) {
             if (inputStream == null) {
-                Log.e(TAG, "无法打开文件流");
+                LogManager.logE(TAG, "无法打开文件流");
                 return getMimeType(uri); // 回退到Android系统的MIME类型检测
             }
             
             return tika.detect(inputStream);
         } catch (Exception e) {
-            Log.e(TAG, "Tika检测MIME类型失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "Tika检测MIME类型失败: " + e.getMessage(), e);
             return getMimeType(uri); // 回退到Android系统的MIME类型检测
         }
     }
@@ -193,7 +193,7 @@ public class DocumentParser {
             // 首先尝试使用Tika检测实际的文件类型，避免仅依赖文件扩展名
             try {
                 String detectedType = tika.detect(inputStream);
-                Log.d(TAG, "Tika检测到的文件类型: " + detectedType);
+                LogManager.logD(TAG, "Tika检测到的文件类型: " + detectedType);
                 
                 // 如果检测到的类型与扩展名不匹配，记录警告
                 if (!detectedType.contains("officedocument") && 
@@ -203,7 +203,7 @@ public class DocumentParser {
                     !detectedType.contains("application/vnd.ms-") &&
                     !detectedType.equals("application/octet-stream")) {
                     
-                    Log.w(TAG, "文件扩展名与实际内容类型不匹配: 扩展名表明是Office文档，但实际类型是 " + detectedType);
+                    LogManager.logW(TAG, "文件扩展名与实际内容类型不匹配: 扩展名表明是Office文档，但实际类型是 " + detectedType);
                     
                     // 如果是文本类型，直接使用Tika解析
                     if (detectedType.contains("text/") || 
@@ -229,7 +229,7 @@ public class DocumentParser {
                     throw new Exception("无法重新打开文件流");
                 }
             } catch (Exception e) {
-                Log.e(TAG, "使用Tika检测文件类型失败: " + e.getMessage());
+                LogManager.logE(TAG, "使用Tika检测文件类型失败: " + e.getMessage());
                 // 重置流
                 inputStream.close();
                 inputStream = context.getContentResolver().openInputStream(uri);
@@ -278,7 +278,7 @@ public class DocumentParser {
                                                 rowText.append(cellValue).append("\t");
                                             }
                                         } catch (Exception e) {
-                                            Log.e(TAG, "提取单元格内容失败: " + e.getMessage());
+                                            LogManager.logE(TAG, "提取单元格内容失败: " + e.getMessage());
                                         }
                                     }
                                 }
@@ -292,7 +292,7 @@ public class DocumentParser {
                     workbook.close();
                 } catch (Exception e) {
                     // 如果POI处理失败，回退到使用Tika
-                    Log.e(TAG, "使用POI处理XLS文件失败，回退到使用Tika: " + e.getMessage());
+                    LogManager.logE(TAG, "使用POI处理XLS文件失败，回退到使用Tika: " + e.getMessage());
                     inputStream.close();
                     inputStream = context.getContentResolver().openInputStream(uri);
                     if (inputStream == null) {
@@ -330,7 +330,7 @@ public class DocumentParser {
                                                 rowText.append(cellValue).append("\t");
                                             }
                                         } catch (Exception e) {
-                                            Log.e(TAG, "提取单元格内容失败: " + e.getMessage());
+                                            LogManager.logE(TAG, "提取单元格内容失败: " + e.getMessage());
                                         }
                                     }
                                 }
@@ -344,7 +344,7 @@ public class DocumentParser {
                     workbook.close();
                 } catch (Exception e) {
                     // 如果POI处理失败，回退到使用Tika
-                    Log.e(TAG, "使用POI处理XLSX文件失败，回退到使用Tika: " + e.getMessage());
+                    LogManager.logE(TAG, "使用POI处理XLSX文件失败，回退到使用Tika: " + e.getMessage());
                     inputStream.close();
                     inputStream = context.getContentResolver().openInputStream(uri);
                     if (inputStream == null) {
@@ -360,7 +360,7 @@ public class DocumentParser {
                 try {
                     if (lowerCase.endsWith(".ppt")) {
                         // 处理PPT文件
-                        Log.d(TAG, "使用HSLFSlideShow处理PPT文件: " + fileName);
+                        LogManager.logD(TAG, "使用HSLFSlideShow处理PPT文件: " + fileName);
                         HSLFSlideShowImpl slideShow = new HSLFSlideShowImpl(inputStream);
                         HSLFSlideShow ppt = new HSLFSlideShow(slideShow);
                         
@@ -385,7 +385,7 @@ public class DocumentParser {
                         ppt.close();
                     } else {
                         // 处理PPTX文件
-                        Log.d(TAG, "使用XMLSlideShow处理PPTX文件: " + fileName);
+                        LogManager.logD(TAG, "使用XMLSlideShow处理PPTX文件: " + fileName);
                         XMLSlideShow pptx = new XMLSlideShow(inputStream);
                         
                         // 提取每张幻灯片的文本
@@ -405,7 +405,7 @@ public class DocumentParser {
                                             continue; // 如果成功提取，则跳过其他方法
                                         }
                                     } catch (Exception e) {
-                                        Log.d(TAG, "直接从幻灯片XML提取文本失败，尝试其他方法: " + e.getMessage());
+                                        LogManager.logD(TAG, "直接从幻灯片XML提取文本失败，尝试其他方法: " + e.getMessage());
                                     }
                                     
                                     // 方法2：使用安全的方式获取形状
@@ -413,7 +413,7 @@ public class DocumentParser {
                                     try {
                                         shapes = slide.getShapes();
                                     } catch (VerifyError | NoClassDefFoundError | UnsatisfiedLinkError ve) {
-                                        Log.e(TAG, "获取幻灯片形状时出现错误，尝试备用方法: " + ve.getMessage());
+                                        LogManager.logE(TAG, "获取幻灯片形状时出现错误，尝试备用方法: " + ve.getMessage());
                                         // 无法获取形状，跳过形状处理
                                         shapes = null;
                                     }
@@ -432,24 +432,24 @@ public class DocumentParser {
                                     }
                                 } catch (VerifyError ve) {
                                     // 捕获VerifyError，这可能是由于Android平台不支持某些Java AWT类引起的
-                                    Log.e(TAG, "处理幻灯片形状时出现VerifyError: " + ve.getMessage(), ve);
+                                    LogManager.logE(TAG, "处理幻灯片形状时出现VerifyError: " + ve.getMessage(), ve);
                                     text.append("无法提取此幻灯片中的所有内容，可能包含不支持的元素。\n");
                                 } catch (NoClassDefFoundError ncdfe) {
                                     // 捕获NoClassDefFoundError，这可能是由于类加载问题引起的
-                                    Log.e(TAG, "处理幻灯片形状时出现NoClassDefFoundError: " + ncdfe.getMessage(), ncdfe);
+                                    LogManager.logE(TAG, "处理幻灯片形状时出现NoClassDefFoundError: " + ncdfe.getMessage(), ncdfe);
                                     text.append("无法提取此幻灯片中的所有内容，可能包含不支持的元素。\n");
                                 } catch (UnsatisfiedLinkError ule) {
                                     // 捕获UnsatisfiedLinkError，这可能是由于本地库问题引起的
-                                    Log.e(TAG, "处理幻灯片形状时出现UnsatisfiedLinkError: " + ule.getMessage(), ule);
+                                    LogManager.logE(TAG, "处理幻灯片形状时出现UnsatisfiedLinkError: " + ule.getMessage(), ule);
                                     text.append("无法提取此幻灯片中的所有内容，可能包含不支持的元素。\n");
                                 } catch (Exception e) {
-                                    Log.e(TAG, "处理幻灯片形状时出错: " + e.getMessage(), e);
+                                    LogManager.logE(TAG, "处理幻灯片形状时出错: " + e.getMessage(), e);
                                     text.append("处理此幻灯片时出现错误。\n");
                                 }
                                 
                                 text.append("\n");
                             } catch (Exception e) {
-                                Log.e(TAG, "处理幻灯片 " + (i + 1) + " 时出错: " + e.getMessage(), e);
+                                LogManager.logE(TAG, "处理幻灯片 " + (i + 1) + " 时出错: " + e.getMessage(), e);
                                 text.append("无法提取幻灯片 ").append(i + 1).append(" 的内容\n\n");
                             }
                         }
@@ -457,7 +457,7 @@ public class DocumentParser {
                     }
                 } catch (VerifyError ve) {
                     // 捕获VerifyError，这可能是由于Android平台不支持某些Java AWT类引起的
-                    Log.e(TAG, "处理PPT/PPTX文件时出现VerifyError，回退到使用Tika: " + ve.getMessage(), ve);
+                    LogManager.logE(TAG, "处理PPT/PPTX文件时出现VerifyError，回退到使用Tika: " + ve.getMessage(), ve);
                     // 回退到使用Tika
                     inputStream.close();
                     inputStream = context.getContentResolver().openInputStream(uri);
@@ -466,12 +466,12 @@ public class DocumentParser {
                     }
                     
                     // 使用Tika尝试提取文本
-                    Log.d(TAG, "回退使用Tika解析PPT/PPTX文件: " + fileName);
+                    LogManager.logD(TAG, "回退使用Tika解析PPT/PPTX文件: " + fileName);
                     String tikaText = tika.parseToString(inputStream);
                     text.append(tikaText);
                 } catch (Exception e) {
                     // 如果POI处理失败，回退到使用Tika
-                    Log.e(TAG, "使用POI处理PPT/PPTX文件失败，回退到使用Tika: " + e.getMessage(), e);
+                    LogManager.logE(TAG, "使用POI处理PPT/PPTX文件失败，回退到使用Tika: " + e.getMessage(), e);
                     inputStream.close();
                     inputStream = context.getContentResolver().openInputStream(uri);
                     if (inputStream == null) {
@@ -498,14 +498,14 @@ public class DocumentParser {
             // 将提取的文本保存到临时文件
             String cleanedText = cleanText(text.toString());
             File tempFile = saveToTempFile(cleanedText, fileName);
-            Log.d(TAG, "已将Office文档内容保存到临时文件: " + tempFile.getAbsolutePath());
+            LogManager.logD(TAG, "已将Office文档内容保存到临时文件: " + tempFile.getAbsolutePath());
             
             return cleanedText;
         } finally {
             try {
                 inputStream.close();
             } catch (Exception e) {
-                Log.e(TAG, "关闭输入流失败", e);
+                LogManager.logE(TAG, "关闭输入流失败", e);
             }
         }
     }
@@ -535,14 +535,14 @@ public class DocumentParser {
             
             // 将提取的文本保存到临时文件
             File tempFile = saveToTempFile(cleanedText, "pdf_extract.txt");
-            Log.d(TAG, "已将PDF文档内容保存到临时文件: " + tempFile.getAbsolutePath());
+            LogManager.logD(TAG, "已将PDF文档内容保存到临时文件: " + tempFile.getAbsolutePath());
             
             return cleanedText;
         } finally {
             try {
                 inputStream.close();
             } catch (Exception e) {
-                Log.e(TAG, "关闭输入流失败", e);
+                LogManager.logE(TAG, "关闭输入流失败", e);
             }
         }
     }
@@ -571,7 +571,7 @@ public class DocumentParser {
             try {
                 inputStream.close();
             } catch (Exception e) {
-                Log.e(TAG, "关闭输入流失败", e);
+                LogManager.logE(TAG, "关闭输入流失败", e);
             }
         }
     }
@@ -663,7 +663,7 @@ public class DocumentParser {
                             text.append(shapeText).append("\n");
                         }
                     } catch (VerifyError | NoClassDefFoundError | UnsatisfiedLinkError e) {
-                        Log.e(TAG, "处理文本形状时出错: " + e.getMessage());
+                        LogManager.logE(TAG, "处理文本形状时出错: " + e.getMessage());
                     }
                 }
                 // 处理组形状，使用反射检查和处理
@@ -671,14 +671,15 @@ public class DocumentParser {
                     try {
                         // 使用反射获取子形状
                         Method getShapesMethod = shape.getClass().getMethod("getShapes");
+                        @SuppressWarnings("unchecked")
                         List<XSLFShape> childShapes = (List<XSLFShape>) getShapesMethod.invoke(shape);
                         if (childShapes != null && !childShapes.isEmpty()) {
                             processShapesSafely(childShapes, text);
                         }
                     } catch (VerifyError | NoClassDefFoundError | UnsatisfiedLinkError e) {
-                        Log.e(TAG, "处理组形状时出错: " + e.getMessage());
+                        LogManager.logE(TAG, "处理组形状时出错: " + e.getMessage());
                     } catch (Exception e) {
-                        Log.e(TAG, "通过反射处理组形状时出错: " + e.getMessage());
+                        LogManager.logE(TAG, "通过反射处理组形状时出错: " + e.getMessage());
                     }
                 }
                 // 处理表格形状
@@ -693,11 +694,11 @@ public class DocumentParser {
                             }
                         }
                     } catch (Exception e) {
-                        Log.e(TAG, "处理表格形状时出错: " + e.getMessage());
+                        LogManager.logE(TAG, "处理表格形状时出错: " + e.getMessage());
                     }
                 }
             } catch (Exception e) {
-                Log.e(TAG, "处理形状时出现未知错误: " + e.getMessage());
+                LogManager.logE(TAG, "处理形状时出现未知错误: " + e.getMessage());
             }
         }
     }
@@ -729,7 +730,7 @@ public class DocumentParser {
                 return extractedText.toString();
             }
         } catch (Exception e) {
-            Log.e(TAG, "直接从XML提取文本时出错: " + e.getMessage());
+            LogManager.logE(TAG, "直接从XML提取文本时出错: " + e.getMessage());
         }
         return null;
     }
@@ -756,7 +757,7 @@ public class DocumentParser {
                     }
                 }
             } catch (Exception e) {
-                Log.d(TAG, "获取幻灯片注释失败: " + e.getMessage());
+                LogManager.logD(TAG, "获取幻灯片注释失败: " + e.getMessage());
             }
             
             // 尝试获取幻灯片标题
@@ -767,12 +768,12 @@ public class DocumentParser {
                     extractedText.append("标题: ").append(title).append("\n");
                 }
             } catch (Exception e) {
-                Log.d(TAG, "获取幻灯片标题失败: " + e.getMessage());
+                LogManager.logD(TAG, "获取幻灯片标题失败: " + e.getMessage());
             }
             
             return extractedText.toString();
         } catch (Exception e) {
-            Log.e(TAG, "使用反射提取文本时出错: " + e.getMessage());
+            LogManager.logE(TAG, "使用反射提取文本时出错: " + e.getMessage());
             return null;
         }
     }

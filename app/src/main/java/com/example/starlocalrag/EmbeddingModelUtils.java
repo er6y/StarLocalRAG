@@ -45,7 +45,7 @@ public class EmbeddingModelUtils {
         
         // 检查元数据中是否有modeldir配置
         String modeldir = vectorDb.getMetadata().getModeldir();
-        Log.d(TAG, "元数据中的modeldir: " + (modeldir != null ? modeldir : "null"));
+        LogManager.logD(TAG, "元数据中的modeldir: " + (modeldir != null ? modeldir : "null"));
         
         if (modeldir != null && !modeldir.isEmpty()) {
             // 使用modeldir指定的目录
@@ -57,22 +57,22 @@ public class EmbeddingModelUtils {
                     for (File file : files) {
                         if (file.isFile() && isModelFile(file)) {
                             modelPath = file.getAbsolutePath();
-                            Log.d(TAG, "使用modeldir中的模型: " + modelPath);
+                            LogManager.logD(TAG, "使用modeldir中的模型: " + modelPath);
                             break;
                         }
                     }
                 }
                 
                 if (modelPath == null) {
-                    Log.d(TAG, "在指定的modeldir中未找到模型文件: " + modeldirFile.getAbsolutePath());
+                    LogManager.logD(TAG, "在指定的modeldir中未找到模型文件: " + modeldirFile.getAbsolutePath());
                     needModelSelection = true;
                 }
             } else {
-                Log.d(TAG, "指定的modeldir不存在或不是目录: " + modeldirFile.getAbsolutePath());
+                LogManager.logD(TAG, "指定的modeldir不存在或不是目录: " + modeldirFile.getAbsolutePath());
                 needModelSelection = true;
             }
         } else {
-            Log.d(TAG, "元数据中没有modeldir配置或为空");
+            LogManager.logD(TAG, "元数据中没有modeldir配置或为空");
             needModelSelection = true;
         }
         
@@ -81,14 +81,14 @@ public class EmbeddingModelUtils {
             modelPath = new File(embeddingModelPath, embeddingModel).getAbsolutePath();
             File modelFile = new File(modelPath);
             if (!modelFile.exists()) {
-                Log.d(TAG, "模型文件不存在: " + modelPath);
+                LogManager.logD(TAG, "模型文件不存在: " + modelPath);
                 needModelSelection = true;
             }
         }
 
         // 如果需要选择模型
         if (needModelSelection) {
-            Log.d(TAG, "需要选择模型，将尝试在嵌入模型目录中查找");
+            LogManager.logD(TAG, "需要选择模型，将尝试在嵌入模型目录中查找");
             
             // 尝试在嵌入模型目录中查找模型文件
             File embeddingModelDir = new File(embeddingModelPath);
@@ -117,7 +117,7 @@ public class EmbeddingModelUtils {
                     showModelSelectionDialog(context, embeddingModel, availableModels, embeddingModelPath, vectorDb, modelSelectedCallback);
                     callback.accept(null); // 返回null，表示需要等待用户选择
                 } else {
-                    Log.e(TAG, "在嵌入模型目录中未找到可用的模型文件");
+                    LogManager.logE(TAG, "在嵌入模型目录中未找到可用的模型文件");
                     callback.accept(null); // 返回null，表示没有找到模型
                 }
             } else {
@@ -144,7 +144,7 @@ public class EmbeddingModelUtils {
         Handler mainHandler = new Handler(Looper.getMainLooper());
         mainHandler.post(() -> {
             try {
-                Log.d(TAG, "开始创建模型选择对话框");
+                LogManager.logD(TAG, "开始创建模型选择对话框");
                 long startTime = System.currentTimeMillis();
                 
                 // 使用自定义布局创建对话框
@@ -169,7 +169,7 @@ public class EmbeddingModelUtils {
                     spinnerModels.setSelection(originalModelIndex);
                 }
                 
-                Log.d(TAG, "准备创建对话框，耗时: " + (System.currentTimeMillis() - startTime) + "ms");
+                LogManager.logD(TAG, "准备创建对话框，耗时: " + (System.currentTimeMillis() - startTime) + "ms");
                 
                 // 创建对话框 - 使用原生按钮
                 AlertDialog.Builder builder = new AlertDialog.Builder(context)
@@ -177,30 +177,30 @@ public class EmbeddingModelUtils {
                         .setView(dialogView)
                         .setCancelable(false) // 防止用户通过点击外部或返回键关闭对话框
                         .setPositiveButton("确定", (dialog, which) -> {
-                            Log.d(TAG, "确定按钮被点击");
+                            LogManager.logD(TAG, "确定按钮被点击");
                             long processStartTime = System.currentTimeMillis();
                             
                             String selectedModel = (String) spinnerModels.getSelectedItem();
                             boolean rememberChoice = checkBoxRemember.isChecked();
                             
                             if (selectedModel != null) {
-                                Log.d(TAG, "用户选择了模型: " + selectedModel + ", 记住选择: " + rememberChoice + ", 处理耗时: " + (System.currentTimeMillis() - processStartTime) + "ms");
+                                LogManager.logD(TAG, "用户选择了模型: " + selectedModel + ", 记住选择: " + rememberChoice + ", 处理耗时: " + (System.currentTimeMillis() - processStartTime) + "ms");
                                 
                                 // 在后台线程中处理选定的模型，避免阻塞UI线程
                                 new Thread(() -> {
-                                    Log.d(TAG, "开始在后台线程处理选定的模型");
+                                    LogManager.logD(TAG, "开始在后台线程处理选定的模型");
                                     long threadStartTime = System.currentTimeMillis();
                                     
                                     // 处理选定的模型
                                     processSelectedModel(context, selectedModel, embeddingModelPath, vectorDb, callback);
                                     
-                                    Log.d(TAG, "模型处理完成，耗时: " + (System.currentTimeMillis() - threadStartTime) + "ms");
+                                    LogManager.logD(TAG, "模型处理完成，耗时: " + (System.currentTimeMillis() - threadStartTime) + "ms");
                                 }).start();
                             }
                         })
                         .setNegativeButton("取消", (dialog, which) -> {
-                            Log.d(TAG, "取消按钮被点击");
-                            Log.d(TAG, "用户取消了模型选择");
+                            LogManager.logD(TAG, "取消按钮被点击");
+                            LogManager.logD(TAG, "用户取消了模型选择");
                             
                             // 调用回调函数，传递null表示用户取消了选择
                             if (callback != null) {
@@ -212,9 +212,9 @@ public class EmbeddingModelUtils {
                 AlertDialog dialog = builder.create();
                 dialog.show();
                 
-                Log.d(TAG, "已显示模型选择对话框，总耗时: " + (System.currentTimeMillis() - startTime) + "ms");
+                LogManager.logD(TAG, "已显示模型选择对话框，总耗时: " + (System.currentTimeMillis() - startTime) + "ms");
             } catch (Exception e) {
-                Log.e(TAG, "显示模型选择对话框失败: " + e.getMessage(), e);
+                LogManager.logE(TAG, "显示模型选择对话框失败: " + e.getMessage(), e);
                 // 出错时调用回调函数，传递null表示选择失败
                 if (callback != null) {
                     callback.onModelSelected(null, null);
@@ -248,7 +248,7 @@ public class EmbeddingModelUtils {
                 SQLiteVectorDatabaseHandler.DatabaseMetadata metadata = vectorDb.getMetadata();
                 metadata.setModeldir("");
                 vectorDb.saveDatabase();
-                Log.d(TAG, "已更新元数据，modeldir设置为空（使用根目录）");
+                LogManager.logD(TAG, "已更新元数据，modeldir设置为空（使用根目录）");
             }
         } else {
             // 使用选定的目录
@@ -263,7 +263,7 @@ public class EmbeddingModelUtils {
                     SQLiteVectorDatabaseHandler.DatabaseMetadata metadata = vectorDb.getMetadata();
                     metadata.setModeldir(selectedModel);
                     vectorDb.saveDatabase();
-                    Log.d(TAG, "已更新元数据，modeldir设置为: " + selectedModel);
+                    LogManager.logD(TAG, "已更新元数据，modeldir设置为: " + selectedModel);
                 }
             }
         }
@@ -275,7 +275,7 @@ public class EmbeddingModelUtils {
             // 调用回调函数
             callback.onModelSelected(selectedModel, modelPath);
         } else {
-            Log.e(TAG, "在选定的模型目录中未找到模型文件");
+            LogManager.logE(TAG, "在选定的模型目录中未找到模型文件");
             if (callback != null) {
                 callback.onModelSelected(null, null);
             }

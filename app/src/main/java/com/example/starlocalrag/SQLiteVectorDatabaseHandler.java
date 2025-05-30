@@ -6,6 +6,7 @@ import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
 import android.util.Log;
+import com.example.starlocalrag.LogManager;
 import android.util.Pair;
 
 import org.json.JSONArray;
@@ -209,12 +210,12 @@ public class SQLiteVectorDatabaseHandler {
     private class VectorDatabaseHelper extends SQLiteOpenHelper {
         public VectorDatabaseHelper(Context context, String dbPath) {
             super(context, dbPath, null, DATABASE_VERSION);
-            Log.d(TAG, "初始化VectorDatabaseHelper，数据库路径: " + dbPath);
+            LogManager.logD(TAG, "初始化VectorDatabaseHelper，数据库路径: " + dbPath);
         }
         
         @Override
         public void onCreate(SQLiteDatabase db) {
-            Log.d(TAG, "正在创建数据库表...");
+            LogManager.logD(TAG, "正在创建数据库表...");
             try {
                 // 创建文档表
                 String createTableSql = "CREATE TABLE IF NOT EXISTS " + TABLE_DOCUMENTS + " (" +
@@ -224,22 +225,22 @@ public class SQLiteVectorDatabaseHandler {
                         COLUMN_METADATA + " TEXT, " +
                         COLUMN_EMBEDDING + " BLOB)";
                 db.execSQL(createTableSql);
-                Log.d(TAG, "成功创建数据库表: " + TABLE_DOCUMENTS);
+                LogManager.logD(TAG, "成功创建数据库表: " + TABLE_DOCUMENTS);
             } catch (Exception e) {
-                Log.e(TAG, "创建数据库表失败: " + e.getMessage() + "\n堆栈: " + Log.getStackTraceString(e));
+                LogManager.logE(TAG, "创建数据库表失败: " + e.getMessage() + "\n堆栈: " + Log.getStackTraceString(e));
             }
         }
         
         @Override
         public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
-            Log.d(TAG, "正在升级数据库，旧版本: " + oldVersion + ", 新版本: " + newVersion);
+            LogManager.logD(TAG, "正在升级数据库，旧版本: " + oldVersion + ", 新版本: " + newVersion);
             // 暂时不做任何操作，保留现有数据
         }
         
         @Override
         public void onOpen(SQLiteDatabase db) {
             super.onOpen(db);
-            Log.d(TAG, "数据库已打开，路径: " + db.getPath() + ", 是否只读: " + db.isReadOnly());
+            LogManager.logD(TAG, "数据库已打开，路径: " + db.getPath() + ", 是否只读: " + db.isReadOnly());
         }
     }
     
@@ -298,7 +299,7 @@ public class SQLiteVectorDatabaseHandler {
             saveMetadata();
         }
         
-        Log.d(TAG, "初始化向量数据库，模型: " + embeddingModel + ", 向量维度: " + embeddingDimension);
+        LogManager.logD(TAG, "初始化向量数据库，模型: " + embeddingModel + ", 向量维度: " + embeddingDimension);
     }
     
     /**
@@ -318,11 +319,11 @@ public class SQLiteVectorDatabaseHandler {
      */
     private File getKnowledgeBaseDir(String knowledgeBaseName) {
         if (context == null) {
-            Log.e(TAG, "Context为null，无法获取知识库目录");
+            LogManager.logE(TAG, "Context为null，无法获取知识库目录");
             return null;
         }
         File dir = new File(context.getFilesDir(), "knowledge_bases/" + knowledgeBaseName);
-        Log.d(TAG, "知识库目录路径: " + dir.getAbsolutePath());
+        LogManager.logD(TAG, "知识库目录路径: " + dir.getAbsolutePath());
         return dir;
     }
     
@@ -331,53 +332,75 @@ public class SQLiteVectorDatabaseHandler {
      */
     private void openDatabase() {
         try {
+            // 如果已经有打开的数据库连接，先关闭它
+            if (database != null && database.isOpen()) {
+                LogManager.logI(TAG, "已存在打开的数据库连接，先关闭它");
+                closeDatabase();
+            }
+            
             if (databaseDir == null) {
-                Log.e(TAG, "数据库目录为null，无法打开数据库");
+                LogManager.logE(TAG, "数据库目录为null，无法打开数据库");
                 return;
             }
             
             File dbFile = new File(databaseDir, DB_FILENAME);
             String dbPath = dbFile.getAbsolutePath();
-            Log.i(TAG, "尝试打开数据库文件: " + dbPath + ", 目录是否存在: " + databaseDir.exists() + ", 文件是否存在: " + dbFile.exists());
+            LogManager.logI(TAG, "尝试打开数据库文件: " + dbPath + ", 目录是否存在: " + databaseDir.exists() + ", 文件是否存在: " + dbFile.exists());
             
             // 检查数据库文件大小
             if (dbFile.exists()) {
-                Log.i(TAG, "数据库文件大小: " + dbFile.length() + " 字节");
+                LogManager.logI(TAG, "数据库文件大小: " + dbFile.length() + " 字节");
             }
             
             // 检查数据库文件是否可读
             if (dbFile.exists() && !dbFile.canRead()) {
-                Log.e(TAG, "数据库文件存在但无法读取: " + dbPath);
+                LogManager.logE(TAG, "数据库文件存在但无法读取: " + dbPath);
                 return;
             }
             
             // 使用SQLiteOpenHelper打开数据库
             Context appContext = context != null ? context : GlobalApplication.getAppContext();
             if (appContext == null) {
-                Log.e(TAG, "无法获取应用上下文，无法打开数据库");
+                LogManager.logE(TAG, "无法获取应用上下文，无法打开数据库");
                 return;
             }
             
-            Log.i(TAG, "使用上下文打开数据库: " + appContext.getPackageName());
+            LogManager.logI(TAG, "使用上下文打开数据库: " + appContext.getPackageName());
             VectorDatabaseHelper helper = new VectorDatabaseHelper(appContext, dbPath);
             
             try {
-                Log.i(TAG, "尝试以可写模式打开数据库...");
+                LogManager.logI(TAG, "尝试以可写模式打开数据库...");
                 database = helper.getWritableDatabase();
-                Log.i(TAG, "数据库连接成功: " + dbPath);
+                LogManager.logI(TAG, "数据库连接成功: " + dbPath);
             } catch (Exception e) {
-                Log.e(TAG, "获取可写数据库失败: " + e.getMessage() + "\n堆栈: " + Log.getStackTraceString(e));
+                LogManager.logE(TAG, "获取可写数据库失败: " + e.getMessage() + "\n堆栈: " + Log.getStackTraceString(e));
                 // 尝试只读模式打开
                 try {
-                    Log.i(TAG, "尝试以只读模式打开数据库...");
+                    LogManager.logI(TAG, "尝试以只读模式打开数据库...");
                     database = helper.getReadableDatabase();
-                    Log.i(TAG, "数据库以只读模式连接成功: " + dbPath);
+                    LogManager.logI(TAG, "数据库以只读模式连接成功: " + dbPath);
                 } catch (Exception e2) {
-                    Log.e(TAG, "获取只读数据库也失败: " + e2.getMessage() + "\n堆栈: " + Log.getStackTraceString(e2));
+                    LogManager.logE(TAG, "获取只读数据库也失败: " + e2.getMessage() + "\n堆栈: " + Log.getStackTraceString(e2));
                 }
             }
         } catch (Exception e) {
-            Log.e(TAG, "打开数据库失败: " + e.getMessage() + "\n堆栈: " + Log.getStackTraceString(e));
+            LogManager.logE(TAG, "打开数据库失败: " + e.getMessage() + "\n堆栈: " + Log.getStackTraceString(e));
+        }
+    }
+    
+    /**
+     * 关闭数据库连接
+     */
+    public void closeDatabase() {
+        try {
+            if (database != null && database.isOpen()) {
+                LogManager.logI(TAG, "关闭数据库连接");
+                database.close();
+                database = null;
+                LogManager.logI(TAG, "数据库连接已关闭");
+            }
+        } catch (Exception e) {
+            LogManager.logE(TAG, "关闭数据库失败: " + e.getMessage() + "\n堆栈: " + Log.getStackTraceString(e));
         }
     }
     
@@ -387,7 +410,7 @@ public class SQLiteVectorDatabaseHandler {
     public void close() {
         if (database != null && database.isOpen()) {
             database.close();
-            Log.d(TAG, "数据库连接已关闭");
+            LogManager.logD(TAG, "数据库连接已关闭");
         }
     }
     
@@ -405,7 +428,7 @@ public class SQLiteVectorDatabaseHandler {
      */
     private boolean loadMetadata() {
         if (databaseDir == null) {
-            Log.e(TAG, "数据库目录为null，无法加载元数据");
+            LogManager.logE(TAG, "数据库目录为null，无法加载元数据");
             return false;
         }
         
@@ -413,7 +436,7 @@ public class SQLiteVectorDatabaseHandler {
             // 从metadata.json文件加载元数据
             File metadataFile = new File(databaseDir, METADATA_FILENAME);
             if (!metadataFile.exists()) {
-                Log.d(TAG, "元数据文件不存在，将创建新元数据");
+                LogManager.logD(TAG, "元数据文件不存在，将创建新元数据");
                 return false;
             }
             
@@ -474,7 +497,7 @@ public class SQLiteVectorDatabaseHandler {
                         metadata.creationTimestamp = createdDate.getTime();
                     }
                 } catch (Exception e) {
-                    Log.w(TAG, "解析创建时间失败，使用当前时间: " + e.getMessage());
+                    LogManager.logW(TAG, "解析创建时间失败，使用当前时间: " + e.getMessage());
                     metadata.creationTimestamp = System.currentTimeMillis();
                 }
             } else {
@@ -511,13 +534,13 @@ public class SQLiteVectorDatabaseHandler {
                 }
             }
             
-            Log.d(TAG, "元数据加载成功，嵌入模型: " + metadata.getEmbeddingModel() +
+            LogManager.logD(TAG, "元数据加载成功，嵌入模型: " + metadata.getEmbeddingModel() +
                     ", 维度: " + metadata.getEmbeddingDimension() +
                     ", 文本块数量: " + metadata.getChunkCount());
             
             return true;
         } catch (Exception e) {
-            Log.e(TAG, "加载元数据失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "加载元数据失败: " + e.getMessage(), e);
             return false;
         }
     }
@@ -528,12 +551,12 @@ public class SQLiteVectorDatabaseHandler {
      */
     private boolean saveMetadata() {
         if (databaseDir == null) {
-            Log.e(TAG, "数据库目录为null，无法保存元数据");
+            LogManager.logE(TAG, "数据库目录为null，无法保存元数据");
             return false;
         }
         
         if (metadata == null) {
-            Log.e(TAG, "元数据为null，无法保存");
+            LogManager.logE(TAG, "元数据为null，无法保存");
             return false;
         }
         
@@ -576,10 +599,10 @@ public class SQLiteVectorDatabaseHandler {
                 writer.write(json.toString(4)); // 使用4个空格缩进，美化输出
             }
             
-            Log.d(TAG, "元数据保存成功");
+            LogManager.logD(TAG, "元数据保存成功");
             return true;
         } catch (Exception e) {
-            Log.e(TAG, "保存元数据失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "保存元数据失败: " + e.getMessage(), e);
             return false;
         }
     }
@@ -623,17 +646,17 @@ public class SQLiteVectorDatabaseHandler {
      */
     public boolean addChunk(String text, String source, float[] embedding) {
         if (database == null || !database.isOpen()) {
-            Log.e(TAG, "数据库未打开，无法添加文本块");
+            LogManager.logE(TAG, "数据库未打开，无法添加文本块");
             return false;
         }
         
         if (text == null || text.isEmpty()) {
-            Log.e(TAG, "文本内容为空，无法添加文本块");
+            LogManager.logE(TAG, "文本内容为空，无法添加文本块");
             return false;
         }
         
         if (embedding == null || embedding.length == 0) {
-            Log.e(TAG, "嵌入向量为空，无法添加文本块");
+            LogManager.logE(TAG, "嵌入向量为空，无法添加文本块");
             return false;
         }
         
@@ -660,7 +683,7 @@ public class SQLiteVectorDatabaseHandler {
             long rowId = database.insert(TABLE_DOCUMENTS, null, values);
             
             if (rowId == -1) {
-                Log.e(TAG, "插入文本块失败");
+                LogManager.logE(TAG, "插入文本块失败");
                 return false;
             }
             
@@ -683,10 +706,10 @@ public class SQLiteVectorDatabaseHandler {
             // 提交事务
             database.setTransactionSuccessful();
             
-            Log.d(TAG, "成功添加文本块，ID: " + rowId);
+            LogManager.logD(TAG, "成功添加文本块，ID: " + rowId);
             return true;
         } catch (Exception e) {
-            Log.e(TAG, "添加文本块失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "添加文本块失败: " + e.getMessage(), e);
             return false;
         } finally {
             if (database.inTransaction()) {
@@ -701,42 +724,49 @@ public class SQLiteVectorDatabaseHandler {
      */
     public boolean loadDatabase() {
         if (databaseDir == null) {
-            Log.e(TAG, "数据库目录为null，无法加载数据库");
+            LogManager.logE(TAG, "数据库目录为null，无法加载数据库");
             return false;
         }
         
+        // 如果数据库已经打开且元数据已加载，直接返回成功
+        if (database != null && database.isOpen() && metadata != null) {
+            LogManager.logI(TAG, "数据库已经打开且元数据已加载，无需重新加载");
+            return true;
+        }
+        
         File dbFile = new File(databaseDir, DB_FILENAME);
-        Log.i(TAG, "尝试加载数据库文件: " + dbFile.getAbsolutePath());
+        LogManager.logI(TAG, "尝试加载数据库文件: " + dbFile.getAbsolutePath());
         
         if (!dbFile.exists()) {
-            Log.e(TAG, "数据库文件不存在: " + dbFile.getAbsolutePath());
+            LogManager.logE(TAG, "数据库文件不存在: " + dbFile.getAbsolutePath());
             return false;
         }
         
         // 检查数据库文件大小和权限
-        Log.i(TAG, "数据库文件大小: " + dbFile.length() + " 字节, 可读: " + dbFile.canRead() + ", 可写: " + dbFile.canWrite());
+        LogManager.logI(TAG, "数据库文件大小: " + dbFile.length() + " 字节, 可读: " + dbFile.canRead() + ", 可写: " + dbFile.canWrite());
         
         try {
             // 打开数据库
-            Log.i(TAG, "开始打开数据库连接...");
+            LogManager.logI(TAG, "开始打开数据库连接...");
             openDatabase();
             
             if (database == null || !database.isOpen()) {
-                Log.e(TAG, "数据库打开失败，database对象为null或未打开");
+                LogManager.logE(TAG, "数据库打开失败，database对象为null或未打开");
                 return false;
             }
             
-            Log.i(TAG, "数据库连接成功，database对象: " + database + ", 路径: " + database.getPath() + ", 是否只读: " + database.isReadOnly());
+            LogManager.logI(TAG, "数据库连接成功，database对象: " + database + ", 路径: " + database.getPath() + ", 是否只读: " + database.isReadOnly());
             
             // 加载元数据
-            Log.i(TAG, "开始加载元数据...");
+            LogManager.logI(TAG, "开始加载元数据...");
             if (!loadMetadata()) {
-                Log.e(TAG, "加载元数据失败");
+                LogManager.logE(TAG, "加载元数据失败");
+                closeDatabase(); // 关闭数据库连接
                 return false;
             }
             
             // 检查文档表是否存在
-            Log.i(TAG, "检查文档表是否存在: " + TABLE_DOCUMENTS);
+            LogManager.logI(TAG, "检查文档表是否存在: " + TABLE_DOCUMENTS);
             Cursor cursor = database.rawQuery(
                     "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
                     new String[]{TABLE_DOCUMENTS});
@@ -745,15 +775,16 @@ public class SQLiteVectorDatabaseHandler {
             cursor.close();
             
             if (!tableExists) {
-                Log.e(TAG, "文档表不存在: " + TABLE_DOCUMENTS);
+                LogManager.logE(TAG, "文档表不存在: " + TABLE_DOCUMENTS);
+                closeDatabase(); // 关闭数据库连接
                 return false;
             }
             
-            Log.i(TAG, "文档表存在: " + TABLE_DOCUMENTS);
+            LogManager.logI(TAG, "文档表存在: " + TABLE_DOCUMENTS);
             
             // 检查表结构
             try {
-                Log.i(TAG, "检查表结构...");
+                LogManager.logI(TAG, "检查表结构...");
                 Cursor columnCursor = database.rawQuery("PRAGMA table_info(" + TABLE_DOCUMENTS + ")", null);
                 StringBuilder columnsInfo = new StringBuilder("表结构信息:\n");
                 while (columnCursor.moveToNext()) {
@@ -762,23 +793,24 @@ public class SQLiteVectorDatabaseHandler {
                     columnsInfo.append("列名: ").append(columnName).append(", 类型: ").append(columnType).append("\n");
                 }
                 columnCursor.close();
-                Log.i(TAG, columnsInfo.toString());
+                LogManager.logI(TAG, columnsInfo.toString());
             } catch (Exception e) {
-                Log.w(TAG, "获取表结构信息失败: " + e.getMessage());
+                LogManager.logW(TAG, "获取表结构信息失败: " + e.getMessage());
             }
             
             // 检查文本块数量
-            Log.i(TAG, "检查文本块数量...");
+            LogManager.logI(TAG, "检查文本块数量...");
             cursor = database.rawQuery("SELECT COUNT(*) FROM " + TABLE_DOCUMENTS, null);
             cursor.moveToFirst();
             int count = cursor.getInt(0);
             cursor.close();
             
-            Log.i(TAG, "数据库加载成功，共 " + count + " 个文本块");
+            LogManager.logI(TAG, "数据库加载成功，共 " + count + " 个文本块");
             
             return true;
         } catch (Exception e) {
-            Log.e(TAG, "加载数据库失败: " + e.getMessage() + "\n堆栈: " + Log.getStackTraceString(e));
+            LogManager.logE(TAG, "加载数据库失败: " + e.getMessage() + "\n堆栈: " + Log.getStackTraceString(e));
+            closeDatabase(); // 关闭数据库连接
             return false;
         }
     }
@@ -789,7 +821,7 @@ public class SQLiteVectorDatabaseHandler {
      */
     public int getChunkCount() {
         if (database == null || !database.isOpen()) {
-            Log.e(TAG, "数据库未打开，无法获取文本块数量");
+            LogManager.logE(TAG, "数据库未打开，无法获取文本块数量");
             return 0;
         }
         
@@ -801,7 +833,7 @@ public class SQLiteVectorDatabaseHandler {
             
             return count;
         } catch (Exception e) {
-            Log.e(TAG, "获取文本块数量失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "获取文本块数量失败: " + e.getMessage(), e);
             return 0;
         }
     }
@@ -822,7 +854,7 @@ public class SQLiteVectorDatabaseHandler {
      */
     private float cosineSimilarity(float[] vec1, float[] vec2) {
         if (vec1.length != vec2.length) {
-            Log.e(TAG, "向量维度不匹配: vec1长度=" + vec1.length + ", vec2长度=" + vec2.length);
+            LogManager.logE(TAG, "向量维度不匹配: vec1长度=" + vec1.length + ", vec2长度=" + vec2.length);
             throw new IllegalArgumentException("向量维度不匹配");
         }
         
@@ -837,7 +869,7 @@ public class SQLiteVectorDatabaseHandler {
         }
         
         if (normA <= 1e-6 || normB <= 1e-6) {
-            Log.w(TAG, "向量范数接近零，返回零相似度");
+            LogManager.logW(TAG, "向量范数接近零，返回零相似度");
             return 0;
         }
         
@@ -855,12 +887,12 @@ public class SQLiteVectorDatabaseHandler {
         List<SearchResult> results = new ArrayList<>();
         
         if (database == null || !database.isOpen()) {
-            Log.e(TAG, "数据库未打开，无法搜索");
+            LogManager.logE(TAG, "数据库未打开，无法搜索");
             return results;
         }
         
         if (queryVector == null || queryVector.length == 0) {
-            Log.e(TAG, "查询向量为空，无法搜索");
+            LogManager.logE(TAG, "查询向量为空，无法搜索");
             return results;
         }
         
@@ -885,7 +917,7 @@ public class SQLiteVectorDatabaseHandler {
                 
                 // 检查列索引是否有效
                 if (contentIndex == -1 || metadataIndex == -1 || embeddingIndex == -1) {
-                    Log.e(TAG, "数据库表结构不匹配，缺少必要列");
+                    LogManager.logE(TAG, "数据库表结构不匹配，缺少必要列");
                     continue;
                 }
                 
@@ -901,7 +933,7 @@ public class SQLiteVectorDatabaseHandler {
                         source = metadataObj.getString("source");
                     }
                 } catch (JSONException e) {
-                    Log.w(TAG, "解析元数据失败: " + e.getMessage());
+                    LogManager.logW(TAG, "解析元数据失败: " + e.getMessage());
                 }
                 
                 // 将字节数组转换为浮点数组 - 使用小端序，与PC端保持一致
@@ -925,10 +957,10 @@ public class SQLiteVectorDatabaseHandler {
                 results.add(similarityResults.get(i).second);
             }
             
-            Log.d(TAG, "搜索完成，找到 " + results.size() + " 个相似文本块");
+            LogManager.logD(TAG, "搜索完成，找到 " + results.size() + " 个相似文本块");
             return results;
         } catch (Exception e) {
-            Log.e(TAG, "搜索相似文本块失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "搜索相似文本块失败: " + e.getMessage(), e);
             return results;
         }
     }
@@ -942,27 +974,27 @@ public class SQLiteVectorDatabaseHandler {
      */
     public boolean addChunks(List<String> texts, List<String> sources, List<float[]> embeddings) {
         if (database == null || !database.isOpen()) {
-            Log.e(TAG, "数据库未打开，无法添加文本块");
+            LogManager.logE(TAG, "数据库未打开，无法添加文本块");
             return false;
         }
         
         if (texts == null || texts.isEmpty()) {
-            Log.e(TAG, "文本内容列表为空，无法添加文本块");
+            LogManager.logE(TAG, "文本内容列表为空，无法添加文本块");
             return false;
         }
         
         if (embeddings == null || embeddings.isEmpty()) {
-            Log.e(TAG, "嵌入向量列表为空，无法添加文本块");
+            LogManager.logE(TAG, "嵌入向量列表为空，无法添加文本块");
             return false;
         }
         
         if (texts.size() != embeddings.size()) {
-            Log.e(TAG, "文本内容列表和嵌入向量列表长度不匹配");
+            LogManager.logE(TAG, "文本内容列表和嵌入向量列表长度不匹配");
             return false;
         }
         
         if (sources != null && sources.size() != texts.size()) {
-            Log.e(TAG, "来源信息列表和文本内容列表长度不匹配");
+            LogManager.logE(TAG, "来源信息列表和文本内容列表长度不匹配");
             return false;
         }
         
@@ -994,7 +1026,7 @@ public class SQLiteVectorDatabaseHandler {
                 long rowId = database.insert(TABLE_DOCUMENTS, null, values);
                 
                 if (rowId == -1) {
-                    Log.e(TAG, "插入文本块失败");
+                    LogManager.logE(TAG, "插入文本块失败");
                     return false;
                 }
                 
@@ -1018,10 +1050,10 @@ public class SQLiteVectorDatabaseHandler {
             // 提交事务
             database.setTransactionSuccessful();
             
-            Log.d(TAG, "成功批量添加 " + texts.size() + " 个文本块");
+            LogManager.logD(TAG, "成功批量添加 " + texts.size() + " 个文本块");
             return true;
         } catch (Exception e) {
-            Log.e(TAG, "批量添加文本块失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "批量添加文本块失败: " + e.getMessage(), e);
             return false;
         } finally {
             if (database.inTransaction()) {
@@ -1040,17 +1072,17 @@ public class SQLiteVectorDatabaseHandler {
      */
     public boolean addVector(String text, float[] embedding, String source, String metadataStr) {
         if (database == null || !database.isOpen()) {
-            Log.e(TAG, "数据库未打开，无法添加文本块");
+            LogManager.logE(TAG, "数据库未打开，无法添加文本块");
             return false;
         }
         
         if (text == null || text.isEmpty()) {
-            Log.e(TAG, "文本内容为空，无法添加文本块");
+            LogManager.logE(TAG, "文本内容为空，无法添加文本块");
             return false;
         }
         
         if (embedding == null || embedding.length == 0) {
-            Log.e(TAG, "嵌入向量为空，无法添加文本块");
+            LogManager.logE(TAG, "嵌入向量为空，无法添加文本块");
             return false;
         }
         
@@ -1066,7 +1098,7 @@ public class SQLiteVectorDatabaseHandler {
             } catch (JSONException e) {
                 // 如果解析失败，创建新的元数据对象
                 finalMetadata = new JSONObject();
-                Log.w(TAG, "解析元数据字符串失败，创建新的元数据对象: " + e.getMessage());
+                LogManager.logW(TAG, "解析元数据字符串失败，创建新的元数据对象: " + e.getMessage());
             }
             
             // 添加基本元数据
@@ -1088,7 +1120,7 @@ public class SQLiteVectorDatabaseHandler {
             long rowId = database.insert(TABLE_DOCUMENTS, null, values);
             
             if (rowId == -1) {
-                Log.e(TAG, "插入文本块失败");
+                LogManager.logE(TAG, "插入文本块失败");
                 return false;
             }
             
@@ -1108,10 +1140,10 @@ public class SQLiteVectorDatabaseHandler {
                 }
             }
             
-            Log.d(TAG, "成功添加文本块: " + (text.length() > 30 ? text.substring(0, 30) + "..." : text));
+            LogManager.logD(TAG, "成功添加文本块: " + (text.length() > 30 ? text.substring(0, 30) + "..." : text));
             return true;
         } catch (Exception e) {
-            Log.e(TAG, "添加文本块失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "添加文本块失败: " + e.getMessage(), e);
             return false;
         }
     }
@@ -1123,7 +1155,7 @@ public class SQLiteVectorDatabaseHandler {
     public void addFileToMetadata(String fileName) {
         if (metadata != null) {
             metadata.addFile(fileName);
-            Log.d(TAG, "添加文件到元数据: " + fileName);
+            LogManager.logD(TAG, "添加文件到元数据: " + fileName);
         }
     }
     
@@ -1134,16 +1166,16 @@ public class SQLiteVectorDatabaseHandler {
      */
     public boolean updateEmbeddingModel(String embeddingModelPath) {
         if (metadata == null) {
-            Log.e(TAG, "元数据对象为空，无法更新嵌入模型路径");
+            LogManager.logE(TAG, "元数据对象为空，无法更新嵌入模型路径");
             return false;
         }
         
         try {
-            Log.d(TAG, "更新嵌入模型路径: " + embeddingModelPath);
+            LogManager.logD(TAG, "更新嵌入模型路径: " + embeddingModelPath);
             metadata.setEmbeddingModel(embeddingModelPath);
             return true;
         } catch (Exception e) {
-            Log.e(TAG, "更新嵌入模型路径失败", e);
+            LogManager.logE(TAG, "更新嵌入模型路径失败", e);
             return false;
         }
     }

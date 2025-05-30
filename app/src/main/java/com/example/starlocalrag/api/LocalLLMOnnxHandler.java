@@ -3,6 +3,8 @@ package com.example.starlocalrag.api;
 import android.content.Context;
 import android.util.Log;
 
+import com.example.starlocalrag.LogManager;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -11,6 +13,8 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
 import java.nio.LongBuffer;
+import java.nio.IntBuffer;
+import java.nio.FloatBuffer;
 import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -29,6 +33,7 @@ import ai.onnxruntime.OnnxValue;
 import ai.onnxruntime.OrtEnvironment;
 import ai.onnxruntime.OrtException;
 import ai.onnxruntime.OrtSession;
+import ai.onnxruntime.OrtSession.Result;
 
 /**
  * ONNX模型处理类
@@ -38,11 +43,39 @@ public class LocalLLMOnnxHandler {
     
     /**
      * 获取当前使用的内存量（单位：字节）
+     * 优化版本：更准确地反映实际内存使用
      * @return 当前使用的内存量
      */
     private long getUsedMemory() {
         Runtime runtime = Runtime.getRuntime();
+        // 强制垃圾回收以获得更准确的内存使用情况
+        System.gc();
+        try {
+            Thread.sleep(10); // 给GC一点时间
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
         return runtime.totalMemory() - runtime.freeMemory();
+    }
+    
+    /**
+     * 获取系统级内存使用情况（更准确的内存监控）
+     * @return 当前进程的内存使用量
+     */
+    private long getProcessMemoryUsage() {
+        try {
+            android.app.ActivityManager.MemoryInfo memInfo = new android.app.ActivityManager.MemoryInfo();
+            android.app.ActivityManager activityManager = (android.app.ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
+            if (activityManager != null) {
+                activityManager.getMemoryInfo(memInfo);
+                // 返回已使用的内存
+                return memInfo.totalMem - memInfo.availMem;
+            }
+        } catch (Exception e) {
+            LogManager.logW(TAG, "获取系统内存信息失败: " + e.getMessage());
+        }
+        // 回退到JVM内存监控
+        return getUsedMemory();
     }
     private static final String TAG = "LocalLLMOnnxHandler";
     
@@ -86,7 +119,7 @@ public class LocalLLMOnnxHandler {
         this.ortSession = ortSession;
         this.modelConfig = modelConfig;
         
-        Log.d(TAG, "LocalLLMOnnxHandler 初始化完成");
+        LogManager.logD(TAG, "LocalLLMOnnxHandler 初始化完成");
     }
     
     /**
@@ -99,10 +132,10 @@ public class LocalLLMOnnxHandler {
      * @return 生成的文本
      */
     public String inference(String prompt, int maxTokenLength, boolean thinkingMode, float temperature, int topK) throws OrtException {
-        Log.d(TAG, "开始推理，提示词长度: " + prompt.length());
-        Log.d(TAG, "推理参数 - maxTokenLength: " + maxTokenLength + ", thinkingMode: " + thinkingMode 
+        LogManager.logD(TAG, "开始推理，提示词长度: " + prompt.length());
+        LogManager.logD(TAG, "推理参数 - maxTokenLength: " + maxTokenLength + ", thinkingMode: " + thinkingMode 
               + ", temperature: " + temperature + ", topK: " + topK);
-        Log.d(TAG, "提示词内容: " + prompt);
+        LogManager.logD(TAG, "提示词内容: " + prompt);
         
         // 创建同步等待机制
         final CountDownLatch latch = new CountDownLatch(1);
@@ -127,7 +160,7 @@ public class LocalLLMOnnxHandler {
                 error[0] = new OrtException(errorMessage);
                 latch.countDown(); // 释放等待
             }
-        });
+        }, null);
         
         // 等待流式推理完成
         try {
@@ -161,7 +194,7 @@ public class LocalLLMOnnxHandler {
             } else {
                 tokenDisplay = Arrays.toString(inputIds);
             }
-            Log.d(TAG, "分词结果 - 长度: " + inputIds.length + ", tokens: " + tokenDisplay);
+            LogManager.logD(TAG, "分词结果 - 长度: " + inputIds.length + ", tokens: " + tokenDisplay);
             
             // 简单记录token ID
             StringBuilder tokenIds = new StringBuilder("Token IDs: ");
@@ -171,17 +204,17 @@ public class LocalLLMOnnxHandler {
             if (inputIds.length > 20) {
                 tokenIds.append("... (共").append(inputIds.length).append("个token)");
             }
-            Log.d(TAG, tokenIds.toString());
+            LogManager.logD(TAG, tokenIds.toString());
             
             // 2. 准备输入张量
             Map<String, OnnxTensor> inputs = prepareInputs(inputIds);
-            Log.d(TAG, "准备输入张量完成 - 张量数量: " + inputs.size());
+            LogManager.logD(TAG, "准备输入张量完成 - 张量数量: " + inputs.size());
             for (Map.Entry<String, OnnxTensor> entry : inputs.entrySet()) {
-                Log.d(TAG, "输入张量: " + entry.getKey() + ", 形状: " + Arrays.toString(entry.getValue().getInfo().getShape()));
+                LogManager.logD(TAG, "输入张量: " + entry.getKey() + ", 形状: " + Arrays.toString(entry.getValue().getInfo().getShape()));
             }
             
             // 3. 执行推理
-            Log.d(TAG, "开始执行模型推理...");
+            LogManager.logD(TAG, "开始执行模型推理...");
             long inferenceStartTime = System.currentTimeMillis();
             
             // 实现自回归生成，每次生成一个token，然后添加到输入中继续生成
@@ -197,7 +230,7 @@ public class LocalLLMOnnxHandler {
                 float topP = thinkingMode ? 0.95f : 0.8f;
                 int actualTopK = topK > 0 ? topK : 20;
                 
-                Log.d(TAG, "生成参数 - 温度: " + actualTemperature + ", topP: " + topP + ", topK: " + actualTopK);
+                LogManager.logD(TAG, "生成参数 - 温度: " + actualTemperature + ", topP: " + topP + ", topK: " + actualTopK);
                 
                 // 自回归生成循环
                 for (int i = 0; i < maxTokenLength; i++) {
@@ -208,24 +241,24 @@ public class LocalLLMOnnxHandler {
                     OrtSession.Result output = ortSession.run(currentInputs);
                     
                     if (i == 0) {
-                        Log.d(TAG, "模型推理完成，输出数量: " + output.size());
+                        LogManager.logD(TAG, "模型推理完成，输出数量: " + output.size());
                         
                         // 打印输出张量信息
                         for (Map.Entry<String, OnnxValue> entry : output) {
                             String outputName = entry.getKey();
                             OnnxValue value = entry.getValue();
-                            Log.d(TAG, "输出张量: " + outputName + ", 类型: " + value.getInfo());
+                            LogManager.logD(TAG, "输出张量: " + outputName + ", 类型: " + value.getInfo());
                             
                             // 安全地获取形状信息
                             try {
                                 if (value instanceof OnnxTensor) {
                                     OnnxTensor tensor = (OnnxTensor) value;
-                                    Log.d(TAG, "张量形状: " + Arrays.toString(tensor.getInfo().getShape()));
+                                    LogManager.logD(TAG, "张量形状: " + Arrays.toString(tensor.getInfo().getShape()));
                                 } else {
-                                    Log.d(TAG, "非张量类型，无法获取形状信息");
+                                    LogManager.logD(TAG, "非张量类型，无法获取形状信息");
                                 }
                             } catch (Exception e) {
-                                Log.w(TAG, "获取张量形状时出错: " + e.getMessage());
+                                LogManager.logW(TAG, "获取张量形状时出错: " + e.getMessage());
                             }
                         }
                     }
@@ -269,14 +302,14 @@ public class LocalLLMOnnxHandler {
                                             // 尝试解码并打印token文本
                                             try {
                                                 String tokenText = tokenizerManager.decodeIds(new int[]{nextTokenId});
-                                                Log.d(TAG, "生成的下一个token ID: " + nextTokenId + ", 文本: '" + tokenText + "'");
+                                                LogManager.logD(TAG, "生成的下一个token ID: " + nextTokenId + ", 文本: '" + tokenText + "'");
                                             } catch (Exception e) {
-                                                Log.d(TAG, "生成的下一个token ID: " + nextTokenId + ", 无法解码文本: " + e.getMessage());
+                                                LogManager.logD(TAG, "生成的下一个token ID: " + nextTokenId + ", 无法解码文本: " + e.getMessage());
                                             }
                                             break;
                                         }
                                     } catch (Exception e) {
-                                        Log.e(TAG, "处理logits时出错: " + e.getMessage(), e);
+                                        LogManager.logE(TAG, "处理logits时出错: " + e.getMessage(), e);
                                     }
                                 } else if (shape.length == 2) { // 二维张量 [batch_size, seq_len]
                                     try {
@@ -288,14 +321,14 @@ public class LocalLLMOnnxHandler {
                                             // 尝试解码并打印token文本
                                             try {
                                                 String tokenText = tokenizerManager.decodeIds(new int[]{nextTokenId});
-                                                Log.d(TAG, "生成的下一个token ID: " + nextTokenId + ", 文本: '" + tokenText + "'");
+                                                LogManager.logD(TAG, "生成的下一个token ID: " + nextTokenId + ", 文本: '" + tokenText + "'");
                                             } catch (Exception e) {
-                                                Log.d(TAG, "生成的下一个token ID: " + nextTokenId + ", 无法解码文本: " + e.getMessage());
+                                                LogManager.logD(TAG, "生成的下一个token ID: " + nextTokenId + ", 无法解码文本: " + e.getMessage());
                                             }
                                             break;
                                         }
                                     } catch (Exception e) {
-                                        Log.e(TAG, "处理二维张量时出错: " + e.getMessage(), e);
+                                        LogManager.logE(TAG, "处理二维张量时出错: " + e.getMessage(), e);
                                     }
                                 }
                             }
@@ -313,13 +346,13 @@ public class LocalLLMOnnxHandler {
                         
                         // 检查是否获取到有效的token ID
                         if (nextTokenId == -1) {
-                            Log.e(TAG, "无法从输出中提取下一个token ID");
+                            LogManager.logE(TAG, "无法从输出中提取下一个token ID");
                             break;
                         }
                         
                         // 检查是否结束生成（通常是特殊的EOS token）
                         if (nextTokenId == 151645) { // <|im_end|> token ID
-                            Log.d(TAG, "检测到结束token，停止生成");
+                            LogManager.logD(TAG, "检测到结束token，停止生成");
                             break;
                         }
                         
@@ -338,12 +371,12 @@ public class LocalLLMOnnxHandler {
                             // 每5个token或最后一个token时记录日志
                             if (i % 5 == 0 || i == maxTokenLength - 1) {
                                 // 打印Unicode编码版本（为了兼容性）
-                                Log.d(TAG, "已生成 " + (i+1) + " 个token，当前文本(Unicode): " + escapeString(generatedText.toString()));
+                                LogManager.logD(TAG, "已生成 " + (i+1) + " 个token，当前文本(Unicode): " + escapeString(generatedText.toString()));
                                 // 打印原始文本版本（更直观）
-                                Log.d(TAG, "已生成 " + (i+1) + " 个token，当前文本(原文): \n" + generatedText.toString());
+                                LogManager.logD(TAG, "已生成 " + (i+1) + " 个token，当前文本(原文): \n" + generatedText.toString());
                             }
                         } catch (Exception e) {
-                            Log.e(TAG, "解码token时出错: " + e.getMessage(), e);
+                            LogManager.logE(TAG, "解码token时出错: " + e.getMessage(), e);
                         }
                 }
                 
@@ -359,13 +392,13 @@ public class LocalLLMOnnxHandler {
                         // 批量解码所有生成的token
                         String batchDecodedText = tokenizerManager.decodeIds(allTokenIds);
                         // 打印Unicode编码版本（为了兼容性）
-                        Log.d(TAG, "批量解码结果(Unicode): " + escapeString(batchDecodedText));
+                        LogManager.logD(TAG, "批量解码结果(Unicode): " + escapeString(batchDecodedText));
                         // 打印原始文本版本（更直观）
-                        Log.d(TAG, "批量解码结果(原文): \n" + batchDecodedText);
+                        LogManager.logD(TAG, "批量解码结果(原文): \n" + batchDecodedText);
                         
                         // 比较逐个解码和批量解码的结果
                         if (!batchDecodedText.equals(generatedText.toString())) {
-                            Log.d(TAG, "批量解码和逐个解码结果不同，使用批量解码结果");
+                            LogManager.logD(TAG, "批量解码和逐个解码结果不同，使用批量解码结果");
                             // 使用批量解码结果，因为它可能处理了特殊字符和字节级别的编码
                             result.setLength(0);
                             result.append(batchDecodedText);
@@ -374,7 +407,7 @@ public class LocalLLMOnnxHandler {
                             result.append(generatedText.toString());
                         }
                     } catch (Exception e) {
-                        Log.e(TAG, "批量解码失败，使用逐个解码结果: " + e.getMessage(), e);
+                        LogManager.logE(TAG, "批量解码失败，使用逐个解码结果: " + e.getMessage(), e);
                         // 如果批量解码失败，使用逐个解码的结果
                         result.append(generatedText.toString());
                     }
@@ -385,11 +418,11 @@ public class LocalLLMOnnxHandler {
                 
                 // 记录推理完成时间
                 long inferenceEndTime = System.currentTimeMillis();
-                Log.d(TAG, "模型推理耗时: " + (inferenceEndTime - inferenceStartTime) + "ms");
+                LogManager.logD(TAG, "模型推理耗时: " + (inferenceEndTime - inferenceStartTime) + "ms");
                 
             } catch (OrtException e) {
-                Log.e(TAG, "模型推理失败", e);
-                Log.e(TAG, "错误详情: " + e.getMessage());
+                LogManager.logE(TAG, "模型推理失败", e);
+                LogManager.logE(TAG, "错误详情: " + e.getMessage());
                 result.append("推理失败: ").append(e.getMessage());
             }
             
@@ -398,25 +431,251 @@ public class LocalLLMOnnxHandler {
                 tensor.close();
             }
         } catch (Exception e) {
-            Log.e(TAG, "推理过程发生异常", e);
-            Log.e(TAG, "异常详情: " + e.getMessage());
+            LogManager.logE(TAG, "推理过程发生异常", e);
+            LogManager.logE(TAG, "异常详情: " + e.getMessage());
             result.append("推理异常: ").append(e.getMessage());
         } finally {
             // 重置TokenizerManager资源
             if (tokenizerManager != null) {
                 try {
-                    tokenizerManager.resetManager();
-                    Log.d(TAG, "TokenizerManager实例已重置");
+                    TokenizerManager.resetManager();
+                    LogManager.logD(TAG, "TokenizerManager实例已重置");
                 } catch (Exception e) {
-                    Log.e(TAG, "重置TokenizerManager时出错: " + e.getMessage(), e);
+                    LogManager.logE(TAG, "重置TokenizerManager时出错: " + e.getMessage(), e);
                 }
             }
         }
         
         long endTime = System.currentTimeMillis();
-        Log.d(TAG, "总推理耗时: " + (endTime - startTime) + "ms");
+        LogManager.logD(TAG, "总推理耗时: " + (endTime - startTime) + "ms");
         
         return result.toString();
+    }
+    
+    /**
+     * 批处理推理方法 - 支持多序列并行推理
+     * @param inputTexts 输入文本数组
+     * @param maxTokens 最大生成token数
+     * @param temperature 温度参数
+     * @param topK topK参数
+     * @param topP topP参数
+     * @param callback 流式回调
+     * @return 生成的文本数组
+     */
+    public String[] inferenceStreamBatch(String[] inputTexts, int maxTokens, float temperature, int topK, float topP, StreamingCallback callback) {
+        if (inputTexts == null || inputTexts.length == 0) {
+            return new String[0];
+        }
+        
+        int batchSize = Math.min(inputTexts.length, modelConfig != null ? modelConfig.getMaxBatchSize() : 1);
+        String[] results = new String[batchSize];
+        
+        try {
+            // 1. 分词所有输入文本
+            int[][] allInputIds = new int[batchSize][];
+            for (int i = 0; i < batchSize; i++) {
+                allInputIds[i] = tokenizerManager.tokenizeInput(inputTexts[i]);
+                LogManager.logD(TAG, "批次 " + i + " 分词结果长度: " + allInputIds[i].length);
+            }
+            
+            // 2. 填充序列到相同长度（批处理要求）
+            int maxSeqLen = 0;
+            for (int[] ids : allInputIds) {
+                maxSeqLen = Math.max(maxSeqLen, ids.length);
+            }
+            
+            // 填充所有序列到相同长度
+            for (int i = 0; i < batchSize; i++) {
+                if (allInputIds[i].length < maxSeqLen) {
+                    int[] paddedIds = new int[maxSeqLen];
+                    System.arraycopy(allInputIds[i], 0, paddedIds, 0, allInputIds[i].length);
+                    // 用pad token填充剩余位置（通常是0）
+                    for (int j = allInputIds[i].length; j < maxSeqLen; j++) {
+                        paddedIds[j] = 0; // pad token
+                    }
+                    allInputIds[i] = paddedIds;
+                }
+            }
+            
+            // 3. 批处理推理循环
+            StringBuilder[] resultBuilders = new StringBuilder[batchSize];
+            for (int i = 0; i < batchSize; i++) {
+                resultBuilders[i] = new StringBuilder();
+            }
+            
+            boolean[] finished = new boolean[batchSize];
+            int finishedCount = 0;
+            
+            for (int step = 0; step < maxTokens && finishedCount < batchSize; step++) {
+                // 准备批处理输入
+                Map<String, OnnxTensor> batchInputs = prepareBatchInputs(allInputIds);
+                
+                // 执行批处理推理
+                Result batchOutput = ortSession.run(batchInputs);
+                
+                // 处理每个序列的输出
+                int[] nextTokenIds = extractBatchTokens(batchOutput, batchSize, temperature, topK, topP);
+                
+                for (int i = 0; i < batchSize; i++) {
+                    if (!finished[i] && nextTokenIds[i] != -1) {
+                        // 检查是否为结束token
+                        if (isEndToken(nextTokenIds[i])) {
+                            finished[i] = true;
+                            finishedCount++;
+                            continue;
+                        }
+                        
+                        // 解码token并添加到结果
+                        try {
+                            String tokenText = tokenizerManager.decodeIds(new int[]{nextTokenIds[i]});
+                            resultBuilders[i].append(tokenText);
+                            
+                            // 流式回调
+                             if (callback != null) {
+                                 callback.onToken("批次" + i + ": " + tokenText);
+                             }
+                        } catch (Exception e) {
+                            LogManager.logW(TAG, "解码批次 " + i + " token失败: " + e.getMessage());
+                        }
+                        
+                        // 更新输入序列
+                        allInputIds[i] = appendTokenToInput(allInputIds[i], nextTokenIds[i]);
+                    }
+                }
+                
+                // 清理批处理输入资源
+                for (OnnxTensor tensor : batchInputs.values()) {
+                    tensor.close();
+                }
+                batchOutput.close();
+            }
+            
+            // 收集结果
+            for (int i = 0; i < batchSize; i++) {
+                results[i] = resultBuilders[i].toString();
+            }
+            
+            LogManager.logI(TAG, "批处理推理完成，批次大小: " + batchSize + ", 完成序列数: " + finishedCount);
+            
+        } catch (Exception e) {
+            LogManager.logE(TAG, "批处理推理失败: " + e.getMessage(), e);
+            // 返回错误信息
+            for (int i = 0; i < batchSize; i++) {
+                results[i] = "批处理推理失败: " + e.getMessage();
+            }
+        }
+        
+        return results;
+    }
+    
+    /**
+     * 准备批处理输入张量
+     * @param allInputIds 所有输入ID数组
+     * @return 批处理输入张量映射
+     * @throws OrtException ONNX Runtime异常
+     */
+    private Map<String, OnnxTensor> prepareBatchInputs(int[][] allInputIds) throws OrtException {
+        Map<String, OnnxTensor> inputs = new HashMap<>();
+        
+        int batchSize = allInputIds.length;
+        int seqLen = allInputIds[0].length;
+        
+        // 创建批处理输入张量
+        long[] shape = new long[]{batchSize, seqLen};
+        LongBuffer batchBuffer = LongBuffer.allocate(batchSize * seqLen);
+        
+        for (int i = 0; i < batchSize; i++) {
+            for (int j = 0; j < seqLen; j++) {
+                batchBuffer.put(allInputIds[i][j]);
+            }
+        }
+        batchBuffer.flip();
+        
+        OnnxTensor inputIdsTensor = OnnxTensor.createTensor(ortEnvironment, batchBuffer, shape);
+        inputs.put("input_ids", inputIdsTensor);
+        
+        // 添加注意力掩码
+        if (modelConfig != null && modelConfig.requiresAttentionMask()) {
+            LongBuffer attentionBuffer = LongBuffer.allocate(batchSize * seqLen);
+            for (int i = 0; i < batchSize * seqLen; i++) {
+                attentionBuffer.put(1L); // 所有位置可见
+            }
+            attentionBuffer.flip();
+            
+            OnnxTensor attentionTensor = OnnxTensor.createTensor(ortEnvironment, attentionBuffer, shape);
+            inputs.put("attention_mask", attentionTensor);
+        }
+        
+        return inputs;
+    }
+    
+    /**
+     * 从批处理输出中提取token
+     * @param batchOutput 批处理输出
+     * @param batchSize 批处理大小
+     * @param temperature 温度参数
+     * @param topK topK参数
+     * @param topP topP参数
+     * @return 下一个token ID数组
+     */
+    private int[] extractBatchTokens(Result batchOutput, int batchSize, float temperature, int topK, float topP) {
+        int[] nextTokenIds = new int[batchSize];
+        
+        try {
+            for (Map.Entry<String, OnnxValue> entry : batchOutput) {
+                OnnxValue value = entry.getValue();
+                
+                if (value instanceof OnnxTensor) {
+                    OnnxTensor tensor = (OnnxTensor) value;
+                    long[] shape = tensor.getInfo().getShape();
+                    
+                    if (shape.length == 3) { // [batch_size, seq_len, vocab_size]
+                        float[][][] data = (float[][][]) tensor.getValue();
+                        
+                        for (int batch = 0; batch < batchSize; batch++) {
+                            if (data[batch].length > 0) {
+                                float[] logits = data[batch][data[batch].length - 1];
+                                
+                                // 应用采样策略
+                                if (temperature > 0) {
+                                    for (int j = 0; j < logits.length; j++) {
+                                        logits[j] /= temperature;
+                                    }
+                                }
+                                
+                                float[] probs = applySoftmax(logits);
+                                probs = applyTopP(probs, topP);
+                                probs = applyTopK(probs, topK);
+                                
+                                nextTokenIds[batch] = sampleFromDistribution(probs);
+                            } else {
+                                nextTokenIds[batch] = -1;
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            LogManager.logE(TAG, "提取批处理token失败: " + e.getMessage(), e);
+            for (int i = 0; i < batchSize; i++) {
+                nextTokenIds[i] = -1;
+            }
+        }
+        
+        return nextTokenIds;
+    }
+    
+    /**
+     * 检查是否为结束token
+     * @param tokenId token ID
+     * @return 是否为结束token
+     */
+    private boolean isEndToken(int tokenId) {
+        if (modelConfig != null) {
+            return tokenId == modelConfig.getEosTokenId() || tokenId == modelConfig.getPadTokenId();
+        }
+        return tokenId == 2; // 默认EOS token
     }
     
     /**
@@ -602,7 +861,7 @@ public class LocalLLMOnnxHandler {
      * @return 处理后的文本
      */
     private String applyTokenizerTemplate(String text, boolean thinkingMode) {
-        Log.d(TAG, "应用分词器模板到文本，思考模式: " + thinkingMode);
+        LogManager.logD(TAG, "应用分词器模板到文本，思考模式: " + thinkingMode);
         
         try {
             // 确保有有效的 context
@@ -618,7 +877,7 @@ public class LocalLLMOnnxHandler {
             File modelDir = new File(modelConfig.getModelPath());
             boolean initSuccess = tokenizerManager.initialize(modelDir);
             if (!initSuccess) {
-                Log.e(TAG, "TokenizerManager初始化失败，请检查模型路径: " + modelDir.getAbsolutePath());
+                LogManager.logE(TAG, "TokenizerManager初始化失败，请检查模型路径: " + modelDir.getAbsolutePath());
                 throw new RuntimeException("TokenizerManager初始化失败，请检查模型路径");
             }
             
@@ -644,13 +903,13 @@ public class LocalLLMOnnxHandler {
             // thinkingMode: 是否启用思考模式
             String formattedText = tokenizer.applyChatTemplate(messages, false, thinkingMode);
             
-            Log.d(TAG, "使用JNI层applyChatTemplate后的文本长度: " + formattedText.length());
-            Log.d(TAG, "使用JNI层applyChatTemplate后的文本片段: " + 
+            LogManager.logD(TAG, "使用JNI层applyChatTemplate后的文本长度: " + formattedText.length());
+            LogManager.logD(TAG, "使用JNI层applyChatTemplate后的文本片段: " + 
                   formattedText.substring(0, Math.min(100, formattedText.length())) + "...");
             
             return formattedText;
         } catch (Exception e) {
-            Log.e(TAG, "应用聊天模板失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "应用聊天模板失败: " + e.getMessage(), e);
             // 直接抛出异常，不在Java层硬编码模板
             throw new RuntimeException("应用聊天模板失败，请检查分词器配置: " + e.getMessage(), e);
         }
@@ -664,7 +923,7 @@ public class LocalLLMOnnxHandler {
      * @return 分词结果（token IDs）
      */
     private int[] tokenizeInput(String text, boolean thinkingMode) {
-        Log.d(TAG, "开始对输入文本进行分词，文本长度: " + text.length());
+        LogManager.logD(TAG, "开始对输入文本进行分词，文本长度: " + text.length());
         long startTime = System.currentTimeMillis();
         
         int[] result;
@@ -676,11 +935,11 @@ public class LocalLLMOnnxHandler {
                 File modelDir = new File(modelConfig.getModelPath());
                 boolean initSuccess = tokenizerManager.initialize(modelDir);
                 if (!initSuccess) {
-                    Log.e(TAG, "TokenizerManager初始化失败");
+                    LogManager.logE(TAG, "TokenizerManager初始化失败");
                     // 如果初始化失败，返回默认的特殊标记
                     return new int[]{modelConfig.getBosToken()};
                 }
-                Log.d(TAG, "TokenizerManager初始化成功");
+                LogManager.logD(TAG, "TokenizerManager初始化成功");
             }
             
             // 使用与Python类似的方式处理聊天模板
@@ -709,7 +968,7 @@ public class LocalLLMOnnxHandler {
                     tokenLog.append(", ... (共").append(result.length).append("个token)");
                 }
                 tokenLog.append("]");
-                Log.d(TAG, tokenLog.toString());
+                LogManager.logD(TAG, tokenLog.toString());
                 
                 // 添加一个简洁的摘要日志，只显示前几个和后几个token
                 if (result.length > 10) {
@@ -727,20 +986,20 @@ public class LocalLLMOnnxHandler {
                         String decodedToken = tokenizerManager.decodeIds(new int[]{result[i]});
                         summaryLog.append(" ").append(result[i]).append(":").append(decodedToken);
                     }
-                    Log.d(TAG, summaryLog.toString());
+                    LogManager.logD(TAG, summaryLog.toString());
                 }
             } else {
-                Log.e(TAG, "分词结果为空或格式不正确");
+                LogManager.logE(TAG, "分词结果为空或格式不正确");
                 result = new int[]{modelConfig.getBosToken()};
             }
         } catch (Exception e) {
-            Log.e(TAG, "分词过程发生异常: " + e.getMessage(), e);
+            LogManager.logE(TAG, "分词过程发生异常: " + e.getMessage(), e);
             // 如果分词失败，使用默认的特殊标记
             result = new int[]{modelConfig.getBosToken()};
         }
         
         long endTime = System.currentTimeMillis();
-        Log.d(TAG, "分词完成，耗时: " + (endTime - startTime) + "ms, 生成token数量: " + result.length);
+        LogManager.logD(TAG, "分词完成，耗时: " + (endTime - startTime) + "ms, 生成token数量: " + result.length);
         
         return result;
     }
@@ -756,9 +1015,9 @@ public class LocalLLMOnnxHandler {
      * @param topK topK参数
      * @param callback 流式输出回调接口
      */
-    public void inferenceStream(String prompt, int maxTokenLength, boolean thinkingMode, float temperature, int topK, StreamingCallback callback) {
-        Log.d(TAG, "开始流式推理，提示词长度: " + prompt.length());
-        Log.d(TAG, "推理参数 - maxTokenLength: " + maxTokenLength + ", thinkingMode: " + thinkingMode 
+    public void inferenceStream(String prompt, int maxTokenLength, boolean thinkingMode, float temperature, int topK, StreamingCallback callback, LocalLlmHandler handler) {
+        LogManager.logD(TAG, "开始流式推理，提示词长度: " + prompt.length());
+        LogManager.logD(TAG, "推理参数 - maxTokenLength: " + maxTokenLength + ", thinkingMode: " + thinkingMode 
               + ", temperature: " + temperature + ", topK: " + topK);
         
         // 在新线程中执行推理，避免阻塞调用线程
@@ -769,26 +1028,47 @@ public class LocalLLMOnnxHandler {
             long inferenceStartTime = 0;
             long inferenceEndTime = 0;
             int totalGeneratedTokens = 0;
-            long initialMemory = getUsedMemory();
-            long peakMemory = initialMemory;
-            final long[] currentMemory = {initialMemory};
             
-            // 创建内存监控线程
+            // 改进的内存监控：同时监控JVM和系统内存
+            long initialJvmMemory = getUsedMemory();
+            long initialSystemMemory = getProcessMemoryUsage();
+            final long[] peakJvmMemory = {initialJvmMemory};
+            final long[] peakSystemMemory = {initialSystemMemory};
+            final long[] currentJvmMemory = {initialJvmMemory};
+            final long[] currentSystemMemory = {initialSystemMemory};
+            
+            LogManager.logI(TAG, String.format("内存监控开始 - JVM初始: %.2f MB, 系统初始: %.2f MB", 
+                initialJvmMemory / 1024.0 / 1024.0, initialSystemMemory / 1024.0 / 1024.0));
+            
+            // 创建高频内存监控线程（500ms一次，更精确）
             Thread memoryMonitorThread = new Thread(() -> {
                 try {
                     while (!Thread.interrupted()) {
-                        long memory = getUsedMemory();
-                        currentMemory[0] = memory;
-                        if (memory > peakMemory) {
-                            peakMemory = memory;
+                        long jvmMemory = getUsedMemory();
+                        long systemMemory = getProcessMemoryUsage();
+                        
+                        currentJvmMemory[0] = jvmMemory;
+                        currentSystemMemory[0] = systemMemory;
+                        
+                        if (jvmMemory > peakJvmMemory[0]) {
+                            peakJvmMemory[0] = jvmMemory;
+                            LogManager.logD(TAG, String.format("JVM内存峰值更新: %.2f MB", jvmMemory / 1024.0 / 1024.0));
                         }
-                        Thread.sleep(1000); // 每秒监控一次
+                        
+                        if (systemMemory > peakSystemMemory[0]) {
+                            peakSystemMemory[0] = systemMemory;
+                            LogManager.logD(TAG, String.format("系统内存峰值更新: %.2f MB", systemMemory / 1024.0 / 1024.0));
+                        }
+                        
+                        Thread.sleep(500); // 每500ms监控一次，更精确
                     }
                 } catch (InterruptedException e) {
                     // 线程被中断，正常退出
+                    LogManager.logD(TAG, "内存监控线程正常退出");
                 }
             });
             memoryMonitorThread.setDaemon(true);
+            memoryMonitorThread.setName("LLM-MemoryMonitor");
             
             try {
                 long startTime = System.currentTimeMillis();
@@ -805,14 +1085,14 @@ public class LocalLLMOnnxHandler {
                 } else {
                     tokenDisplay = Arrays.toString(inputIds);
                 }
-                Log.d(TAG, "分词结果 - 长度: " + inputIds.length + ", tokens: " + tokenDisplay);
+                LogManager.logD(TAG, "分词结果 - 长度: " + inputIds.length + ", tokens: " + tokenDisplay);
                 
                 // 2. 准备输入张量
                 Map<String, OnnxTensor> inputs = prepareInputs(inputIds);
-                Log.d(TAG, "准备输入张量完成 - 张量数量: " + inputs.size());
+                LogManager.logD(TAG, "准备输入张量完成 - 张量数量: " + inputs.size());
                 
                 // 3. 执行推理
-                Log.d(TAG, "开始执行流式模型推理...");
+                LogManager.logD(TAG, "开始执行流式模型推理...");
                 inferenceStartTime = System.currentTimeMillis();
                 
                 // 启动内存监控线程
@@ -829,15 +1109,43 @@ public class LocalLLMOnnxHandler {
                     float topP = thinkingMode ? 0.95f : 0.8f;
                     int actualTopK = topK > 0 ? topK : 20;
                     
-                    Log.d(TAG, "生成参数 - 温度: " + actualTemperature + ", topP: " + topP + ", topK: " + actualTopK);
+                    LogManager.logD(TAG, "生成参数 - 温度: " + actualTemperature + ", topP: " + topP + ", topK: " + actualTopK);
                     
                     // 自回归生成循环
                     for (int i = 0; i < maxTokenLength; i++) {
+                        // 检查是否应该停止推理
+                        if (handler != null && handler.shouldStopInference()) {
+                            LogManager.logI(TAG, "[停止调试] ✓ 推理在第" + i + "步被停止");
+                            LogManager.logD(TAG, "[停止调试] 停止检查通过，准备退出推理循环");
+                            callback.onError("推理被用户停止");
+                            return;
+                        }
+                        
+                        // 每10步记录一次停止状态检查（避免日志过多）
+                        if (i % 10 == 0) {
+                            boolean shouldStop = handler != null ? handler.shouldStopInference() : false;
+                            LogManager.logD(TAG, "[停止调试] 第" + i + "步停止状态检查: " + shouldStop);
+                        }
+                        
                         // 准备当前输入
                         Map<String, OnnxTensor> currentInputs = prepareInputs(currentInputIds);
                         
-                        // 执行推理
+                        // 执行推理前再次检查停止状态
+                        if (handler != null && handler.shouldStopInference()) {
+                            LogManager.logI(TAG, "[停止调试] ✓ 推理在执行前被停止");
+                            callback.onError("推理被用户停止");
+                            return;
+                        }
+                        
+                        // 执行推理 - 性能关键路径
+                        long inferenceStart = System.currentTimeMillis();
                         OrtSession.Result output = ortSession.run(currentInputs);
+                        long inferenceTime = System.currentTimeMillis() - inferenceStart;
+                        
+                        // 只在推理时间过长时记录日志
+                        if (inferenceTime > 100) {
+                            LogManager.logD(TAG, "单次推理耗时: " + inferenceTime + "ms");
+                        }
                         
                         // 从输出张量中提取下一个token ID
                         int nextTokenId = -1;
@@ -877,7 +1185,7 @@ public class LocalLLMOnnxHandler {
                                             break;
                                         }
                                     } catch (Exception e) {
-                                        Log.e(TAG, "处理logits时出错: " + e.getMessage(), e);
+                                        LogManager.logE(TAG, "处理logits时出错: " + e.getMessage(), e);
                                     }
                                 } else if (shape.length == 2) { // 二维张量 [batch_size, seq_len]
                                     try {
@@ -888,7 +1196,7 @@ public class LocalLLMOnnxHandler {
                                             break;
                                         }
                                     } catch (Exception e) {
-                                        Log.e(TAG, "处理二维张量时出错: " + e.getMessage(), e);
+                                        LogManager.logE(TAG, "处理二维张量时出错: " + e.getMessage(), e);
                                     }
                                 }
                             }
@@ -906,13 +1214,13 @@ public class LocalLLMOnnxHandler {
                         
                         // 检查是否获取到有效的token ID
                         if (nextTokenId == -1) {
-                            Log.e(TAG, "无法从输出中提取下一个token ID");
+                            LogManager.logE(TAG, "无法从输出中提取下一个token ID");
                             break;
                         }
                         
                         // 检查是否结束生成（通常是特殊的EOS token）
                         if (nextTokenId == 151645) { // <|im_end|> token ID
-                            Log.d(TAG, "检测到结束token，停止生成");
+                            LogManager.logD(TAG, "检测到结束token，停止生成");
                             break;
                         }
                         
@@ -935,13 +1243,21 @@ public class LocalLLMOnnxHandler {
                                 // 通过回调接口返回token
                                 callback.onToken(tokenText);
                                 
-                                // 每5个token记录日志
-                                if (i % 5 == 0) {
-                                    Log.d(TAG, "已生成 " + (i+1) + " 个token，当前文本: " + escapeString(fullResponse.toString()));
+                                // 在回调后检查停止状态
+                                if (handler != null && handler.shouldStopInference()) {
+                                    LogManager.logI(TAG, "[停止调试] ✓ 推理在token回调后被停止");
+                                    callback.onError("推理被用户停止");
+                                    return;
+                                }
+                                
+                                // 减少日志频率，提高性能（每20个token记录一次）
+                                if (i % 20 == 0) {
+                                    double currentSpeed = (i + 1) / ((System.currentTimeMillis() - inferenceStartTime) / 1000.0);
+                                    LogManager.logD(TAG, String.format("已生成 %d token，速度: %.2f token/s", i + 1, currentSpeed));
                                 }
                             }
                         } catch (Exception e) {
-                            Log.e(TAG, "解码token时出错: " + e.getMessage(), e);
+                            LogManager.logE(TAG, "解码token时出错: " + e.getMessage(), e);
                         }
                     }
                     
@@ -956,48 +1272,59 @@ public class LocalLLMOnnxHandler {
                             
                             // 批量解码所有生成的token，使用skipSpecialTokens=true过滤特殊token
                             String batchDecodedText = tokenizerManager.decodeIds(allTokenIds);
-                            Log.d(TAG, "批量解码结果: " + escapeString(batchDecodedText));
+                            LogManager.logD(TAG, "批量解码结果: " + escapeString(batchDecodedText));
                             
                             // 比较逐个解码和批量解码的结果
                             if (!batchDecodedText.equals(fullResponse.toString())) {
-                                Log.d(TAG, "批量解码和逐个解码结果不同，使用批量解码结果");
+                                LogManager.logD(TAG, "批量解码和逐个解码结果不同，使用批量解码结果");
                                 // 使用批量解码结果，因为它可能处理了特殊字符和字节级别的编码
                                 fullResponse.setLength(0);
                                 fullResponse.append(batchDecodedText);
                             }
                         } catch (Exception e) {
-                            Log.e(TAG, "批量解码失败，使用逐个解码结果: " + e.getMessage(), e);
+                            LogManager.logE(TAG, "批量解码失败，使用逐个解码结果: " + e.getMessage(), e);
                         }
                     }
                     
                     // 记录推理完成时间
                     inferenceEndTime = System.currentTimeMillis();
                     long inferenceTime = inferenceEndTime - inferenceStartTime;
-                    Log.d(TAG, "模型推理耗时: " + inferenceTime + "ms");
+                    LogManager.logD(TAG, "模型推理耗时: " + inferenceTime + "ms");
                     
                     // 计算统计信息
                     double tokenPerSecond = totalGeneratedTokens / (inferenceTime / 1000.0);
-                    long memoryUsage = peakMemory - initialMemory;
                     
                     // 停止内存监控线程
                     memoryMonitorThread.interrupt();
                     
-                    // 构建统计信息字符串
-                    String statsInfo = String.format(
-                        "\n\n---\n推理统计：\n- 推理时间：%.2f秒\n- 内存占用：%.2f MB\n- 生成速度：%.2f token/s", 
-                        inferenceTime / 1000.0, 
-                        memoryUsage / (1024.0 * 1024.0), 
-                        tokenPerSecond
-                    );
+                    // 计算详细的内存使用情况
+                    long jvmMemoryUsage = peakJvmMemory[0] - initialJvmMemory;
+                    long systemMemoryUsage = peakSystemMemory[0] - initialSystemMemory;
+                    
+                    LogManager.logI(TAG, String.format("内存监控结束 - JVM峰值: %.2f MB (+%.2f MB), 系统峰值: %.2f MB (+%.2f MB)", 
+                        peakJvmMemory[0] / 1024.0 / 1024.0, jvmMemoryUsage / 1024.0 / 1024.0,
+                        peakSystemMemory[0] / 1024.0 / 1024.0, systemMemoryUsage / 1024.0 / 1024.0));
+                    
+                    // 构建详细的统计信息字符串
+                     String statsInfo = String.format(
+                         "\n\n---\n推理统计：时间：%.2f秒; JVM内存：%.2f MB (峰值: %.2f MB); 系统内存：%.2f MB (峰值: %.2f MB); 生成速度：%.2f token/s; 生成token数：%d", 
+                         inferenceTime / 1000.0, 
+                         jvmMemoryUsage / (1024.0 * 1024.0),
+                         peakJvmMemory[0] / (1024.0 * 1024.0),
+                         systemMemoryUsage / (1024.0 * 1024.0),
+                         peakSystemMemory[0] / (1024.0 * 1024.0),
+                         tokenPerSecond,
+                         totalGeneratedTokens
+                     );
                     
                     // 将统计信息添加到结果中
                     fullResponse.append(statsInfo);
                     
                     // 输出统计信息到日志
-                    Log.d(TAG, "推理统计信息:\n" + 
-                          "- 总生成token数: " + totalGeneratedTokens + "\n" +
-                          "- 推理时间: " + (inferenceTime / 1000.0) + "秒\n" +
-                          "- 内存占用: " + (memoryUsage / (1024.0 * 1024.0)) + " MB\n" +
+                    LogManager.logD(TAG, "推理统计信息:\n" + 
+                          "- 总生成token数: " + totalGeneratedTokens + "; " +
+                          "- 推理时间: " + (inferenceTime / 1000.0) + "秒; " +
+                          "- 内存占用: " + (jvmMemoryUsage / (1024.0 * 1024.0)) + " MB; " +
                           "- 生成速度: " + tokenPerSecond + " token/s");
                     
                     // 通过回调接口返回完整结果（包含统计信息）
@@ -1007,7 +1334,7 @@ public class LocalLLMOnnxHandler {
                     callback.onToken(statsInfo);
                     
                 } catch (OrtException e) {
-                    Log.e(TAG, "模型推理失败", e);
+                    LogManager.logE(TAG, "模型推理失败", e);
                     callback.onError("推理失败: " + e.getMessage());
                 }
                 
@@ -1017,78 +1344,194 @@ public class LocalLLMOnnxHandler {
                 }
                 
             } catch (Exception e) {
-                Log.e(TAG, "推理过程发生异常", e);
+                LogManager.logE(TAG, "推理过程发生异常", e);
                 callback.onError("推理异常: " + e.getMessage());
             } finally {
                 // 重置TokenizerManager资源
                 if (tokenizerManager != null) {
                     try {
-                        tokenizerManager.resetManager();
-                        Log.d(TAG, "TokenizerManager实例已重置");
+                        TokenizerManager.resetManager();
+                        LogManager.logD(TAG, "TokenizerManager实例已重置");
                     } catch (Exception e) {
-                        Log.e(TAG, "重置TokenizerManager时出错: " + e.getMessage(), e);
+                        LogManager.logE(TAG, "重置TokenizerManager时出错: " + e.getMessage(), e);
                     }
                 }
             }
         }).start();
     }
     
+    // 缓存张量以减少重复创建开销
+    private LongBuffer cachedInputBuffer = null;
+    private LongBuffer cachedAttentionBuffer = null;
+    private int cachedMaxLength = 0;
+    
     private Map<String, OnnxTensor> prepareInputs(int[] inputIds) throws OrtException {
-        Log.d(TAG, "开始准备ONNX模型输入张量");
         long startTime = System.currentTimeMillis();
         
         Map<String, OnnxTensor> inputs = new HashMap<>();
         
+        // 获取批处理大小
+        int batchSize = (modelConfig != null && modelConfig.getMaxBatchSize() > 1) ? 
+                       modelConfig.getMaxBatchSize() : 1;
+        
         try {
-            // 创建输入IDs张量
-            long[] longInputIds = new long[inputIds.length];
-            for (int i = 0; i < inputIds.length; i++) {
-                longInputIds[i] = inputIds[i];
+            
+            // 优化：重用缓存的buffer以减少内存分配
+            int requiredLength = inputIds.length * batchSize;
+            if (cachedInputBuffer == null || requiredLength > cachedMaxLength) {
+                cachedMaxLength = Math.max(requiredLength * 2, 2048); // 预分配更大空间
+                cachedInputBuffer = LongBuffer.allocate(cachedMaxLength);
+                if (modelConfig != null && modelConfig.requiresAttentionMask()) {
+                    cachedAttentionBuffer = LongBuffer.allocate(cachedMaxLength);
+                }
+                LogManager.logD(TAG, "重新分配张量缓存，最大长度: " + cachedMaxLength + ", 批处理大小: " + batchSize);
             }
             
-            long[] shape = new long[]{1, longInputIds.length};
-            Log.d(TAG, "创建 input_ids 张量，形状: " + Arrays.toString(shape));
+            // 清空并填充输入数据
+            cachedInputBuffer.clear();
             
-            OnnxTensor inputIdsTensor = OnnxTensor.createTensor(ortEnvironment, LongBuffer.wrap(longInputIds), shape);
+            // 支持批处理：复制输入数据到每个批次
+            for (int batch = 0; batch < batchSize; batch++) {
+                for (int i = 0; i < inputIds.length; i++) {
+                    cachedInputBuffer.put(inputIds[i]);
+                }
+            }
+            cachedInputBuffer.flip();
+            cachedInputBuffer.limit(requiredLength);
+            
+            long[] shape = new long[]{batchSize, inputIds.length};
+            
+            // 创建输入张量（使用缓存的buffer）
+            OnnxTensor inputIdsTensor = OnnxTensor.createTensor(ortEnvironment, cachedInputBuffer, shape);
             inputs.put("input_ids", inputIdsTensor);
-            Log.d(TAG, "input_ids 张量创建成功");
             
             // 根据模型需要，添加注意力掩码张量
-            if (modelConfig != null && modelConfig.requiresAttentionMask()) {
-                // 创建全为1的注意力掩码
-                long[] attentionMask = new long[inputIds.length];
-                for (int i = 0; i < inputIds.length; i++) {
-                    attentionMask[i] = 1L; // 所有位置都设置为可见
+            if (modelConfig != null && modelConfig.requiresAttentionMask() && cachedAttentionBuffer != null) {
+                cachedAttentionBuffer.clear();
+                for (int batch = 0; batch < batchSize; batch++) {
+                    for (int i = 0; i < inputIds.length; i++) {
+                        cachedAttentionBuffer.put(1L); // 所有位置都设置为可见
+                    }
                 }
+                cachedAttentionBuffer.flip();
+                cachedAttentionBuffer.limit(requiredLength);
                 
-                OnnxTensor attentionMaskTensor = OnnxTensor.createTensor(ortEnvironment, LongBuffer.wrap(attentionMask), shape);
+                OnnxTensor attentionMaskTensor = OnnxTensor.createTensor(ortEnvironment, cachedAttentionBuffer, shape);
                 inputs.put("attention_mask", attentionMaskTensor);
-                Log.d(TAG, "attention_mask 张量创建成功，形状: " + Arrays.toString(shape));
             }
             
-            // 根据模型需要，可能还需要添加其他输入张量
-            if (modelConfig != null) {
-                // 根据模型配置添加其他必要的输入张量
-                if (modelConfig.requiresPositionIds()) {
-                    Log.d(TAG, "模型需要 position_ids 张量，正在创建...");
-                    // 创建位置编码张量
-                    // 实现位置编码逻辑...
-                }
-                
-                // 其他可能的输入张量，如token_type_ids等
+            // KV缓存支持
+            if (modelConfig != null && modelConfig.isEnableKVCache()) {
+                addKVCacheInputs(inputs, inputIds.length, batchSize);
             }
-            
-            Log.d(TAG, "所有输入张量准备完成，共 " + inputs.size() + " 个张量");
             
         } catch (OrtException e) {
-            Log.e(TAG, "创建输入张量失败", e);
-            Log.e(TAG, "错误详情: " + e.getMessage());
-            throw e; // 重新抛出异常，以便上层方法处理
+            LogManager.logE(TAG, "创建输入张量失败: " + e.getMessage(), e);
+            throw e;
         }
         
         long endTime = System.currentTimeMillis();
-        Log.d(TAG, "准备输入张量耗时: " + (endTime - startTime) + "ms");
+        long prepareTime = endTime - startTime;
+        if (prepareTime > 5) { // 只记录较慢的操作
+            LogManager.logD(TAG, "准备输入张量耗时: " + prepareTime + "ms, 批处理大小: " + batchSize);
+        }
         
         return inputs;
+    }
+    
+    /**
+     * 添加KV缓存相关的输入张量
+     * @param inputs 输入张量映射
+     * @param seqLength 序列长度
+     * @param batchSize 批处理大小
+     * @throws OrtException ONNX Runtime异常
+     */
+    private void addKVCacheInputs(Map<String, OnnxTensor> inputs, int seqLength, int batchSize) throws OrtException {
+        try {
+            // 获取模型配置中的注意力头数和隐藏层大小
+            int numHeads = modelConfig.getNumAttentionHeads();
+            int hiddenSize = modelConfig.getHiddenSize();
+            int headDim = hiddenSize / numHeads;
+            int numLayers = modelConfig.getNumHiddenLayers();
+            
+            // 动态计算KV缓存大小，避免内存溢出
+            int requestedCacheSize = Math.min(seqLength + 512, 1024); // 初始请求的缓存大小
+            int initialCacheSize = modelConfig.getAdaptiveCacheSize(requestedCacheSize); // 根据内存状况调整
+            
+            // 计算预估内存使用量
+            long memoryPerLayer = (long) batchSize * numHeads * initialCacheSize * headDim * 4 * 2; // 4字节float, K+V两个缓存
+            long totalMemory = memoryPerLayer * numLayers;
+            
+            // 获取当前内存状况
+            Runtime runtime = Runtime.getRuntime();
+            long jvmMaxMemory = runtime.maxMemory();
+            long jvmTotalMemory = runtime.totalMemory();
+            long jvmFreeMemory = runtime.freeMemory();
+            long jvmAvailableMemory = jvmMaxMemory - jvmTotalMemory + jvmFreeMemory;
+            
+            // 获取系统内存信息
+            long systemAvailableMemory = com.example.starlocalrag.GlobalApplication.getAvailableMemoryMB();
+            long jvmMaxMemoryMB = com.example.starlocalrag.GlobalApplication.getJVMMaxMemoryMB();
+            
+            LogManager.logI(TAG, String.format("KV缓存内存分析: JVM可用=%.2f MB, JVM最大=%.2f MB, 系统可用=%.2f MB, 预估使用=%.2f MB (层数=%d, 头数=%d, 头维度=%d, 缓存大小=%d)", 
+                jvmAvailableMemory / (1024.0 * 1024.0), jvmMaxMemoryMB, systemAvailableMemory, totalMemory / (1024.0 * 1024.0), numLayers, numHeads, headDim, initialCacheSize));
+            
+            // 如果预估内存使用超过JVM可用内存的70%，动态禁用KV缓存
+            if (totalMemory > jvmAvailableMemory * 0.7) {
+                LogManager.logW(TAG, String.format("内存不足，动态禁用KV缓存以避免OOM (预估%.2f MB > 可用%.2f MB * 70%%)", 
+                    totalMemory / (1024.0 * 1024.0), jvmAvailableMemory / (1024.0 * 1024.0)));
+                modelConfig.disableKVCache();
+                return; // 直接返回，不创建KV缓存
+            }
+            
+            // 如果预估内存仍然过大，进一步减少缓存大小
+            if (totalMemory > 50 * 1024 * 1024) {
+                initialCacheSize = Math.min(initialCacheSize / 2, 128);
+                totalMemory = (long) batchSize * numHeads * initialCacheSize * headDim * 4 * 2 * numLayers;
+                LogManager.logW(TAG, String.format("进一步减少KV缓存大小至: %d, 新预估内存: %.2f MB", 
+                    initialCacheSize, totalMemory / (1024.0 * 1024.0)));
+            }
+            
+            // 为每一层创建KV缓存张量
+            for (int layer = 0; layer < numLayers; layer++) {
+                // Key缓存形状: [batch_size, num_heads, cache_size, head_dim]
+                long[] kvShape = new long[]{batchSize, numHeads, initialCacheSize, headDim};
+                
+                // 创建空的KV缓存张量（初始化为0）
+                float[][][][] emptyKCache = new float[batchSize][numHeads][initialCacheSize][headDim];
+                float[][][][] emptyVCache = new float[batchSize][numHeads][initialCacheSize][headDim];
+                
+                OnnxTensor kCacheTensor = OnnxTensor.createTensor(ortEnvironment, emptyKCache);
+                OnnxTensor vCacheTensor = OnnxTensor.createTensor(ortEnvironment, emptyVCache);
+                
+                inputs.put("past_key_values." + layer + ".key", kCacheTensor);
+                inputs.put("past_key_values." + layer + ".value", vCacheTensor);
+            }
+            
+            // 添加缓存长度张量 - 使用正确的Long类型
+            long[] cacheLenShape = new long[]{batchSize};
+            
+            // 根据ONNX Runtime Java API，使用LongBuffer创建张量
+            try {
+                LongBuffer cacheLenBuffer = LongBuffer.allocate(batchSize);
+                for (int i = 0; i < batchSize; i++) {
+                    cacheLenBuffer.put(0L); // 初始缓存长度为0
+                }
+                cacheLenBuffer.flip();
+                
+                OnnxTensor cacheLenTensor = OnnxTensor.createTensor(ortEnvironment, cacheLenBuffer, cacheLenShape);
+                inputs.put("cache_length", cacheLenTensor);
+                LogManager.logD(TAG, "成功创建cache_length张量，类型: " + cacheLenTensor.getInfo().type);
+            } catch (Exception e) {
+                LogManager.logW(TAG, "创建cache_length张量失败，跳过: " + e.getMessage());
+                // 不添加cache_length张量，某些模型可能不需要这个输入
+            }
+            
+            LogManager.logD(TAG, "KV缓存张量已添加，层数: " + numLayers + ", 头数: " + numHeads + ", 头维度: " + headDim);
+            
+        } catch (Exception e) {
+            LogManager.logW(TAG, "添加KV缓存张量失败: " + e.getMessage());
+            // KV缓存失败不应该阻止推理，继续执行
+        }
     }
 }

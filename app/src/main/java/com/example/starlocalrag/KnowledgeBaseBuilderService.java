@@ -82,14 +82,14 @@ public class KnowledgeBaseBuilderService extends Service {
     
     @Override
     public IBinder onBind(Intent intent) {
-        Log.d(TAG, "服务onBind()被调用");
+        LogManager.logD(TAG, "服务onBind()被调用");
         return binder;
     }
     
     @Override
     public void onCreate() {
         super.onCreate();
-        Log.d(TAG, "知识库构建服务已创建");
+        LogManager.logD(TAG, "知识库构建服务已创建");
         
         // 创建通知渠道（Android 8.0及以上需要）
         createNotificationChannel();
@@ -98,22 +98,21 @@ public class KnowledgeBaseBuilderService extends Service {
         PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
         wakeLock = powerManager.newWakeLock(
             PowerManager.PARTIAL_WAKE_LOCK | 
-            PowerManager.ON_AFTER_RELEASE | // 增加ON_AFTER_RELEASE标志
-            PowerManager.ACQUIRE_CAUSES_WAKEUP, // 确保设备唤醒
+            PowerManager.ON_AFTER_RELEASE, // 增加ON_AFTER_RELEASE标志
             "StarLocalRAG:KnowledgeBaseBuilderWakeLock"
         );
         wakeLock.setReferenceCounted(false); // 设置为非引用计数模式
         
-        Log.d(TAG, "唤醒锁已初始化，类型: PARTIAL_WAKE_LOCK | ON_AFTER_RELEASE | ACQUIRE_CAUSES_WAKEUP");
+        LogManager.logD(TAG, "唤醒锁已初始化，类型: PARTIAL_WAKE_LOCK | ON_AFTER_RELEASE");
     }
     
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        Log.d(TAG, "知识库构建服务已启动，startId: " + startId + ", flags: " + flags);
+        LogManager.logD(TAG, "知识库构建服务已启动，startId: " + startId + ", flags: " + flags);
         
         // 不在这里启动前台服务，而是在实际开始构建知识库时才启动
         // startForeground(NOTIFICATION_ID, createNotification("准备构建知识库...", 0));
-        // Log.d(TAG, "已启动前台服务，通知ID: " + NOTIFICATION_ID);
+        // LogManager.logD(TAG, "已启动前台服务，通知ID: " + NOTIFICATION_ID);
         
         return START_REDELIVER_INTENT; // 如果服务被系统杀死，重新传递Intent
     }
@@ -121,12 +120,12 @@ public class KnowledgeBaseBuilderService extends Service {
     @Override
     public void onDestroy() {
         super.onDestroy();
-        Log.d(TAG, "知识库构建服务已销毁");
+        LogManager.logD(TAG, "知识库构建服务已销毁");
         
         // 释放唤醒锁
         if (wakeLock != null && wakeLock.isHeld()) {
             wakeLock.release();
-            Log.d(TAG, "唤醒锁已释放");
+            LogManager.logD(TAG, "唤醒锁已释放");
         }
         
         // 关闭执行器
@@ -147,7 +146,7 @@ public class KnowledgeBaseBuilderService extends Service {
             
             NotificationManager notificationManager = getSystemService(NotificationManager.class);
             notificationManager.createNotificationChannel(channel);
-            Log.d(TAG, "已创建通知渠道");
+            LogManager.logD(TAG, "已创建通知渠道");
         }
     }
     
@@ -204,7 +203,7 @@ public class KnowledgeBaseBuilderService extends Service {
         // 更新通知
         updateNotification(status, progress);
         
-        Log.d(TAG, "通知进度更新: " + progress + "%, " + status);
+        LogManager.logD(TAG, "通知进度更新: " + progress + "%, " + status);
     }
     
     /**
@@ -233,7 +232,7 @@ public class KnowledgeBaseBuilderService extends Service {
             progressCallback.onProgressUpdate(progress, status);
         }
         
-        Log.d(TAG, "通知文本提取进度更新: [" + processedFiles + "/" + displayTotal + "] " + currentFile);
+        LogManager.logD(TAG, "通知文本提取进度更新: [" + processedFiles + "/" + displayTotal + "] " + currentFile);
     }
     
     /**
@@ -241,22 +240,22 @@ public class KnowledgeBaseBuilderService extends Service {
      * 当应用切换到后台时，系统可能会尝试回收资源，我们需要确保服务继续运行
      */
     public void onAppBackgrounded() {
-        Log.d(TAG, "应用切换到后台");
+        LogManager.logD(TAG, "应用切换到后台");
         checkServiceStatus();
         
         // 确保唤醒锁被持有
         if (wakeLock != null && !wakeLock.isHeld()) {
             wakeLock.acquire(10 * 60 * 60 * 1000L); // 最多持有10小时
-            Log.d(TAG, "应用切后台，重新获取唤醒锁");
+            LogManager.logD(TAG, "应用切后台，重新获取唤醒锁");
         }
         
         // 检查前台服务状态
         try {
             // 更新通知以确保前台服务状态
             updateNotification(currentStatus, currentProgress);
-            Log.d(TAG, "应用切后台，已更新前台服务通知");
+            LogManager.logD(TAG, "应用切后台，已更新前台服务通知");
         } catch (Exception e) {
-            Log.e(TAG, "应用切后台，更新通知失败", e);
+            LogManager.logE(TAG, "应用切后台，更新通知失败", e);
         }
     }
     
@@ -264,15 +263,15 @@ public class KnowledgeBaseBuilderService extends Service {
      * 处理应用切换到前台
      */
     public void onAppForegrounded() {
-        Log.d(TAG, "应用切换到前台");
+        LogManager.logD(TAG, "应用切换到前台");
         checkServiceStatus();
         
         // 更新通知
         try {
             updateNotification(currentStatus, currentProgress);
-            Log.d(TAG, "应用切前台，已更新通知");
+            LogManager.logD(TAG, "应用切前台，已更新通知");
         } catch (Exception e) {
-            Log.e(TAG, "应用切前台，更新通知失败", e);
+            LogManager.logE(TAG, "应用切前台，更新通知失败", e);
         }
     }
     
@@ -293,23 +292,23 @@ public class KnowledgeBaseBuilderService extends Service {
         // 重置取消标志
         isTaskCancelled.set(false);
         
-        Log.d(TAG, "开始构建知识库: " + knowledgeBaseName + ", 文件数量: " + selectedFiles.size() + ", 模型: " + embeddingModel);
+        LogManager.logD(TAG, "开始构建知识库: " + knowledgeBaseName + ", 文件数量: " + selectedFiles.size() + ", 模型: " + embeddingModel);
         
         // 获取唤醒锁，设置超时时间为10小时，确保长时间任务能够完成
         if (!wakeLock.isHeld()) {
             wakeLock.acquire(10 * 60 * 60 * 1000L); // 最多持有10小时
-            Log.d(TAG, "已获取唤醒锁，超时时间设置为10小时，wakeLock状态: " + (wakeLock.isHeld() ? "已持有" : "未持有"));
+            LogManager.logD(TAG, "已获取唤醒锁，超时时间设置为10小时，wakeLock状态: " + (wakeLock.isHeld() ? "已持有" : "未持有"));
         } else {
-            Log.d(TAG, "唤醒锁已经持有，无需重新获取");
+            LogManager.logD(TAG, "唤醒锁已经持有，无需重新获取");
         }
         
         // 启动前台服务
         startForeground(NOTIFICATION_ID, createNotification("开始构建知识库: " + knowledgeBaseName, 0));
-        Log.d(TAG, "已启动前台服务，通知ID: " + NOTIFICATION_ID);
+        LogManager.logD(TAG, "已启动前台服务，通知ID: " + NOTIFICATION_ID);
         
         // 在后台线程中执行构建任务
         executor.execute(() -> {
-            Log.d(TAG, "开始执行知识库构建任务，线程ID: " + Thread.currentThread().getId());
+            LogManager.logD(TAG, "开始执行知识库构建任务，线程ID: " + Thread.currentThread().getId());
             try {
                 // 执行知识库构建逻辑
                 boolean success = buildKnowledgeBase(knowledgeBaseName, embeddingModel, selectedFiles);
@@ -319,11 +318,11 @@ public class KnowledgeBaseBuilderService extends Service {
                     if (success) {
                         progressCallback.onBuildCompleted(true);
                         progressCallback.onTaskCompleted(true, "知识库构建完成: " + knowledgeBaseName);
-                        Log.d(TAG, "知识库构建成功完成: " + knowledgeBaseName);
+                        LogManager.logD(TAG, "知识库构建成功完成: " + knowledgeBaseName);
                     } else {
                         progressCallback.onBuildCompleted(false);
                         progressCallback.onTaskCompleted(false, "知识库构建已取消");
-                        Log.d(TAG, "知识库构建已取消: " + knowledgeBaseName);
+                        LogManager.logD(TAG, "知识库构建已取消: " + knowledgeBaseName);
                     }
                 }
                 
@@ -335,7 +334,7 @@ public class KnowledgeBaseBuilderService extends Service {
                 stopSelfDelayed();
                 
             } catch (Exception e) {
-                Log.e(TAG, "知识库构建失败", e);
+                LogManager.logE(TAG, "知识库构建失败", e);
                 
                 // 错误回调
                 if (progressCallback != null) {
@@ -349,14 +348,14 @@ public class KnowledgeBaseBuilderService extends Service {
                 stopSelfDelayed();
             } finally {
                 // 确保在任何情况下都释放资源
-                Log.d(TAG, "知识库构建过程结束，释放资源");
+                LogManager.logD(TAG, "知识库构建过程结束，释放资源");
                 
                 // 释放嵌入模型
                 try {
                     EmbeddingModelManager.getInstance(this).markModelNotInUse();
-                    Log.d(TAG, "已释放嵌入模型资源");
+                    LogManager.logD(TAG, "已释放嵌入模型资源");
                 } catch (Exception e) {
-                    Log.e(TAG, "释放嵌入模型资源时出错", e);
+                    LogManager.logE(TAG, "释放嵌入模型资源时出错", e);
                 }
             }
         });
@@ -367,8 +366,8 @@ public class KnowledgeBaseBuilderService extends Service {
      */
     private void stopSelfDelayed() {
         // 立即停止前台服务，移除通知栏
-        stopForeground(true);
-        Log.d(TAG, "前台服务已停止，通知栏已移除");
+        stopForeground(STOP_FOREGROUND_REMOVE);
+        LogManager.logD(TAG, "前台服务已停止，通知栏已移除");
         
         // 延迟1秒后停止服务，确保资源释放
         android.os.Handler mainHandler = new android.os.Handler(getMainLooper());
@@ -376,11 +375,11 @@ public class KnowledgeBaseBuilderService extends Service {
             // 确保唤醒锁已释放
             if (wakeLock != null && wakeLock.isHeld()) {
                 wakeLock.release();
-                Log.d(TAG, "停止服务前确保唤醒锁已释放");
+                LogManager.logD(TAG, "停止服务前确保唤醒锁已释放");
             }
             
             stopSelf();
-            Log.d(TAG, "服务已完全停止");
+            LogManager.logD(TAG, "服务已完全停止");
         }, 1000); // 将延迟时间从5秒减少到1秒
     }
     
@@ -389,7 +388,7 @@ public class KnowledgeBaseBuilderService extends Service {
      */
     public void cancelTask() {
         isTaskCancelled.set(true);
-        Log.d(TAG, "已请求取消知识库构建任务");
+        LogManager.logD(TAG, "已请求取消知识库构建任务");
         updateNotification("正在取消知识库构建...", 0);
     }
     
@@ -398,7 +397,7 @@ public class KnowledgeBaseBuilderService extends Service {
      * @return 是否成功完成（未被取消）
      */
     private boolean buildKnowledgeBase(String knowledgeBaseName, String embeddingModel, List<Uri> selectedFiles) {
-        Log.d(TAG, "开始构建知识库: " + knowledgeBaseName + ", 模型: " + embeddingModel + ", 文件数: " + selectedFiles.size());
+        LogManager.logD(TAG, "开始构建知识库: " + knowledgeBaseName + ", 模型: " + embeddingModel + ", 文件数: " + selectedFiles.size());
         
         // 这里实现知识库构建的核心逻辑
         // 1. 初始化文本处理器
@@ -412,7 +411,7 @@ public class KnowledgeBaseBuilderService extends Service {
                 updateTextExtractionProgress(processedFiles, totalFiles, currentFile);
                 
                 // 记录日志，但不再重复发送进度更新到UI
-                Log.d(TAG, "文本提取进度: " + processedFiles + "/" + totalFiles + ", 当前文件: " + currentFile);
+                LogManager.logD(TAG, "文本提取进度: " + processedFiles + "/" + totalFiles + ", 当前文件: " + currentFile);
             }
             
             @Override
@@ -440,28 +439,28 @@ public class KnowledgeBaseBuilderService extends Service {
             @Override
             public void onTextExtractionComplete(int totalChunks) {
                 // 文本提取完成
-                Log.d(TAG, "文本提取完成，共 " + totalChunks + " 个文本块. 开始向量化...");
+                LogManager.logD(TAG, "文本提取完成，共 " + totalChunks + " 个文本块. 开始向量化...");
                 updateProgress(50, "文本提取完成，共 " + totalChunks + " 个文本块. 开始向量化...");
             }
             
             @Override
             public void onVectorizationComplete(int vectorCount) {
                 // 向量化完成
-                Log.d(TAG, "向量化处理完成，共生成 " + vectorCount + " 个向量");
+                LogManager.logD(TAG, "向量化处理完成，共生成 " + vectorCount + " 个向量");
                 updateProgress(100, "向量化处理完成，共生成 " + vectorCount + " 个向量");
             }
             
             @Override
             public void onError(String errorMessage) {
                 // 处理错误
-                Log.e(TAG, "错误: " + errorMessage);
+                LogManager.logE(TAG, "错误: " + errorMessage);
                 updateProgress(0, "错误: " + errorMessage);
             }
             
             @Override
             public void onLog(String message) {
                 // 记录日志
-                Log.d(TAG, message);
+                LogManager.logD(TAG, message);
             }
         });
         
@@ -487,18 +486,18 @@ public class KnowledgeBaseBuilderService extends Service {
             return result && !isTaskCancelled.get();
             
         } catch (Exception e) {
-            Log.e(TAG, "知识库构建过程中发生错误", e);
+            LogManager.logE(TAG, "知识库构建过程中发生错误", e);
             throw e;
         } finally {
             // 确保在任何情况下都释放资源
-            Log.d(TAG, "知识库构建过程结束，释放资源");
+            LogManager.logD(TAG, "知识库构建过程结束，释放资源");
             
             // 释放嵌入模型
             try {
                 EmbeddingModelManager.getInstance(this).markModelNotInUse();
-                Log.d(TAG, "已释放嵌入模型资源");
+                LogManager.logD(TAG, "已释放嵌入模型资源");
             } catch (Exception e) {
-                Log.e(TAG, "释放嵌入模型资源时出错", e);
+                LogManager.logE(TAG, "释放嵌入模型资源时出错", e);
             }
         }
     }
@@ -518,7 +517,7 @@ public class KnowledgeBaseBuilderService extends Service {
             progressCallback.onProgressUpdate(progress, status);
         }
         
-        Log.d(TAG, "进度更新: " + progress + "%, " + status);
+        LogManager.logD(TAG, "进度更新: " + progress + "%, " + status);
     }
     
     /**
@@ -529,7 +528,7 @@ public class KnowledgeBaseBuilderService extends Service {
         boolean isTaskRunning = !isTaskCancelled.get();
         boolean isExecutorShutdown = executor.isShutdown();
         
-        Log.d(TAG, "服务状态检查 - " +
+        LogManager.logD(TAG, "服务状态检查 - " +
               "唤醒锁状态: " + (isWakeLockHeld ? "持有中" : "未持有") + ", " +
               "任务状态: " + (isTaskRunning ? "运行中" : "已取消") + ", " +
               "执行器状态: " + (isExecutorShutdown ? "已关闭" : "运行中") + ", " +

@@ -2,6 +2,7 @@ package com.example.starlocalrag;
 
 import android.content.Context;
 import android.util.Log;
+import com.example.starlocalrag.LogManager;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -168,11 +169,11 @@ public class VectorDatabaseHandler {
      */
     private File getKnowledgeBaseDir(String knowledgeBaseName) {
         if (context == null) {
-            Log.e(TAG, "Context为null，无法获取知识库目录");
+            LogManager.logE(TAG, "Context为null，无法获取知识库目录");
             return null;
         }
         File dir = new File(context.getFilesDir(), "knowledge_bases/" + knowledgeBaseName);
-        Log.d(TAG, "知识库目录路径: " + dir.getAbsolutePath());
+        LogManager.logD(TAG, "知识库目录路径: " + dir.getAbsolutePath());
         return dir;
     }
     
@@ -203,7 +204,7 @@ public class VectorDatabaseHandler {
      */
     public boolean saveDatabase() {
         if (databaseDir == null) {
-            Log.e(TAG, "数据库目录为null，无法保存数据库");
+            LogManager.logE(TAG, "数据库目录为null，无法保存数据库");
             return false;
         }
         
@@ -214,9 +215,9 @@ public class VectorDatabaseHandler {
         try (ObjectOutputStream oos = new ObjectOutputStream(
                 new FileOutputStream(vectorDbFile))) {
             oos.writeObject(chunks);
-            Log.d(TAG, "保存向量数据库成功，共 " + chunks.size() + " 个文本块");
+            LogManager.logD(TAG, "保存向量数据库成功，共 " + chunks.size() + " 个文本块");
         } catch (IOException e) {
-            Log.e(TAG, "保存向量数据库失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "保存向量数据库失败: " + e.getMessage(), e);
             success = false;
         }
         
@@ -225,9 +226,9 @@ public class VectorDatabaseHandler {
         try (ObjectOutputStream oos = new ObjectOutputStream(
                 new FileOutputStream(metadataFile))) {
             oos.writeObject(metadata);
-            Log.d(TAG, "保存元数据成功");
+            LogManager.logD(TAG, "保存元数据成功");
         } catch (IOException e) {
-            Log.e(TAG, "保存元数据失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "保存元数据失败: " + e.getMessage(), e);
             success = false;
         }
         
@@ -241,7 +242,7 @@ public class VectorDatabaseHandler {
     @SuppressWarnings("unchecked")
     public boolean loadDatabase() {
         if (databaseDir == null) {
-            Log.e(TAG, "数据库目录为null，无法加载数据库");
+            LogManager.logE(TAG, "数据库目录为null，无法加载数据库");
             return false;
         }
         
@@ -253,14 +254,14 @@ public class VectorDatabaseHandler {
             try (ObjectInputStream ois = new ObjectInputStream(
                     new FileInputStream(vectorDbFile))) {
                 chunks = (List<TextChunk>) ois.readObject();
-                Log.d(TAG, "加载向量数据库成功，共 " + chunks.size() + " 个文本块");
+                LogManager.logD(TAG, "加载向量数据库成功，共 " + chunks.size() + " 个文本块");
             } catch (IOException | ClassNotFoundException e) {
-                Log.e(TAG, "加载向量数据库失败: " + e.getMessage(), e);
+                LogManager.logE(TAG, "加载向量数据库失败: " + e.getMessage(), e);
                 chunks = new ArrayList<>();
                 success = false;
             }
         } else {
-            Log.d(TAG, "向量数据库文件不存在，将创建新数据库");
+            LogManager.logD(TAG, "向量数据库文件不存在，将创建新数据库");
             chunks = new ArrayList<>();
             success = false;
         }
@@ -271,13 +272,13 @@ public class VectorDatabaseHandler {
             try (ObjectInputStream ois = new ObjectInputStream(
                     new FileInputStream(metadataFile))) {
                 metadata = (DatabaseMetadata) ois.readObject();
-                Log.d(TAG, "加载元数据成功，嵌入模型: " + metadata.getEmbeddingModel());
+                LogManager.logD(TAG, "加载元数据成功，嵌入模型: " + metadata.getEmbeddingModel());
             } catch (IOException | ClassNotFoundException e) {
-                Log.e(TAG, "加载元数据失败: " + e.getMessage(), e);
+                LogManager.logE(TAG, "加载元数据失败: " + e.getMessage(), e);
                 success = false;
             }
         } else {
-            Log.d(TAG, "元数据文件不存在，将创建新元数据");
+            LogManager.logD(TAG, "元数据文件不存在，将创建新元数据");
             success = false;
         }
         
@@ -348,17 +349,17 @@ public class VectorDatabaseHandler {
      */
     public List<Map<String, Object>> search(float[] queryEmbedding, int topK, int chunkSize, int overlapSize) {
         if (chunks == null || chunks.isEmpty()) {
-            Log.w(TAG, "数据库为空，无法搜索");
+            LogManager.logW(TAG, "数据库为空，无法搜索");
             return new ArrayList<>();
         }
         
         if (queryEmbedding == null || queryEmbedding.length == 0) {
-            Log.e(TAG, "查询向量为空");
+            LogManager.logE(TAG, "查询向量为空");
             return new ArrayList<>();
         }
         
         // 记录搜索参数
-        Log.d(TAG, "执行向量搜索: topK=" + topK + ", 分块大小=" + chunkSize + ", 重叠大小=" + overlapSize);
+        LogManager.logD(TAG, "执行向量搜索: topK=" + topK + ", 分块大小=" + chunkSize + ", 重叠大小=" + overlapSize);
         
         // 计算每个文本块与查询向量的相似度
         List<Map<String, Object>> results = new ArrayList<>();
@@ -385,7 +386,7 @@ public class VectorDatabaseHandler {
             results = results.subList(0, topK);
         }
         
-        Log.d(TAG, "搜索完成，找到 " + results.size() + " 个结果");
+        LogManager.logD(TAG, "搜索完成，找到 " + results.size() + " 个结果");
         return results;
     }
     
@@ -413,7 +414,7 @@ public class VectorDatabaseHandler {
         // 获取知识库目录
         File kbDir = new VectorDatabaseHandler(null).getKnowledgeBaseDir(knowledgeBaseName);
         if (kbDir == null || !kbDir.exists()) {
-            Log.e(TAG, "知识库目录不存在: " + knowledgeBaseName);
+            LogManager.logE(TAG, "知识库目录不存在: " + knowledgeBaseName);
             return new ArrayList<>();
         }
         
@@ -422,7 +423,7 @@ public class VectorDatabaseHandler {
         
         // 加载数据库
         if (!handler.loadDatabase()) {
-            Log.e(TAG, "加载知识库失败: " + knowledgeBaseName);
+            LogManager.logE(TAG, "加载知识库失败: " + knowledgeBaseName);
             return new ArrayList<>();
         }
         
@@ -441,19 +442,19 @@ public class VectorDatabaseHandler {
     public boolean addNoteWithEmbedding(String knowledgeBaseName, String title, String content, 
                                        EmbeddingModelHandler embeddingHandler) {
         if (embeddingHandler == null) {
-            Log.e(TAG, "嵌入模型处理器为空");
+            LogManager.logE(TAG, "嵌入模型处理器为空");
             return false;
         }
         
         File kbDir = getKnowledgeBaseDir(knowledgeBaseName);
         if (kbDir == null || !kbDir.exists()) {
-            Log.e(TAG, "知识库目录不存在: " + knowledgeBaseName);
+            LogManager.logE(TAG, "知识库目录不存在: " + knowledgeBaseName);
             return false;
         }
         
-        Log.d(TAG, "正在向知识库添加笔记: " + knowledgeBaseName);
-        Log.d(TAG, "标题: " + title);
-        Log.d(TAG, "内容长度: " + content.length());
+        LogManager.logD(TAG, "正在向知识库添加笔记: " + knowledgeBaseName);
+        LogManager.logD(TAG, "标题: " + title);
+        LogManager.logD(TAG, "内容长度: " + content.length());
         
         try {
             // 创建VectorDatabaseHandler实例
@@ -461,19 +462,19 @@ public class VectorDatabaseHandler {
             
             // 加载数据库
             if (!handler.loadDatabase()) {
-                Log.e(TAG, "加载知识库失败: " + knowledgeBaseName);
+                LogManager.logE(TAG, "加载知识库失败: " + knowledgeBaseName);
                 return false;
             }
             
             // 打印添加前的文本块数量和元数据
             int beforeChunkCount = handler.getChunkCount();
-            Log.d(TAG, "添加笔记前文本块数量: " + beforeChunkCount);
-            Log.d(TAG, "添加笔记前元数据 - 嵌入维度: " + handler.getMetadata().getEmbeddingDimension());
-            Log.d(TAG, "添加笔记前元数据 - 文本块数量: " + handler.getMetadata().getChunkCount());
-            Log.d(TAG, "添加笔记前元数据 - 来源数量: " + handler.getMetadata().getSources().size());
+            LogManager.logD(TAG, "添加笔记前文本块数量: " + beforeChunkCount);
+            LogManager.logD(TAG, "添加笔记前元数据 - 嵌入维度: " + handler.getMetadata().getEmbeddingDimension());
+            LogManager.logD(TAG, "添加笔记前元数据 - 文本块数量: " + handler.getMetadata().getChunkCount());
+            LogManager.logD(TAG, "添加笔记前元数据 - 来源数量: " + handler.getMetadata().getSources().size());
             
             // 生成内容的嵌入向量
-            Log.d(TAG, "正在生成笔记内容的嵌入向量...");
+            LogManager.logD(TAG, "正在生成笔记内容的嵌入向量...");
             
             // 将标题和内容合并为一个文本
             String combinedText = "标题: " + title + "\n\n" + content;
@@ -481,10 +482,10 @@ public class VectorDatabaseHandler {
             // 生成嵌入向量
             float[] embedding = embeddingHandler.generateEmbedding(combinedText);
             if (embedding == null || embedding.length == 0) {
-                Log.e(TAG, "生成嵌入向量失败");
+                LogManager.logE(TAG, "生成嵌入向量失败");
                 return false;
             }
-            Log.d(TAG, "嵌入向量生成成功，长度: " + embedding.length);
+            LogManager.logD(TAG, "嵌入向量生成成功，长度: " + embedding.length);
             
             // 设置笔记来源标识
             String source = "笔记: " + title;
@@ -494,17 +495,17 @@ public class VectorDatabaseHandler {
             
             // 打印添加后的文本块数量和元数据
             int afterChunkCount = handler.getChunkCount();
-            Log.d(TAG, "添加笔记后文本块数量: " + afterChunkCount);
-            Log.d(TAG, "添加笔记后元数据 - 嵌入维度: " + handler.getMetadata().getEmbeddingDimension());
-            Log.d(TAG, "添加笔记后元数据 - 文本块数量: " + handler.getMetadata().getChunkCount());
-            Log.d(TAG, "添加笔记后元数据 - 来源数量: " + handler.getMetadata().getSources().size());
-            Log.d(TAG, "添加笔记后元数据 - 来源列表: " + String.join(", ", handler.getMetadata().getSources()));
+            LogManager.logD(TAG, "添加笔记后文本块数量: " + afterChunkCount);
+            LogManager.logD(TAG, "添加笔记后元数据 - 嵌入维度: " + handler.getMetadata().getEmbeddingDimension());
+            LogManager.logD(TAG, "添加笔记后元数据 - 文本块数量: " + handler.getMetadata().getChunkCount());
+            LogManager.logD(TAG, "添加笔记后元数据 - 来源数量: " + handler.getMetadata().getSources().size());
+            LogManager.logD(TAG, "添加笔记后元数据 - 来源列表: " + String.join(", ", handler.getMetadata().getSources()));
             
             // 保存成功
-            Log.d(TAG, "添加笔记成功，文本块数量增加: " + (afterChunkCount - beforeChunkCount));
+            LogManager.logD(TAG, "添加笔记成功，文本块数量增加: " + (afterChunkCount - beforeChunkCount));
             return true;
         } catch (Exception e) {
-            Log.e(TAG, "生成嵌入向量或添加笔记时发生异常", e);
+            LogManager.logE(TAG, "生成嵌入向量或添加笔记时发生异常", e);
             return false;
         }
     }

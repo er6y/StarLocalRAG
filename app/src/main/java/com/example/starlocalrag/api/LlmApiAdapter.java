@@ -5,6 +5,7 @@ import android.util.Log;
 
 import com.android.volley.RequestQueue;
 import com.android.volley.toolbox.Volley;
+import com.example.starlocalrag.LogManager;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -81,12 +82,12 @@ public class LlmApiAdapter {
      */
     public void callLlmApi(String apiUrl, String apiKey, String model, String prompt, ApiCallback callback) {
         ApiType apiType = detectApiType(apiUrl);
-        Log.d(TAG, "检测到API类型: " + apiType.name());
+        LogManager.logD(TAG, "检测到API类型: " + apiType.name());
         
         try {
             // 如果是本地模型，使用本地适配器
             if (apiType == ApiType.LOCAL) {
-                Log.d(TAG, "使用本地模型: " + model);
+                LogManager.logD(TAG, "使用本地模型: " + model);
                 LocalLlmAdapter localAdapter = LocalLlmAdapter.getInstance(context);
                 localAdapter.callLocalModel(model, prompt, callback);
                 return;
@@ -97,7 +98,7 @@ public class LlmApiAdapter {
             
             // 补充API端点路径
             String fullApiUrl = getFullApiUrl(apiUrl, apiType);
-            Log.d(TAG, "完整API URL: " + fullApiUrl);
+            LogManager.logD(TAG, "完整API URL: " + fullApiUrl);
             
             // 使用流式客户端发送请求
             streamingClient.streamRequest(fullApiUrl, apiKey, model, prompt, new StreamingApiClient.StreamingCallback() {
@@ -118,7 +119,7 @@ public class LlmApiAdapter {
             });
             
         } catch (Exception e) {
-            Log.e(TAG, "API调用错误", e);
+            LogManager.logE(TAG, "API调用错误", e);
             callback.onError("API调用错误: " + e.getMessage());
         }
     }
@@ -241,7 +242,7 @@ public class LlmApiAdapter {
     public String callLlmApiSync(String apiUrl, String apiKey, String model, String prompt) {
         // 如果是本地模型，使用本地适配器的同步调用
         if (detectApiType(apiUrl) == ApiType.LOCAL) {
-            Log.d(TAG, "同步调用本地模型: " + model);
+            LogManager.logD(TAG, "同步调用本地模型: " + model);
             try {
                 final CountDownLatch latch = new CountDownLatch(1);
                 final StringBuilder result = new StringBuilder();
@@ -278,7 +279,7 @@ public class LlmApiAdapter {
                 
                 return result.toString();
             } catch (Exception e) {
-                Log.e(TAG, "本地模型同步调用错误", e);
+                LogManager.logE(TAG, "本地模型同步调用错误", e);
                 return "本地模型调用错误: " + e.getMessage();
             }
         }

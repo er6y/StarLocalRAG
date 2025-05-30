@@ -471,7 +471,7 @@ public class LogViewFragment extends Fragment {
         if (textViewLog != null) {
             float fontSize = ConfigManager.getGlobalTextSize(requireContext());
             textViewLog.setTextSize(TypedValue.COMPLEX_UNIT_SP, fontSize);
-            Log.d("LogViewFragment", "已应用全局字体大小: " + fontSize + "sp");
+            LogManager.logD("LogViewFragment", "已应用全局字体大小: " + fontSize + "sp");
         }
     }
     

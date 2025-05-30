@@ -3,6 +3,7 @@ package com.example.starlocalrag.api;
 import android.content.Context;
 import android.util.Log;
 
+import com.example.starlocalrag.LogManager;
 import com.google.gson.Gson;
 
 import java.util.concurrent.TimeUnit;
@@ -30,11 +31,11 @@ public class RetrofitClient {
     public static LlmStreamingService getStreamingService(Context context, String baseUrl) {
         // 如果baseUrl发生变化，重新创建Retrofit实例
         if (retrofit == null || !currentBaseUrl.equals(baseUrl)) {
-            Log.d(TAG, "创建新的Retrofit实例，baseUrl: " + baseUrl);
+            LogManager.logD(TAG, "创建新的Retrofit实例，baseUrl: " + baseUrl);
             currentBaseUrl = baseUrl;
             
             // 创建日志拦截器
-            HttpLoggingInterceptor logging = new HttpLoggingInterceptor(message -> Log.d("API_DEBUG", message));
+            HttpLoggingInterceptor logging = new HttpLoggingInterceptor(message -> LogManager.logD("API_DEBUG", message));
             logging.setLevel(HttpLoggingInterceptor.Level.BODY);
             
             // 创建OkHttp客户端

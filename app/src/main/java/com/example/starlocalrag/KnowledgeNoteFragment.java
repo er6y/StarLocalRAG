@@ -120,17 +120,17 @@ public class KnowledgeNoteFragment extends Fragment {
 
     // 加载知识库名称列表
     private void loadKnowledgeBaseNames() {
-        Log.d(TAG, "开始加载知识库名称列表");
+        LogManager.logD(TAG, "开始加载知识库名称列表");
         knowledgeBaseNames.clear();
 
         // 获取设置中的知识库路径
         String knowledgeBasePath = ConfigManager.getKnowledgeBasePath(requireContext());
-        Log.d(TAG, "从设置中获取知识库路径: " + knowledgeBasePath);
+        LogManager.logD(TAG, "从设置中获取知识库路径: " + knowledgeBasePath);
 
         // 获取知识库目录
         File knowledgeBaseDir = new File(knowledgeBasePath);
         if (!knowledgeBaseDir.exists()) {
-            Log.d(TAG, "知识库目录不存在，尝试创建: " + knowledgeBaseDir.getAbsolutePath());
+            LogManager.logD(TAG, "知识库目录不存在，尝试创建: " + knowledgeBaseDir.getAbsolutePath());
             knowledgeBaseDir.mkdirs();
         }
 
@@ -143,13 +143,13 @@ public class KnowledgeNoteFragment extends Fragment {
                     knowledgeBaseNames.add(dir.getName());
                 }
             }
-            Log.d(TAG, "找到 " + knowledgeBaseNames.size() + " 个知识库");
+            LogManager.logD(TAG, "找到 " + knowledgeBaseNames.size() + " 个知识库");
             buttonAddToKnowledgeBase.setEnabled(true);
         } else {
             // 如果没有知识库，添加提示
             knowledgeBaseNames.add("请先创建知识库");
             buttonAddToKnowledgeBase.setEnabled(false);
-            Log.d(TAG, "未找到知识库，已禁用添加按钮");
+            LogManager.logD(TAG, "未找到知识库，已禁用添加按钮");
         }
 
         // 设置适配器
@@ -162,7 +162,7 @@ public class KnowledgeNoteFragment extends Fragment {
             @Override
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
                 String selectedKnowledgeBase = knowledgeBaseNames.get(position);
-                Log.d(TAG, "已选择知识库: " + selectedKnowledgeBase);
+                LogManager.logD(TAG, "已选择知识库: " + selectedKnowledgeBase);
                 
                 // 如果选择了"请先创建知识库"，禁用添加按钮
                 buttonAddToKnowledgeBase.setEnabled(!selectedKnowledgeBase.equals("请先创建知识库"));
@@ -170,7 +170,7 @@ public class KnowledgeNoteFragment extends Fragment {
                 // 保存选择到ConfigManager（如果不是提示信息）
                 if (!selectedKnowledgeBase.equals("请先创建知识库")) {
                     ConfigManager.setString(requireContext(), ConfigManager.KEY_KNOWLEDGE_BASE, selectedKnowledgeBase);
-                    Log.d(TAG, "已保存知识库选择到ConfigManager: " + selectedKnowledgeBase);
+                    LogManager.logD(TAG, "已保存知识库选择到ConfigManager: " + selectedKnowledgeBase);
                 }
             }
 
@@ -191,7 +191,7 @@ public class KnowledgeNoteFragment extends Fragment {
             String lastKnowledgeBase = ConfigManager.getString(requireContext(), 
                     ConfigManager.KEY_KNOWLEDGE_BASE, "");
             
-            Log.d(TAG, "从ConfigManager加载上次选择的知识库: " + 
+            LogManager.logD(TAG, "从ConfigManager加载上次选择的知识库: " + 
                     (lastKnowledgeBase.isEmpty() ? "[空]" : lastKnowledgeBase));
             
             if (!lastKnowledgeBase.isEmpty() && !knowledgeBaseNames.isEmpty() && !knowledgeBaseNames.get(0).equals("请先创建知识库")) {
@@ -199,13 +199,13 @@ public class KnowledgeNoteFragment extends Fragment {
                 for (int i = 0; i < knowledgeBaseNames.size(); i++) {
                     if (knowledgeBaseNames.get(i).equals(lastKnowledgeBase)) {
                         spinnerKnowledgeBase.setSelection(i);
-                        Log.d(TAG, "已选择上次使用的知识库: " + lastKnowledgeBase);
+                        LogManager.logD(TAG, "已选择上次使用的知识库: " + lastKnowledgeBase);
                         break;
                     }
                 }
             }
         } catch (Exception e) {
-            Log.e(TAG, "加载知识库选择失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "加载知识库选择失败: " + e.getMessage(), e);
         }
     }
 
@@ -263,7 +263,7 @@ public class KnowledgeNoteFragment extends Fragment {
                         SQLiteVectorDatabaseHandler.DatabaseMetadata metadata = vectorDb.getMetadata();
                         if (metadata != null) {
                             String embeddingModel = metadata.getEmbeddingModel();
-                            Log.d(TAG, "从SQLite数据库中读取到嵌入模型: " + embeddingModel);
+                            LogManager.logD(TAG, "从SQLite数据库中读取到嵌入模型: " + embeddingModel);
                             
                             // 使用EmbeddingModelUtils检查并加载嵌入模型
                             CountDownLatch modelLatch = new CountDownLatch(1);
@@ -318,27 +318,27 @@ public class KnowledgeNoteFragment extends Fragment {
                         }
                     }
                 } catch (Exception e) {
-                    Log.e(TAG, "读取SQLite数据库失败", e);
+                    LogManager.logE(TAG, "读取SQLite数据库失败", e);
                 } finally {
                     if (vectorDb != null) {
                         try {
                             vectorDb.close();
                         } catch (Exception e) {
-                            Log.e(TAG, "关闭SQLite数据库失败", e);
+                            LogManager.logE(TAG, "关闭SQLite数据库失败", e);
                         }
                     }
                 }
                 
                 // 如果从SQLite数据库中获取失败，则尝试从ConfigManager中获取（兼容旧版本）
                 if (embeddingModelPath == null || embeddingModelPath.isEmpty()) {
-                    Log.d(TAG, "从SQLite数据库中获取嵌入模型失败，尝试从ConfigManager中获取");
+                    LogManager.logD(TAG, "从SQLite数据库中获取嵌入模型失败，尝试从ConfigManager中获取");
                     embeddingModelPath = ConfigManager.getKnowledgeBaseEmbeddingModel(requireContext(), selectedKnowledgeBase);
                     
                     // 如果从ConfigManager中获取到了模型名称，检查模型文件是否存在
                     if (embeddingModelPath != null && !embeddingModelPath.isEmpty()) {
                         File modelFile = new File(embeddingModelPath);
                         if (!modelFile.exists()) {
-                            Log.d(TAG, "模型文件不存在: " + modelFile.getAbsolutePath());
+                            LogManager.logD(TAG, "模型文件不存在: " + modelFile.getAbsolutePath());
                             embeddingModelPath = null;
                         }
                     }
@@ -432,7 +432,7 @@ public class KnowledgeNoteFragment extends Fragment {
                 
                 // 等待模型加载完成，设置超时
                 try {
-                    boolean modelLoaded = modelLoadLatch.await(60, TimeUnit.SECONDS);
+                    boolean modelLoaded = modelLoadLatch.await(180, TimeUnit.SECONDS);
                     if (!modelLoaded) {
                         updateProgress("错误：加载嵌入模型超时");
                         enableAddButton();
@@ -593,7 +593,7 @@ public class KnowledgeNoteFragment extends Fragment {
                         editTextContent.setText("");
                     });
                 } catch (Exception e) {
-                    Log.e(TAG, "生成嵌入向量或添加笔记失败", e);
+                    LogManager.logE(TAG, "生成嵌入向量或添加笔记失败", e);
                     updateProgress("错误：" + e.getMessage());
                     if (noteVectorDb != null) {
                         noteVectorDb.close();
@@ -602,7 +602,7 @@ public class KnowledgeNoteFragment extends Fragment {
                     updateProgress("标记模型使用结束（发生错误），允许自动卸载");
                 }
             } catch (Exception e) {
-                Log.e(TAG, "添加到知识库失败", e);
+                LogManager.logE(TAG, "添加到知识库失败", e);
                 updateProgress("错误：" + e.getMessage());
             } finally {
                 enableAddButton();
@@ -637,7 +637,7 @@ public class KnowledgeNoteFragment extends Fragment {
         
         // 获取设置中的嵌入模型路径
         String embeddingModelPath = ConfigManager.getEmbeddingModelPath(requireContext());
-        Log.d(TAG, "嵌入模型路径: " + embeddingModelPath);
+        LogManager.logD(TAG, "嵌入模型路径: " + embeddingModelPath);
         
         // 获取嵌入模型目录
         File embeddingModelDir = new File(embeddingModelPath);
@@ -651,16 +651,16 @@ public class KnowledgeNoteFragment extends Fragment {
                     if ((file.isFile() && (name.endsWith(".pt") || name.endsWith(".pth") || name.endsWith(".onnx"))) ||
                         (file.isDirectory() && name.contains("model"))) {
                         availableModels.add(file.getName()); // 只添加文件名，而不是完整路径
-                        Log.d(TAG, "找到可用模型: " + file.getName());
+                        LogManager.logD(TAG, "找到可用模型: " + file.getName());
                     }
                 }
             }
         }
         
         if (availableModels.isEmpty()) {
-            Log.w(TAG, "未找到可用的嵌入模型");
+            LogManager.logW(TAG, "未找到可用的嵌入模型");
         } else {
-            Log.d(TAG, "共找到 " + availableModels.size() + " 个可用模型");
+            LogManager.logD(TAG, "共找到 " + availableModels.size() + " 个可用模型");
         }
         
         return availableModels;
@@ -697,42 +697,42 @@ public class KnowledgeNoteFragment extends Fragment {
     // 更新知识库元数据中的模型信息
     private void updateKnowledgeBaseModelMetadata(File knowledgeBaseDir, String embeddingModelPath) {
         try {
-            Log.d(TAG, "更新知识库元数据中的模型信息: " + embeddingModelPath);
+            LogManager.logD(TAG, "更新知识库元数据中的模型信息: " + embeddingModelPath);
             
             // 使用 SQLiteVectorDatabaseHandler 更新元数据
             SQLiteVectorDatabaseHandler vectorDb = null;
             try {
                 // 创建SQLite向量数据库处理器
-                Log.i(TAG, "开始创建SQLite向量数据库处理器，知识库目录: " + knowledgeBaseDir.getAbsolutePath());
+                LogManager.logI(TAG, "开始创建SQLite向量数据库处理器，知识库目录: " + knowledgeBaseDir.getAbsolutePath());
                 
                 vectorDb = new SQLiteVectorDatabaseHandler(knowledgeBaseDir, "note");
-                Log.i(TAG, "正在加载SQLite向量数据库...");
+                LogManager.logI(TAG, "正在加载SQLite向量数据库...");
                 
                 if (vectorDb.loadDatabase()) {
                     // 更新嵌入模型路径
                     vectorDb.updateEmbeddingModel(embeddingModelPath);
-                    Log.d(TAG, "成功更新元数据");
+                    LogManager.logD(TAG, "成功更新元数据");
                     updateProgress("已更新知识库元数据中的模型信息");
                 } else {
-                    Log.e(TAG, "加载SQLite向量数据库失败");
+                    LogManager.logE(TAG, "加载SQLite向量数据库失败");
                     updateProgress("警告：加载SQLite向量数据库失败");
                     
                     // 尝试创建新的元数据
                     vectorDb.updateEmbeddingModel(embeddingModelPath);
-                    Log.d(TAG, "创建了新的数据库元数据");
+                    LogManager.logD(TAG, "创建了新的数据库元数据");
                     updateProgress("已创建新的数据库元数据");
                 }
             } catch (Exception e) {
-                Log.e(TAG, "使用 SQLiteVectorDatabaseHandler 更新元数据失败", e);
+                LogManager.logE(TAG, "使用 SQLiteVectorDatabaseHandler 更新元数据失败", e);
                 updateProgress("警告：更新数据库元数据失败: " + e.getMessage());
             } finally {
                 // 确保关闭数据库
                 if (vectorDb != null) {
                     try {
                         vectorDb.close();
-                        Log.d(TAG, "已关闭向量数据库");
+                        LogManager.logD(TAG, "已关闭向量数据库");
                     } catch (Exception e) {
-                        Log.e(TAG, "关闭向量数据库失败", e);
+                        LogManager.logE(TAG, "关闭向量数据库失败", e);
                     }
                 }
             }
@@ -757,15 +757,15 @@ public class KnowledgeNoteFragment extends Fragment {
                 
                 boolean success = FileUtil.writeFile(jsonMetadataFile, metadata.toString());
                 if (success) {
-                    Log.d(TAG, "成功更新 metadata.json 文件");
+                    LogManager.logD(TAG, "成功更新 metadata.json 文件");
                 } else {
-                    Log.e(TAG, "更新 metadata.json 文件失败");
+                    LogManager.logE(TAG, "更新 metadata.json 文件失败");
                 }
             } catch (Exception e) {
-                Log.e(TAG, "处理 metadata.json 文件失败", e);
+                LogManager.logE(TAG, "处理 metadata.json 文件失败", e);
             }
         } catch (Exception e) {
-            Log.e(TAG, "更新知识库元数据时发生错误", e);
+            LogManager.logE(TAG, "更新知识库元数据时发生错误", e);
             updateProgress("警告：更新知识库元数据时发生错误: " + e.getMessage());
         }
     }
@@ -833,7 +833,7 @@ public class KnowledgeNoteFragment extends Fragment {
      */
     public void insertTextToContentEditor(String text) {
         if (editTextContent == null) {
-            Log.e(TAG, "内容编辑框为空，无法插入文本");
+            LogManager.logE(TAG, "内容编辑框为空，无法插入文本");
             return;
         }
         
@@ -869,9 +869,9 @@ public class KnowledgeNoteFragment extends Fragment {
             // 确保内容编辑框获得焦点
             editTextContent.requestFocus();
             
-            Log.d(TAG, "成功将文本插入到内容编辑框");
+            LogManager.logD(TAG, "成功将文本插入到内容编辑框");
         } catch (Exception e) {
-            Log.e(TAG, "插入文本到内容编辑框失败", e);
+            LogManager.logE(TAG, "插入文本到内容编辑框失败", e);
             Toast.makeText(requireContext(), "插入文本失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
@@ -883,7 +883,7 @@ public class KnowledgeNoteFragment extends Fragment {
         if (editTextContent != null) {
             float fontSize = ConfigManager.getGlobalTextSize(requireContext());
             editTextContent.setTextSize(TypedValue.COMPLEX_UNIT_SP, fontSize);
-            Log.d(TAG, "已应用全局字体大小: " + fontSize + "sp");
+            LogManager.logD(TAG, "已应用全局字体大小: " + fontSize + "sp");
         }
     }
 }

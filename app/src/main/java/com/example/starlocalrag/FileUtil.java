@@ -21,7 +21,7 @@ public class FileUtil {
      */
     public static String readFile(File file) {
         if (file == null || !file.exists() || !file.canRead()) {
-            Log.e(TAG, "文件不存在或无法读取: " + (file != null ? file.getAbsolutePath() : "null"));
+            LogManager.logE(TAG, "文件不存在或无法读取: " + (file != null ? file.getAbsolutePath() : "null"));
             return "";
         }
 
@@ -33,7 +33,7 @@ public class FileUtil {
             }
             return content.toString();
         } catch (IOException e) {
-            Log.e(TAG, "读取文件失败: " + file.getAbsolutePath(), e);
+            LogManager.logE(TAG, "读取文件失败: " + file.getAbsolutePath(), e);
             return "";
         }
     }
@@ -46,7 +46,7 @@ public class FileUtil {
      */
     public static boolean writeFile(File file, String content) {
         if (file == null) {
-            Log.e(TAG, "文件对象为空");
+            LogManager.logE(TAG, "文件对象为空");
             return false;
         }
 
@@ -55,7 +55,7 @@ public class FileUtil {
         if (parentDir != null && !parentDir.exists()) {
             boolean created = parentDir.mkdirs();
             if (!created) {
-                Log.e(TAG, "无法创建父目录: " + parentDir.getAbsolutePath());
+                LogManager.logE(TAG, "无法创建父目录: " + parentDir.getAbsolutePath());
                 return false;
             }
         }
@@ -64,7 +64,7 @@ public class FileUtil {
             writer.write(content);
             return true;
         } catch (IOException e) {
-            Log.e(TAG, "写入文件失败: " + file.getAbsolutePath(), e);
+            LogManager.logE(TAG, "写入文件失败: " + file.getAbsolutePath(), e);
             return false;
         }
     }

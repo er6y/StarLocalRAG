@@ -2,6 +2,7 @@ package com.example.starlocalrag;
 
 import android.content.Context;
 import android.util.Log;
+import com.example.starlocalrag.LogManager;
 import android.util.TypedValue;
 import android.view.MotionEvent;
 import android.view.ScaleGestureDetector;
@@ -97,7 +98,7 @@ public class TextViewZoomHelper {
                 return handled;
             } catch (Exception e) {
                 // 捕获并记录所有触摸事件处理异常
-                Log.e(TAG, "处理触摸事件时发生异常: " + e.getMessage(), e);
+                LogManager.logE(TAG, "处理触摸事件时发生异常: " + e.getMessage(), e);
                 return false;
             }
         });
@@ -165,7 +166,7 @@ public class TextViewZoomHelper {
                 return true;
             } catch (Exception e) {
                 // 捕获并记录所有缩放处理异常
-                Log.e(TAG, "处理缩放事件时发生异常: " + e.getMessage(), e);
+                LogManager.logE(TAG, "处理缩放事件时发生异常: " + e.getMessage(), e);
                 return false;
             }
         }
@@ -246,7 +247,7 @@ public class TextViewZoomHelper {
             currentTextSize = savedSize;
             textView.setTextSize(TypedValue.COMPLEX_UNIT_SP, currentTextSize);
             
-            Log.d(TAG, "已加载保存的字体大小: " + currentTextSize + "sp");
+            LogManager.logD(TAG, "已加载保存的字体大小: " + currentTextSize + "sp");
         }
     }
 }

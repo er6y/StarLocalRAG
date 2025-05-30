@@ -17,6 +17,7 @@ import android.text.Selection;
 import android.text.Spannable;
 import android.text.TextUtils;
 import android.util.Log;
+import com.example.starlocalrag.LogManager;
 import android.util.TypedValue;
 import android.view.ActionMode;
 import android.view.ContextMenu;
@@ -50,6 +51,8 @@ import androidx.fragment.app.FragmentTransaction;
 import com.android.volley.Request;
 import com.android.volley.toolbox.JsonObjectRequest;
 import com.android.volley.toolbox.Volley;
+
+import com.example.starlocalrag.api.LocalLlmAdapter;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -111,6 +114,7 @@ public class RagQaFragment extends Fragment {
     private Button buttonNewChat;
     private EditText editTextSearchDepth; // 近似深度输入框
     private TextView textViewResponse; // 回答文本框
+    private CheckBox checkBoxThinkingMode; // 思考模式复选框
     
     // Markdown渲染器
     private Markwon markwon;
@@ -150,6 +154,7 @@ public class RagQaFragment extends Fragment {
         buttonSendStop = view.findViewById(R.id.buttonSendStop);
         buttonNewChat = view.findViewById(R.id.buttonNewChat);
         editTextSearchDepth = view.findViewById(R.id.editTextSearchDepth); // 初始化近似深度输入框
+        checkBoxThinkingMode = view.findViewById(R.id.checkBoxThinkingMode); // 初始化思考模式复选框
         
         // 为用户提问文本框添加回车键监听
         editTextUserPrompt.setOnEditorActionListener((v, actionId, event) -> {
@@ -187,7 +192,7 @@ public class RagQaFragment extends Fragment {
                 
                 // 保存API URL设置
                 ConfigManager.setString(requireContext(), ConfigManager.KEY_API_URL, selectedApiUrl);
-                Log.d(TAG, "已保存API URL: " + selectedApiUrl);
+                LogManager.logD(TAG, "已保存API URL: " + selectedApiUrl);
             }
 
             @Override
@@ -203,7 +208,7 @@ public class RagQaFragment extends Fragment {
                 String apiUrl = spinnerApiUrl.getSelectedItem().toString();
                 if (!apiKey.isEmpty()) {
                     ConfigManager.saveApiKey(requireContext(), apiUrl, apiKey);
-                    Log.d(TAG, "已保存API Key到URL: " + apiUrl);
+                    LogManager.logD(TAG, "已保存API Key到URL: " + apiUrl);
                 }
             }
         });
@@ -223,7 +228,7 @@ public class RagQaFragment extends Fragment {
                 String selectedModel = parent.getItemAtPosition(position).toString();
                 if (!selectedModel.equals("加载中...")) {
                     ConfigManager.setString(requireContext(), ConfigManager.KEY_MODEL_NAME, selectedModel);
-                    Log.d(TAG, "已保存模型名称: " + selectedModel);
+                    LogManager.logD(TAG, "已保存模型名称: " + selectedModel);
                 }
             }
 
@@ -248,7 +253,7 @@ public class RagQaFragment extends Fragment {
                 String selectedKnowledgeBase = parent.getItemAtPosition(position).toString();
                 if (!selectedKnowledgeBase.equals("加载中...")) {
                     ConfigManager.setString(requireContext(), ConfigManager.KEY_KNOWLEDGE_BASE, selectedKnowledgeBase);
-                    Log.d(TAG, "已保存知识库名称: " + selectedKnowledgeBase);
+                    LogManager.logD(TAG, "已保存知识库名称: " + selectedKnowledgeBase);
                 }
             }
 
@@ -264,7 +269,7 @@ public class RagQaFragment extends Fragment {
                 String systemPrompt = editTextSystemPrompt.getText().toString();
                 if (!systemPrompt.isEmpty()) {
                     ConfigManager.setSystemPrompt(requireContext(), systemPrompt);
-                    Log.d(TAG, "已保存系统提示词");
+                    LogManager.logD(TAG, "已保存系统提示词");
                 }
             }
         });
@@ -277,12 +282,21 @@ public class RagQaFragment extends Fragment {
                     try {
                         int searchDepth = Integer.parseInt(searchDepthStr);
                         ConfigManager.setInt(requireContext(), ConfigManager.KEY_SEARCH_DEPTH, searchDepth);
-                        Log.d(TAG, "已保存近似深度: " + searchDepth);
+                        LogManager.logD(TAG, "已保存近似深度: " + searchDepth);
                     } catch (NumberFormatException e) {
-                        Log.e(TAG, "近似深度格式错误: " + searchDepthStr, e);
+                        LogManager.logE(TAG, "近似深度格式错误: " + searchDepthStr, e);
                     }
                 }
             }
+        });
+        
+        // 为思考模式复选框添加监听器
+        checkBoxThinkingMode.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            // 注意：no_thinking=TRUE 取消复选，false则复选
+            // 所以这里需要反转逻辑
+            boolean noThinking = !isChecked;
+            ConfigManager.setNoThinking(requireContext(), noThinking);
+            LogManager.logD(TAG, "已保存思考模式设置: " + (isChecked ? "启用" : "禁用"));
         });
         
         // 设置按钮监听器
@@ -303,7 +317,7 @@ public class RagQaFragment extends Fragment {
         mainHandler = new Handler(Looper.getMainLooper());
         
         // 初始Markdown渲染器，使用全功能插件支持
-        Log.d(TAG, "初始化Markwon渲染器");
+        LogManager.logD(TAG, "初始化Markwon渲染器");
         markwon = Markwon.builder(requireContext())
                 // 添加HTML支持
                 .usePlugin(HtmlPlugin.create())
@@ -351,7 +365,7 @@ public class RagQaFragment extends Fragment {
                 })
                 .build();
                 
-        Log.d(TAG, "Markwon渲染器初始化完成");
+        LogManager.logD(TAG, "Markwon渲染器初始化完成");
         
         // 初始化文本缩放辅助类
         textViewResponse = view.findViewById(R.id.textViewResponse);
@@ -407,7 +421,7 @@ public class RagQaFragment extends Fragment {
             Map<String, String> apiKeys = ConfigManager.getAllApiKeys(requireContext());
             if (!apiKeys.isEmpty()) {
                 apiKeyMap.putAll(apiKeys);
-                Log.d(TAG, "已加载 " + apiKeys.size() + " 个API Keys");
+                LogManager.logD(TAG, "已加载 " + apiKeys.size() + " 个API Keys");
                 
                 // 根据当前选择的API URL加载对应的API Key
                 if (!apiUrl.isEmpty()) {
@@ -418,11 +432,17 @@ public class RagQaFragment extends Fragment {
             // 加载近似深度
             int searchDepth = ConfigManager.getSearchDepth(requireContext());
             editTextSearchDepth.setText(String.valueOf(searchDepth));
-            Log.d(TAG, "已加载近似深度: " + searchDepth);
+            LogManager.logD(TAG, "已加载近似深度: " + searchDepth);
             
-            Log.d(TAG, "配置加载完成");
+            // 加载思考模式设置
+            // 注意：no_thinking=TRUE 取消复选，false则复选
+            boolean noThinking = ConfigManager.getNoThinking(requireContext());
+            checkBoxThinkingMode.setChecked(!noThinking);
+            LogManager.logD(TAG, "已加载思考模式设置: " + (!noThinking ? "启用" : "禁用"));
+            
+            LogManager.logD(TAG, "配置加载完成");
         } catch (Exception e) {
-            Log.e(TAG, "加载配置失败", e);
+            LogManager.logE(TAG, "加载配置失败", e);
         }
     }
     
@@ -444,13 +464,13 @@ public class RagQaFragment extends Fragment {
             // 保存API Key到对应的URL
             if (!apiKey.isEmpty()) {
                 ConfigManager.saveApiKey(requireContext(), apiUrl, apiKey);
-                Log.d(TAG, "已保存API Key到URL: " + apiUrl);
+                LogManager.logD(TAG, "已保存API Key到URL: " + apiUrl);
             }
             
             // 保存系统提示词（使用一级项）
             // 无论是否为空都保存，确保用户清空系统提示词时能正确保存
             ConfigManager.setSystemPrompt(requireContext(), systemPrompt);
-            Log.d(TAG, "已保存系统提示词: " + (systemPrompt.isEmpty() ? "[空]" : systemPrompt));
+            LogManager.logD(TAG, "已保存系统提示词: " + (systemPrompt.isEmpty() ? "[空]" : systemPrompt));
             
             // 保存近似深度
             String searchDepthStr = editTextSearchDepth.getText().toString();
@@ -458,16 +478,16 @@ public class RagQaFragment extends Fragment {
                 try {
                     int searchDepth = Integer.parseInt(searchDepthStr);
                     ConfigManager.setInt(requireContext(), ConfigManager.KEY_SEARCH_DEPTH, searchDepth);
-                    Log.d(TAG, "已保存近似深度: " + searchDepth);
+                    LogManager.logD(TAG, "已保存近似深度: " + searchDepth);
                 } catch (NumberFormatException e) {
-                    Log.e(TAG, "近似深度格式错误: " + searchDepthStr, e);
+                    LogManager.logE(TAG, "近似深度格式错误: " + searchDepthStr, e);
                 }
             }
             
-            Log.d(TAG, "配置已保存到 .config 文件");
+            LogManager.logD(TAG, "配置已保存到 .config 文件");
             Toast.makeText(requireContext(), "设置已保存", Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
-            Log.e(TAG, "保存配置失败", e);
+            LogManager.logE(TAG, "保存配置失败", e);
             Toast.makeText(requireContext(), "保存设置失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
@@ -482,11 +502,11 @@ public class RagQaFragment extends Fragment {
         String apiKey = ConfigManager.getApiKey(requireContext(), apiUrl);
         if (apiKey != null && !apiKey.isEmpty()) {
             editTextApiKey.setText(apiKey);
-            Log.d(TAG, "已加载API URL对应的Key: " + apiUrl);
+            LogManager.logD(TAG, "已加载API URL对应的Key: " + apiUrl);
         } else {
             // 如果没有找到对应的API Key，清空输入框
             editTextApiKey.setText("");
-            Log.d(TAG, "未找到API URL对应的Key: " + apiUrl);
+            LogManager.logD(TAG, "未找到API URL对应的Key: " + apiUrl);
         }
     }
     
@@ -511,7 +531,7 @@ public class RagQaFragment extends Fragment {
     
     // 加载API URL列表，包括从配置中获取的自定义URL
     private void loadApiUrlList() {
-        Log.d(TAG, "开始加载API URL列表");
+        LogManager.logD(TAG, "开始加载API URL列表");
         
         // 获取预定义的API URL列表
         String[] predefinedApiUrls = getResources().getStringArray(R.array.api_urls);
@@ -578,7 +598,7 @@ public class RagQaFragment extends Fragment {
             }
         }
         
-        Log.d(TAG, "已加载 " + apiUrlsList.size() + " 个API URL");
+        LogManager.logD(TAG, "已加载 " + apiUrlsList.size() + " 个API URL");
     }
     
     /**
@@ -587,7 +607,7 @@ public class RagQaFragment extends Fragment {
      * @param position 位置
      */
     private void deleteApiUrl(String apiUrl, int position) {
-        Log.d(TAG, "删除API URL: " + apiUrl);
+        LogManager.logD(TAG, "删除API URL: " + apiUrl);
         
         // 显示确认对话框
         android.app.AlertDialog.Builder builder = new android.app.AlertDialog.Builder(requireContext());
@@ -609,7 +629,7 @@ public class RagQaFragment extends Fragment {
     
     // 显示添加API URL对话框
     private void showAddApiUrlDialog() {
-        Log.d(TAG, "显示添加API URL对话框");
+        LogManager.logD(TAG, "显示添加API URL对话框");
         
         // 创建对话框布局
         View dialogView = getLayoutInflater().inflate(R.layout.dialog_add_api_url, null);
@@ -651,18 +671,18 @@ public class RagQaFragment extends Fragment {
     
     // 加载知识库列表
     private void loadKnowledgeBases() {
-        Log.d(TAG, "开始加载知识库列表");
+        LogManager.logD(TAG, "开始加载知识库列表");
         // 显示加载状态
         setupSpinner(spinnerKnowledgeBase, new String[]{"加载中..."});
         
         // 获取设置中的知识库路径
         String knowledgeBasePath = ConfigManager.getString(requireContext(), ConfigManager.KEY_KNOWLEDGE_BASE_PATH, ConfigManager.DEFAULT_KNOWLEDGE_BASE_PATH);
-        Log.d(TAG, "从设置中获取知识库路径: " + knowledgeBasePath);
+        LogManager.logD(TAG, "从设置中获取知识库路径: " + knowledgeBasePath);
         
         // 获取知识库目录
         File knowledgeBaseDir = new File(knowledgeBasePath);
         if (!knowledgeBaseDir.exists()) {
-            Log.d(TAG, "知识库目录不存在，尝试创建: " + knowledgeBaseDir.getAbsolutePath());
+            LogManager.logD(TAG, "知识库目录不存在，尝试创建: " + knowledgeBaseDir.getAbsolutePath());
             knowledgeBaseDir.mkdirs();
         }
         
@@ -680,10 +700,10 @@ public class RagQaFragment extends Fragment {
             // 从配置文件加载上次选择的知识库
             loadLastSelectedKnowledgeBase();
             
-            Log.d(TAG, "已加载 " + directories.length + " 个知识库");
+            LogManager.logD(TAG, "已加载 " + directories.length + " 个知识库");
         } else {
             setupSpinner(spinnerKnowledgeBase, new String[]{"无", "无可用知识库"});
-            Log.d(TAG, "未找到可用知识库");
+            LogManager.logD(TAG, "未找到可用知识库");
         }
     }
     
@@ -694,14 +714,14 @@ public class RagQaFragment extends Fragment {
             String lastKnowledgeBase = ConfigManager.getString(requireContext(), 
                     ConfigManager.KEY_KNOWLEDGE_BASE, "");
             
-            Log.d(TAG, "从 ConfigManager 加载上次选择的知识库: " + 
+            LogManager.logD(TAG, "从 ConfigManager 加载上次选择的知识库: " + 
                     (lastKnowledgeBase.isEmpty() ? "[空]" : lastKnowledgeBase));
             
             if (!lastKnowledgeBase.isEmpty()) {
                 setSpinnerSelection(spinnerKnowledgeBase, lastKnowledgeBase);
             }
         } catch (Exception e) {
-            Log.e(TAG, "加载知识库选择失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "加载知识库选择失败: " + e.getMessage(), e);
             Toast.makeText(requireContext(), "加载知识库选择失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
@@ -716,8 +736,8 @@ public class RagQaFragment extends Fragment {
             String systemPrompt = editTextSystemPrompt.getText().toString();
             String userPrompt = editTextUserPrompt.getText().toString();
             
-            Log.d(TAG, "用户点击发送按钮，准备发送请求");
-            Log.d(TAG, "请求参数: API URL=" + apiUrl + ", 模型=" + model + ", 知识库=" + knowledgeBase);
+            LogManager.logD(TAG, "用户点击发送按钮，准备发送请求");
+            LogManager.logD(TAG, "请求参数: API URL=" + apiUrl + ", 模型=" + model + ", 知识库=" + knowledgeBase);
 
             // 基本验证
             if (userPrompt.trim().isEmpty()) {
@@ -740,6 +760,19 @@ public class RagQaFragment extends Fragment {
             // 保存当前配置
             saveConfig();
             
+            // 重置停止标志（开始新的推理前）
+            String currentApiUrl = spinnerApiUrl.getSelectedItem().toString();
+            if ("local".equals(currentApiUrl)) {
+                try {
+                    LocalLlmAdapter localAdapter = LocalLlmAdapter.getInstance(requireContext());
+                    // 重置停止标志
+                    localAdapter.resetStopFlag();
+                    LogManager.logD(TAG, "已重置本地LLM停止标志");
+                } catch (Exception e) {
+                    LogManager.logE(TAG, "重置本地LLM停止标志时出错", e);
+                }
+            }
+            
             // 更新按钮状态
             buttonSendStop.setText("停止 ■");
             isSending = true;
@@ -752,49 +785,42 @@ public class RagQaFragment extends Fragment {
 
         } else {
             // --- 停止发送 --- 
-            if (isTaskRunning) {
-                isTaskCancelled = true;
+            LogManager.logD(TAG, "用户点击停止按钮");
+            LogManager.logD(TAG, "当前状态 - isSending: " + isSending + ", isTaskRunning: " + isTaskRunning + ", isTaskCancelled: " + isTaskCancelled);
+            
+            // 设置任务取消标志
+            isTaskCancelled = true;
+            LogManager.logD(TAG, "设置任务取消标志为true");
+            
+            // 如果是本地模型，调用停止推理方法（无论isTaskRunning状态如何）
+            String currentApiUrl = spinnerApiUrl.getSelectedItem().toString();
+            LogManager.logD(TAG, "当前API URL: " + currentApiUrl);
+            
+            if ("local".equals(currentApiUrl)) {
+                try {
+                    LocalLlmAdapter localAdapter = LocalLlmAdapter.getInstance(requireContext());
+                    LogManager.logD(TAG, "准备调用本地LLM停止方法");
+                    localAdapter.stopGeneration();
+                    LogManager.logI(TAG, "✓ 已成功调用本地LLM停止方法");
+                } catch (Exception e) {
+                    LogManager.logE(TAG, "✗ 调用本地LLM停止方法时出错", e);
+                }
+            } else {
+                LogManager.logD(TAG, "非本地模型，跳过本地LLM停止调用");
             }
+            
+            // 强制重置任务状态
+            isTaskRunning = false;
+            LogManager.logD(TAG, "强制重置任务状态");
+            
             Toast.makeText(requireContext(), "已停止请求", Toast.LENGTH_SHORT).show();
             appendToResponse("\n请求已停止。");
             buttonSendStop.setText("发送 ▶");
             isSending = false;
+            LogManager.logD(TAG, "停止处理完成，按钮状态已重置");
         }
     }
     
-    // 将日志写入文件
-    private void logToFile(String message) {
-        // 安全检查：确保Fragment已附加到Context
-        if (!isAdded()) {
-            Log.e(TAG, "无法写入日志：Fragment未附加到Context");
-            return;
-        }
-        
-        try {
-            Context context = getContext();
-            if (context == null) {
-                Log.e(TAG, "无法写入日志：Context为空");
-                return;
-            }
-            
-            File logFile = new File(context.getFilesDir(), LOG_FILE);
-            if (!logFile.exists()) {
-                logFile.createNewFile();
-            }
-            // 使用追加模式写入日志
-            BufferedWriter writer = new BufferedWriter(new FileWriter(logFile, true));
-            String timestamp = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date());
-            writer.append(timestamp + ": " + message + "\n");
-            writer.close();
-        } catch (IOException e) {
-            Log.e(TAG, "写入日志文件失败", e);
-        }
-    }
-    
-    // 获取日志文件路径
-    private String getLogFilePath() {
-        return requireContext().getFilesDir() + "/" + LOG_FILE;
-    }
     
     // 执行RAG查询任务
     private void executeRagQuery(String apiUrl, String apiKey, String model, String knowledgeBase, String systemPrompt, String userPrompt) {
@@ -843,8 +869,7 @@ public class RagQaFragment extends Fragment {
                         "近似深度: " + searchDepth + "\n" +
                         "系统提示词: " + systemPrompt + "\n" +
                         "用户提问: " + userPrompt;
-                Log.d(TAG, logMessage);
-                logToFile(logMessage);
+                LogManager.logD(TAG, logMessage);
                 
                 // 更新UI，显示查询日志
                 mainHandler.post(() -> {
@@ -857,8 +882,7 @@ public class RagQaFragment extends Fragment {
                 // 检查是否需要查询知识库
                 if (!knowledgeBase.equals("无") && !knowledgeBase.equals("无可用知识库")) {
                     String kbInfo = "使用知识库进行查询: " + knowledgeBase;
-                    Log.d(TAG, kbInfo);
-                    logToFile(kbInfo);
+                    LogManager.logD(TAG, kbInfo);
                     //updateProgressOnUiThread(kbInfo);
                     
                     // 查询知识库获取相关内容 - 只调用queryKnowledgeBase，不使用返回值
@@ -871,8 +895,7 @@ public class RagQaFragment extends Fragment {
                     while (waitCount < 300) { // 最多等待30秒
                         if (isTaskCancelled) {
                             String cancelMsg = "RAG查询被用户取消";
-                            Log.d(TAG, cancelMsg);
-                            logToFile(cancelMsg);
+                            LogManager.logD(TAG, cancelMsg);
                             updateProgressOnUiThread(cancelMsg);
                             return;
                         }
@@ -887,8 +910,7 @@ public class RagQaFragment extends Fragment {
                         
                         // 如果等待超过25秒，退出循环
                         if (waitCount >= 250) {
-                            Log.w(TAG, "等待查询结果超时");
-                            logToFile("等待查询结果超时");
+                            LogManager.logW(TAG, "等待查询结果超时");
                             break;
                         }
                         
@@ -897,15 +919,14 @@ public class RagQaFragment extends Fragment {
                             Thread.sleep(100);
                             waitCount++;
                         } catch (InterruptedException e) {
-                            Log.e(TAG, "等待查询结果时被中断", e);
+                            LogManager.logE(TAG, "等待查询结果时被中断", e);
                         }
                     }
                     
                     // 检查查询结果
                     if (relevantDocs.isEmpty()) {
                         String warnMsg = "警告: 知识库查询未返回相关文档";
-                        Log.w(TAG, warnMsg);
-                        logToFile(warnMsg);
+                        LogManager.logW(TAG, warnMsg);
                         updateProgressOnUiThread(warnMsg);
                         
                         // 直接构建不包含知识库内容的提示词
@@ -914,23 +935,20 @@ public class RagQaFragment extends Fragment {
                         // 记录提示词信息
                         int promptLength = fullPrompt.length();
                         String promptInfo = "提示词长度: " + promptLength + " 字符";
-                        Log.d(TAG, promptInfo);
-                        logToFile(promptInfo);
+                        LogManager.logD(TAG, promptInfo);
                         updateProgressOnUiThread(promptInfo);
                         
                         // 如果提示词太长，记录警告
                         if (promptLength > 4000) {
                             String warnMsg2 = "警告: 提示词长度超过4000字符，可能被模型截断";
-                            Log.w(TAG, warnMsg2);
-                            logToFile(warnMsg2);
+                            LogManager.logW(TAG, warnMsg2);
                             updateProgressOnUiThread(warnMsg2);
                         }
                         
                         // 计算查询耗时
                         long queryTime = System.currentTimeMillis() - startTime;
                         String timeMsg = "知识库查询耗时: " + queryTime + "ms";
-                        Log.d(TAG, timeMsg);
-                        logToFile(timeMsg);
+                        LogManager.logD(TAG, timeMsg);
                         updateProgressOnUiThread(timeMsg);
                         
                         // 调用大模型API获取回答
@@ -957,23 +975,20 @@ public class RagQaFragment extends Fragment {
                         // 记录提示词信息 - 只显示长度，不显示内容
                         int promptLength = fullPrompt.length();
                         String promptInfo = "建提示词长度: " + promptLength + " 字符";
-                        Log.d(TAG, promptInfo);
-                        logToFile(promptInfo);
+                        LogManager.logD(TAG, promptInfo);
                         updateProgressOnUiThread(promptInfo);
                         
                         // 如果提示词太长，记录警告
                         if (promptLength > 4000) {
                             String warnMsg = "警告: 提示词长度超过4000字符，可能被模型截断";
-                            Log.w(TAG, warnMsg);
-                            logToFile(warnMsg);
+                            LogManager.logW(TAG, warnMsg);
                             updateProgressOnUiThread(warnMsg);
                         }
                         
                         // 计算查询耗时
                         long queryTime = System.currentTimeMillis() - startTime;
                         String timeMsg = "知识库查询耗时: " + queryTime + "ms";
-                        Log.d(TAG, timeMsg);
-                        logToFile(timeMsg);
+                        LogManager.logD(TAG, timeMsg);
                         updateProgressOnUiThread(timeMsg);
                         
                         // 调用大模型API获取回答
@@ -983,8 +998,7 @@ public class RagQaFragment extends Fragment {
                 } else {
                     // 不使用知识库，直接调用大模型API
                     String directMsg = "不使用知识库，直接调用大模型";
-                    Log.d(TAG, directMsg);
-                    logToFile(directMsg);
+                    LogManager.logD(TAG, directMsg);
                     updateProgressOnUiThread(directMsg);
                     updateProgressOnUiThread("正在生成回答...");
                     
@@ -994,15 +1008,13 @@ public class RagQaFragment extends Fragment {
                     // 记录提示词信息 - 只显示长度，不显示内容
                     int promptLength = fullPrompt.length();
                     String promptInfo = "提示词长度: " + promptLength + " 字符";
-                    Log.d(TAG, promptInfo);
-                    logToFile(promptInfo);
+                    LogManager.logD(TAG, promptInfo);
                     updateProgressOnUiThread(promptInfo);
                     
                     // 如果提示词太长，记录警告
                     if (promptLength > 4000) {
                         String warnMsg = "警告: 提示词长度超过4000字符，可能被模型截断";
-                        Log.w(TAG, warnMsg);
-                        logToFile(warnMsg);
+                        LogManager.logW(TAG, warnMsg);
                         updateProgressOnUiThread(warnMsg);
                     }
                     
@@ -1012,10 +1024,7 @@ public class RagQaFragment extends Fragment {
                 }
             } catch (Exception e) {
                 String errorMsg = "执行RAG查询任务失败: " + e.getMessage();
-                Log.e(TAG, errorMsg, e);
-                logToFile(errorMsg);
-                logToFile("异常堆栈: " + android.util.Log.getStackTraceString(e));
-                logToFile("========== 结束RAG查询(异常) ==========\n");
+                LogManager.logE(TAG, errorMsg, e);
                 
                 updateResultOnUiThread("查询失败: " + e.getMessage());
                 mainHandler.post(() -> {
@@ -1023,13 +1032,9 @@ public class RagQaFragment extends Fragment {
                     isSending = false;
                 });
             } finally {
-                isTaskRunning = false;
-                
-                // 如果任务被取消，记录日志
-                if (isTaskCancelled) {
-                    logToFile("RAG查询被用户取消");
-                    logToFile("========== 结束RAG查询(已取消) ==========\n");
-                }
+                // 注意：不在这里设置isTaskRunning = false，因为LLM推理是异步的
+                // isTaskRunning将在LLM推理完成或出错时在回调中设置为false
+                LogManager.logD(TAG, "executeRagQuery方法执行完毕，等待异步LLM推理完成");
             }
         });
     }
@@ -1039,20 +1044,17 @@ public class RagQaFragment extends Fragment {
         List<String> relevantDocs = new ArrayList<>();
 
         try {
-            Log.d(TAG, "开始查询知识库: " + knowledgeBase + ", 查询关键词: " + query);
-            logToFile("开始查询知识库: " + knowledgeBase + ", 查询关键词: " + query);
+            LogManager.logD(TAG, "开始查询知识库: " + knowledgeBase + ", 查询关键词: " + query);
             //updateProgressOnUiThread("开始查询知识库: " + knowledgeBase);
 
             // 获取近似深度（从界面输入框获取）
             int searchDepth = Integer.parseInt(editTextSearchDepth.getText().toString());
-            Log.d(TAG, "使用界面设置的近似深度: " + searchDepth);
-            logToFile("使用界面设置的近似深度: " + searchDepth);
+            LogManager.logD(TAG, "使用界面设置的近似深度: " + searchDepth);
             
             // 检查知识库名称是否有效
             if (knowledgeBase == null || knowledgeBase.trim().isEmpty()) {
                 String errorMsg = "错误: 知识库名称为空";
-                Log.e(TAG, errorMsg);
-                logToFile(errorMsg);
+                LogManager.logE(TAG, errorMsg);
                 updateProgressOnUiThread(errorMsg);
                 return relevantDocs;
             }
@@ -1060,27 +1062,24 @@ public class RagQaFragment extends Fragment {
             // 检查上下文是否可用
             if (!isAdded()) {
                 String errorMsg = "错误: Fragment未附加到Activity";
-                Log.e(TAG, errorMsg);
-                logToFile(errorMsg);
+                LogManager.logE(TAG, errorMsg);
                 return relevantDocs;
             }
 
             // 获取知识库目录 - 使用配置中的知识库路径
             String knowledgeBasePath = ConfigManager.getString(requireContext(), ConfigManager.KEY_KNOWLEDGE_BASE_PATH, ConfigManager.DEFAULT_KNOWLEDGE_BASE_PATH);
-            Log.d(TAG, "从设置中获取知识库路径: " + knowledgeBasePath);
+            LogManager.logD(TAG, "从设置中获取知识库路径: " + knowledgeBasePath);
 
             // 获取知识库目录
             File knowledgeBaseDir = new File(knowledgeBasePath, knowledgeBase);
             String pathInfo = "知识库目录路径: " + knowledgeBaseDir.getAbsolutePath();
-            Log.d(TAG, pathInfo);
-            logToFile(pathInfo);
+            LogManager.logD(TAG, pathInfo);
             updateProgressOnUiThread(pathInfo);
 
             // 检查知识库目录是否存在
             if (!knowledgeBaseDir.exists()) {
                 String errorMsg = "错误: 知识库目录不存在: " + knowledgeBaseDir.getAbsolutePath();
-                Log.e(TAG, errorMsg);
-                logToFile(errorMsg);
+                LogManager.logE(TAG, errorMsg);
                 updateProgressOnUiThread(errorMsg);
                 return relevantDocs;
             }
@@ -1089,32 +1088,28 @@ public class RagQaFragment extends Fragment {
             File vectorDbFile = new File(knowledgeBaseDir, "vectorstore.db");
             if (!vectorDbFile.exists()) {
                 String errorMsg = "错误: SQLite向量数据库文件不存在: " + vectorDbFile.getAbsolutePath();
-                Log.e(TAG, errorMsg);
-                logToFile(errorMsg);
+                LogManager.logE(TAG, errorMsg);
                 updateProgressOnUiThread(errorMsg);
                 return relevantDocs;
             } else {
                 String fileInfo = "SQLite数据库文件存在: " + vectorDbFile.getAbsolutePath() + 
                                  ", 大小: " + (vectorDbFile.length() / 1024) + "KB, " +
                                  "可读: " + vectorDbFile.canRead();
-                Log.i(TAG, fileInfo);
-                logToFile(fileInfo);
+                LogManager.logI(TAG, fileInfo);
             }
 
             // 检查元数据文件
             File metadataFile = new File(knowledgeBaseDir, "metadata.json");
             if (!metadataFile.exists()) {
                 String errorMsg = "错误: 元数据文件不存在: " + metadataFile.getAbsolutePath();
-                Log.e(TAG, errorMsg);
-                logToFile(errorMsg);
+                LogManager.logE(TAG, errorMsg);
                 updateProgressOnUiThread(errorMsg);
                 return relevantDocs;
             } else {
                 String fileInfo = "元数据文件存在: " + metadataFile.getAbsolutePath() + 
                                  ", 大小: " + (metadataFile.length() / 1024) + "KB, " +
                                  "可读: " + metadataFile.canRead();
-                Log.i(TAG, fileInfo);
-                logToFile(fileInfo);
+                LogManager.logI(TAG, fileInfo);
                 
                 // 读取元数据文件内容并记录 - 使用单独线程避免阻塞
                 try {
@@ -1138,12 +1133,10 @@ public class RagQaFragment extends Fragment {
                     String metadataContent;
                     try {
                         metadataContent = metadataContentFuture.get(30, TimeUnit.SECONDS);
-                        Log.i(TAG, metadataContent);
-                        logToFile(metadataContent);
+                        LogManager.logI(TAG, metadataContent);
                     } catch (Exception e) {
                         String readError = "读取元数据文件超时或失败: " + e.getMessage();
-                        Log.e(TAG, readError);
-                        logToFile(readError);
+                        LogManager.logE(TAG, readError);
                         updateProgressOnUiThread(readError);
                         return relevantDocs;
                     } finally {
@@ -1151,8 +1144,7 @@ public class RagQaFragment extends Fragment {
                     }
                 } catch (Exception e) {
                     String readError = "启动读取元数据文件线程失败: " + e.getMessage();
-                    Log.e(TAG, readError);
-                    logToFile(readError);
+                    LogManager.logE(TAG, readError);
                     updateProgressOnUiThread(readError);
                     return relevantDocs;
                 }
@@ -1164,28 +1156,24 @@ public class RagQaFragment extends Fragment {
             final SQLiteVectorDatabaseHandler[] vectorDbRef = new SQLiteVectorDatabaseHandler[1];
             try {
                 // 创建SQLite向量数据库处理器
-                Log.i(TAG, "开始创建SQLite向量数据库处理器，知识库目录: " + knowledgeBaseDir.getAbsolutePath());
-                logToFile("开始创建SQLite向量数据库处理器，知识库目录: " + knowledgeBaseDir.getAbsolutePath());
+                LogManager.logI(TAG, "开始创建SQLite向量数据库处理器，知识库目录: " + knowledgeBaseDir.getAbsolutePath());
                 
                 try {
                     vectorDbRef[0] = new SQLiteVectorDatabaseHandler(knowledgeBaseDir, "unknown");
                     //updateProgressOnUiThread("正在加载SQLite向量数据库...");
 
                     // 加载向量数据库
-                    Log.i(TAG, "开始加载SQLite向量数据库...");
-                    logToFile("开始加载SQLite向量数据库...");
+                    LogManager.logI(TAG, "开始加载SQLite向量数据库...");
                     
                     if (!vectorDbRef[0].loadDatabase()) {
                         String errorMsg = "错误: 加载SQLite向量数据库失败";
-                        Log.e(TAG, errorMsg);
-                        logToFile(errorMsg);
+                        LogManager.logE(TAG, errorMsg);
                         updateProgressOnUiThread(errorMsg);
                         return relevantDocs;
                     }
                 } catch (Exception e) {
                     String errorMsg = "创建或加载SQLite向量数据库时发生错误: " + e.getMessage();
-                    Log.e(TAG, errorMsg, e);
-                    logToFile(errorMsg);
+                    LogManager.logE(TAG, errorMsg, e);
                     updateProgressOnUiThread(errorMsg);
                     if (vectorDbRef[0] != null) {
                         vectorDbRef[0].closeDatabase();
@@ -1196,8 +1184,7 @@ public class RagQaFragment extends Fragment {
                 // 获取数据库统计信息
                 int totalChunks = vectorDbRef[0].getChunkCount();
                 String dbInfo = "SQLite向量数据库加载成功，共包含 " + totalChunks + " 个文本块";
-                Log.d(TAG, dbInfo);
-                logToFile(dbInfo);
+                LogManager.logD(TAG, dbInfo);
                 updateProgressOnUiThread(dbInfo);
 
                 // 获取嵌入模型
@@ -1219,7 +1206,7 @@ public class RagQaFragment extends Fragment {
                                                      file.getName().endsWith(".pth") || 
                                                      file.getName().endsWith(".onnx"))) {
                                     foundModelPath = file.getAbsolutePath();
-                                    Log.d(TAG, "使用modeldir中的模型: " + foundModelPath);
+                                    LogManager.logD(TAG, "使用modeldir中的模型: " + foundModelPath);
                                     break;
                                 }
                             }
@@ -1235,7 +1222,7 @@ public class RagQaFragment extends Fragment {
                 // 检查模型文件是否存在
                 File modelFile = new File(foundModelPath);
                 if (!modelFile.exists()) {
-                    Log.d(TAG, "模型文件不存在: " + foundModelPath + "，将尝试在嵌入模型目录中查找");
+                    LogManager.logD(TAG, "模型文件不存在: " + foundModelPath + "，将尝试在嵌入模型目录中查找");
                     
                     // 尝试在嵌入模型目录中查找模型文件
                     File embeddingModelDir = new File(embeddingModelPath);
@@ -1271,7 +1258,7 @@ public class RagQaFragment extends Fragment {
                             // 注意：此处不关闭数据库，因为selectModelAndContinueQuery方法会继续使用它
                             return relevantDocs; // 提前返回，等待用户选择模型
                         } else {
-                            Log.e(TAG, "在嵌入模型目录中未找到可用的模型文件");
+                            LogManager.logE(TAG, "在嵌入模型目录中未找到可用的模型文件");
                             updateProgressOnUiThread("错误: 在嵌入模型目录中未找到可用的模型文件");
                             // 关闭数据库连接
                             vectorDbRef[0].closeDatabase();
@@ -1292,8 +1279,7 @@ public class RagQaFragment extends Fragment {
                         
                         // 模型存在，继续处理
                         String modelInfo = "使用嵌入模型: " + embModelName + ", 路径: " + modelFoundPath;
-                        Log.d(TAG, modelInfo);
-                        logToFile(modelInfo);
+                        LogManager.logD(TAG, modelInfo);
                         updateProgressOnUiThread("正在使用嵌入模型: " + embModelName);
                         
                         // 加载嵌入模型
@@ -1302,8 +1288,7 @@ public class RagQaFragment extends Fragment {
                     (selectedModel, selectedModelPath) -> {
                         // 用户选择了模型，继续处理
                         String modelInfo = "使用选定的嵌入模型: " + selectedModel + ", 路径: " + selectedModelPath;
-                        Log.d(TAG, modelInfo);
-                        logToFile(modelInfo);
+                        LogManager.logD(TAG, modelInfo);
                         updateProgressOnUiThread("正在使用选定的嵌入模型: " + selectedModel);
                         
                         // 加载嵌入模型
@@ -1315,30 +1300,28 @@ public class RagQaFragment extends Fragment {
                 return relevantDocs;
             } catch (Exception e) {
                 String errorMsg = "查询向量数据库时发生错误: " + e.getMessage();
-                Log.e(TAG, errorMsg, e);
+                LogManager.logE(TAG, errorMsg, e);
                 if (isAdded()) {
-                    logToFile(errorMsg);
                     updateProgressOnUiThread(errorMsg);
                 }
                 
                 // 确保在异常情况下也释放模型资源
                 EmbeddingModelManager modelManager = EmbeddingModelManager.getInstance(requireContext());
                 modelManager.markModelNotInUse();
-                Log.d(TAG, "异常情况下标记模型使用结束，允许自动卸载");
+                LogManager.logD(TAG, "异常情况下标记模型使用结束，允许自动卸载");
                 
                 // 关闭数据库连接
                 if (vectorDbRef[0] != null) {
                     vectorDbRef[0].closeDatabase();
-                    Log.d(TAG, "异常情况下关闭数据库连接");
+                    LogManager.logD(TAG, "异常情况下关闭数据库连接");
                 }
                 
                 return relevantDocs;
             }
         } catch (Exception e) {
             String errorMsg = "查询知识库时发生错误: " + e.getMessage();
-            Log.e(TAG, errorMsg, e);
+            LogManager.logE(TAG, errorMsg, e);
             if (isAdded()) {
-                logToFile(errorMsg);
                 updateProgressOnUiThread(errorMsg);
             }
             return relevantDocs;
@@ -1349,15 +1332,14 @@ public class RagQaFragment extends Fragment {
     private String buildPromptWithKnowledgeBase(String systemPrompt, String userPrompt, List<String> relevantDocs) {
         StringBuilder fullPrompt = new StringBuilder();
         
-        Log.d(TAG, "构建包含知识库内容的提示词，找到 " + relevantDocs.size() + " 个相关文档");
-        logToFile("构建包含知识库内容的提示词，找到 " + relevantDocs.size() + " 个相关文档");
+        LogManager.logD(TAG, "构建包含知识库内容的提示词，找到 " + relevantDocs.size() + " 个相关文档");
         
         // 添加系统提示词
         if (!systemPrompt.isEmpty()) {
             fullPrompt.append(systemPrompt).append("\n\n");
-            Log.d(TAG, "添加系统提示词，长度: " + systemPrompt.length());
+            LogManager.logD(TAG, "添加系统提示词，长度: " + systemPrompt.length());
         } else {
-            Log.d(TAG, "系统提示词为空");
+            LogManager.logD(TAG, "系统提示词为空");
         }
         
         // 添加知识库内容
@@ -1367,19 +1349,17 @@ public class RagQaFragment extends Fragment {
             for (int i = 0; i < relevantDocs.size(); i++) {
                 String docContent = relevantDocs.get(i);
                 if (docContent == null || docContent.trim().isEmpty()) {
-                    Log.w(TAG, "文档 #" + (i + 1) + " 内容为空，已跳过");
-                    logToFile("警告: 文档 #" + (i + 1) + " 内容为空，已跳过");
+                    LogManager.logW(TAG, "文档 #" + (i + 1) + " 内容为空，已跳过");
                     continue;
                 }
                 
                 // 不再限制文本长度，显示完整内容
                 fullPrompt.append("文档").append(i + 1).append(":\n").append(docContent).append("\n\n");
-                Log.d(TAG, "添加文档 #" + (i + 1) + "，长度: " + docContent.length());
+                LogManager.logD(TAG, "添加文档 #" + (i + 1) + "，长度: " + docContent.length());
             }
         } else {
             fullPrompt.append("未找到与问题相关的信息。\n\n");
-            Log.w(TAG, "未找到相关文档，提示模型无相关信息");
-            logToFile("警告: 未找到相关文档，提示模型无相关信息");
+            LogManager.logW(TAG, "未找到相关文档，提示模型无相关信息");
         }
         
         // 添加用户问题
@@ -1387,8 +1367,7 @@ public class RagQaFragment extends Fragment {
         
         // 记录最终提示词长度
         int promptLength = fullPrompt.length();
-        Log.d(TAG, "最终提示词长度: " + promptLength + " 字符");
-        logToFile("最终提示词长度: " + promptLength + " 字符");
+        LogManager.logD(TAG, "最终提示词长度: " + promptLength + " 字符");
         
         return fullPrompt.toString();
     }
@@ -1411,24 +1390,9 @@ public class RagQaFragment extends Fragment {
     // 调用大模型API获取回答
     private void callLLMApi(String apiUrl, String apiKey, String model, String prompt) {
         try {
-            Log.d(TAG, "开始调用大模型API: " + apiUrl);
-            Log.d(TAG, "使用模型: " + model);
-            Log.d(TAG, "提示词长度: " + prompt.length() + " 字符");
-            
-            // 记录请求信息到日志
-            logToFile("========== 开始API请求 ==========");
-            logToFile("API地址: " + apiUrl);
-            logToFile("模型: " + model);
-            logToFile("API密钥: " + (apiKey.isEmpty() ? "未提供" : "已提供，长度: " + apiKey.length()));
-            logToFile("提示词长度: " + prompt.length() + " 字符");
-            
-            // 记录提示词的前200个字符和后200个字符，避免日志过大
-            if (prompt.length() > 400) {
-                logToFile("提示词开头: " + prompt.substring(0, 200) + "...");
-                logToFile("提示词结尾: ..." + prompt.substring(prompt.length() - 200));
-            } else {
-                logToFile("提示词: " + prompt);
-            }
+            LogManager.logD(TAG, "开始调用大模型API: " + apiUrl);
+            LogManager.logD(TAG, "使用模型: " + model);
+            LogManager.logD(TAG, "提示词长度: " + prompt.length() + " 字符");
             
             // 添加连接信息，但不清空之前的调试信息
             //appendToResponse("正在连接API服务器...");
@@ -1436,7 +1400,7 @@ public class RagQaFragment extends Fragment {
             // 安全检查：确保Fragment已附加到Context
             if (!isAdded()) {
                 String errorMsg = "错误: Fragment未附加到Context，无法调用API";
-                Log.e(TAG, errorMsg);
+                LogManager.logE(TAG, errorMsg);
                 updateResultOnUiThread(errorMsg);
                 return;
             }
@@ -1444,7 +1408,7 @@ public class RagQaFragment extends Fragment {
             Context context = getContext();
             if (context == null) {
                 String errorMsg = "错误: Context为空，无法调用API";
-                Log.e(TAG, errorMsg);
+                LogManager.logE(TAG, errorMsg);
                 updateResultOnUiThread(errorMsg);
                 return;
             }
@@ -1458,18 +1422,9 @@ public class RagQaFragment extends Fragment {
                 @Override
                 public void onSuccess(String response) {
                     // 处理完整响应
-                    Log.d(TAG, "API调用成功，耗时: " + (System.currentTimeMillis() - startTime) + "ms");
-                    Log.d(TAG, "响应长度: " + response.length() + " 字符");
-                    logToFile("API调用成功，耗时: " + (System.currentTimeMillis() - startTime) + "ms");
-                    logToFile("响应长度: " + response.length() + " 字符");
-                    
-                    // 记录响应的前200个字符，避免日志过大
-                    if (response.length() > 200) {
-                        logToFile("响应开头: " + response.substring(0, 200) + "...");
-                    } else {
-                        logToFile("响应: " + response);
-                    }
-                    logToFile("========== 结束API请求 ==========\n");
+                    LogManager.logD(TAG, "API调用成功，耗时: " + (System.currentTimeMillis() - startTime) + "ms");
+                    LogManager.logD(TAG, "响应长度: " + response.length() + " 字符");
+
                     
                     // 在UI线程中进行最终的Markdown渲染
                     mainHandler.post(() -> {
@@ -1493,17 +1448,20 @@ public class RagQaFragment extends Fragment {
                                 // 确保链接可点击
                                 textViewResponse.setMovementMethod(LinkMovementMethod.getInstance());
                                 
-                                Log.d(TAG, "最终Markdown渲染完成");
+                                LogManager.logD(TAG, "最终Markdown渲染完成");
                             }
                             
-                            // 恢复按钮状态
+                            // 恢复按钮状态和任务状态
                             buttonSendStop.setText("发送 ▶");
                             isSending = false;
+                            isTaskRunning = false;
+                            LogManager.logD(TAG, "任务完成，状态已重置");
                         } catch (Exception e) {
-                            Log.e(TAG, "最终Markdown渲染失败", e);
-                            // 恢复按钮状态
+                            LogManager.logE(TAG, "最终Markdown渲染失败", e);
+                            // 恢复按钮状态和任务状态
                             buttonSendStop.setText("发送 ▶");
                             isSending = false;
+                            isTaskRunning = false;
                         }
                     });
                 }
@@ -1527,7 +1485,7 @@ public class RagQaFragment extends Fragment {
                     if (getActivity() == null) return;
                     
                     // 记录收到的数据块
-                    //Log.d(TAG, "收到数据块: [" + chunk + "]");
+                    //LogManager.logD(TAG, "收到数据块: [" + chunk + "]");
                     
                     // 累积响应内容
                     responseBuilder.append(chunk);
@@ -1591,7 +1549,7 @@ public class RagQaFragment extends Fragment {
                                 scrollToBottom(scrollView);
                             }
                         } catch (Exception e) {
-                            Log.e(TAG, "更新流式响应UI失败", e);
+                            LogManager.logE(TAG, "更新流式响应UI失败", e);
                         }
                     });
                 }
@@ -1614,16 +1572,16 @@ public class RagQaFragment extends Fragment {
                     
                     // 检查常见的Markdown标记
                     if (content.contains("```")) {
-                        Log.d(TAG, "检测到代码块标记: ``` 在内容中");
+                        LogManager.logD(TAG, "检测到代码块标记: ``` 在内容中");
                     }
                     if (content.contains("`")) {
-                        Log.d(TAG, "检测到行内代码标记: ` 在内容中");
+                        LogManager.logD(TAG, "检测到行内代码标记: ` 在内容中");
                     }
                     if (content.contains("**")) {
-                        Log.d(TAG, "检测到粗体标记: ** 在内容中");
+                        LogManager.logD(TAG, "检测到粗体标记: ** 在内容中");
                     }
                     if (content.contains("#")) {
-                        Log.d(TAG, "检测到标题标记: # 在内容中");
+                        LogManager.logD(TAG, "检测到标题标记: # 在内容中");
                     }
                 }
                 
@@ -1710,7 +1668,7 @@ public class RagQaFragment extends Fragment {
                     
                     // 如果代码块标记数量为奇数，添加一个结束标记
                     if (positions.size() % 2 != 0) {
-                        Log.d(TAG, "检测到未完成的代码块，添加结束标记");
+                        LogManager.logD(TAG, "检测到未完成的代码块，添加结束标记");
                         sb.append("\n```");
                     }
                     
@@ -1733,13 +1691,13 @@ public class RagQaFragment extends Fragment {
                     
                     // 如果行内代码标记数量为奇数，添加一个结束标记
                     if (inlineCount % 2 != 0) {
-                        Log.d(TAG, "检测到未完成的行内代码标记，添加结束标记");
+                        LogManager.logD(TAG, "检测到未完成的行内代码标记，添加结束标记");
                         sb.append("`");
                     }
                     
                     String result = sb.toString();
                     if (result.length() > originalLength) {
-                        Log.d(TAG, "内容已修复，原始长度: " + originalLength + ", 新长度: " + result.length());
+                        LogManager.logD(TAG, "内容已修复，原始长度: " + originalLength + ", 新长度: " + result.length());
                     }
                     
                     return result;
@@ -1774,22 +1732,19 @@ public class RagQaFragment extends Fragment {
                 @Override
                 public void onError(String errorMessage) {
                     // 处理错误
-                    Log.e(TAG, "API调用失败，耗时: " + (System.currentTimeMillis() - startTime) + "ms, 错误: " + errorMessage);
-                    logToFile("API调用失败，耗时: " + (System.currentTimeMillis() - startTime) + "ms");
-                    logToFile("错误: " + errorMessage);
-                    logToFile("========== 结束API请求 ==========\n");
+                    LogManager.logE(TAG, "API调用失败，耗时: " + (System.currentTimeMillis() - startTime) + "ms, 错误: " + errorMessage);
                     
                     // 显示错误信息
                     updateResultOnUiThread("调用API失败: " + errorMessage);
                     
-                    // 恢复按钮状态
+                    // 恢复按钮状态和任务状态
                     mainHandler.post(() -> {
                         buttonSendStop.setText("发送 ▶");
                         isSending = false;
+                        isTaskRunning = false;
+                        LogManager.logD(TAG, "任务出错，状态已重置");
                     });
                     
-                    // 记录错误到日志
-                    logToFile("API错误: " + errorMessage);
                 }
             };
             
@@ -1798,11 +1753,13 @@ public class RagQaFragment extends Fragment {
             apiAdapter.callLlmApi(apiUrl, apiKey, model, prompt, callback);
             
         } catch (Exception e) {
-            Log.e(TAG, "调用大模型API失败", e);
+            LogManager.logE(TAG, "调用大模型API失败", e);
             updateResultOnUiThread("调用API失败: " + e.getMessage());
             mainHandler.post(() -> {
                 buttonSendStop.setText("发送 ▶");
                 isSending = false;
+                isTaskRunning = false;
+                LogManager.logD(TAG, "任务异常，状态已重置");
             });
         }
     }
@@ -1824,12 +1781,12 @@ public class RagQaFragment extends Fragment {
     // 带重试机制的UI更新方法
     private void updateProgressOnUiThreadWithRetry(String progress, int retryCount) {
         if (retryCount <= 0) {
-            Log.w(TAG, "更新UI重试次数已用完，放弃更新");
+            LogManager.logW(TAG, "更新UI重试次数已用完，放弃更新");
             return;
         }
         
         if (getActivity() == null || !isAdded()) {
-            Log.w(TAG, "无法更新UI，Fragment未附加到Activity，将在1秒后重试 (剩余重试次数: " + retryCount + ")");
+            LogManager.logW(TAG, "无法更新UI，Fragment未附加到Activity，将在1秒后重试 (剩余重试次数: " + retryCount + ")");
             queryNeedsResume = true; // 标记需要恢复查询
             
             // 1秒后重试
@@ -1847,14 +1804,14 @@ public class RagQaFragment extends Fragment {
     // 完全重写的追加内容方法，解决滚动和Markdown渲染问题
     private void appendToResponse(String text) {
         if (getActivity() == null || !isAdded()) {
-            Log.w(TAG, "无法追加响应，Fragment未附加到Activity");
+            LogManager.logW(TAG, "无法追加响应，Fragment未附加到Activity");
             return;
         }
         
         getActivity().runOnUiThread(() -> {
             try {
                 if (getView() == null) {
-                    Log.w(TAG, "无法追加响应，Fragment的View为空");
+                    LogManager.logW(TAG, "无法追加响应，Fragment的View为空");
                     return;
                 }
                 
@@ -1883,8 +1840,8 @@ public class RagQaFragment extends Fragment {
                 }
                 
                 // 添加调试日志，查看文本内容和Markdown渲染过程
-                //Log.d(TAG, "DEBUG: 要渲染的文本内容: " + newText);
-                //Log.d(TAG, "DEBUG: Markwon实例是否为空: " + (markwon == null ? "是" : "否"));
+                //LogManager.logD(TAG, "DEBUG: 要渲染的文本内容: " + newText);
+                //LogManager.logD(TAG, "DEBUG: Markwon实例是否为空: " + (markwon == null ? "是" : "否"));
                 
                 try {
                     // 尝试使用不同的方式渲染Markdown
@@ -1893,18 +1850,18 @@ public class RagQaFragment extends Fragment {
                     markwon.setMarkdown(textViewResponse, newText);
                     
                     // 调试日志
-                    //Log.d(TAG, "DEBUG: 已尝试使用setMarkdown渲染");
+                    //LogManager.logD(TAG, "DEBUG: 已尝试使用setMarkdown渲染");
                     
                     // 检查TextView的属性
-                    //Log.d(TAG, "DEBUG: TextView的文本选择状态: " + textViewResponse.isTextSelectable());
-                    //Log.d(TAG, "DEBUG: TextView的MovementMethod: " + textViewResponse.getMovementMethod());
+                    //LogManager.logD(TAG, "DEBUG: TextView的文本选择状态: " + textViewResponse.isTextSelectable());
+                    //LogManager.logD(TAG, "DEBUG: TextView的MovementMethod: " + textViewResponse.getMovementMethod());
                 } catch (Exception e) {
-                    Log.e(TAG, "DEBUG: Markdown渲染失败", e);
+                    LogManager.logE(TAG, "DEBUG: Markdown渲染失败", e);
                 }
                 
                 // 不再使用自动滚动，由用户自行控制滚动位置
             } catch (Exception e) {
-                Log.e(TAG, "追加内容失败", e);
+                LogManager.logE(TAG, "追加内容失败", e);
             }
         });
     }
@@ -1912,14 +1869,14 @@ public class RagQaFragment extends Fragment {
     // 在UI线程上更新结果（替换全部内容）
     private void updateResultOnUiThread(String result) {
         if (getActivity() == null || !isAdded()) {
-            Log.w(TAG, "无法更新结果，Fragment未附加到Activity");
+            LogManager.logW(TAG, "无法更新结果，Fragment未附加到Activity");
             return;
         }
         
         mainHandler.post(() -> {
             try {
                 if (getView() == null) {
-                    Log.w(TAG, "无法更新结果，Fragment的View为空");
+                    LogManager.logW(TAG, "无法更新结果，Fragment的View为空");
                     return;
                 }
                 
@@ -1932,8 +1889,8 @@ public class RagQaFragment extends Fragment {
                 if (scrollView == null) return;
                 
                 // 添加调试日志，查看文本内容和Markdown渲染过程
-                //Log.d(TAG, "DEBUG-updateResult: 要渲染的文本内容: " + result);
-                //Log.d(TAG, "DEBUG-updateResult: Markwon实例是否为空: " + (markwon == null ? "是" : "否"));
+                //LogManager.logD(TAG, "DEBUG-updateResult: 要渲染的文本内容: " + result);
+                //LogManager.logD(TAG, "DEBUG-updateResult: Markwon实例是否为空: " + (markwon == null ? "是" : "否"));
                 
                 try {
                     // 尝试使用不同的方式渲染Markdown
@@ -1946,7 +1903,7 @@ public class RagQaFragment extends Fragment {
                         // 使用完整的Markdown渲染
                         Spanned spanned = markwon.toMarkdown(result);
                         markwon.setParsedMarkdown(textViewResult, spanned);
-                        //Log.d(TAG, "DEBUG-updateResult: 使用完整Markdown渲染");
+                        //LogManager.logD(TAG, "DEBUG-updateResult: 使用完整Markdown渲染");
                         
                         // 确保链接可点击
                         if (textViewResult.getMovementMethod() == null) {
@@ -1955,14 +1912,14 @@ public class RagQaFragment extends Fragment {
                     } catch (Exception e) {
                         // 如果渲染失败，回退到简单文本设置
                         textViewResult.setText(result);
-                        //Log.e(TAG, "DEBUG-updateResult: Markdown渲染失败，回退到纯文本", e);
+                        //LogManager.logE(TAG, "DEBUG-updateResult: Markdown渲染失败，回退到纯文本", e);
                     }
                     
                     // 检查TextView的属性
-                    //Log.d(TAG, "DEBUG-updateResult: TextView的文本选择状态: " + textViewResult.isTextSelectable());
-                    //Log.d(TAG, "DEBUG-updateResult: TextView的MovementMethod: " + textViewResult.getMovementMethod());
+                    //LogManager.logD(TAG, "DEBUG-updateResult: TextView的文本选择状态: " + textViewResult.isTextSelectable());
+                    //LogManager.logD(TAG, "DEBUG-updateResult: TextView的MovementMethod: " + textViewResult.getMovementMethod());
                 } catch (Exception e) {
-                    Log.e(TAG, "DEBUG-updateResult: Markdown渲染失败", e);
+                    LogManager.logE(TAG, "DEBUG-updateResult: Markdown渲染失败", e);
                     // 如果高级API失败，尝试使用基本方法
                     markwon.setMarkdown(textViewResult, result);
                 }
@@ -1980,7 +1937,7 @@ public class RagQaFragment extends Fragment {
                     }, 300);
                 });
             } catch (Exception e) {
-                Log.e(TAG, "更新结果失败", e);
+                LogManager.logE(TAG, "更新结果失败", e);
             }
         });
     }
@@ -1992,19 +1949,22 @@ public class RagQaFragment extends Fragment {
         String apiUrl = spinnerApiUrl.getSelectedItem().toString();
         String apiKey = editTextApiKey.getText().toString();
         
+        // 获取当前保存的模型名称，用于恢复选择
+        String savedModelName = ConfigManager.getString(requireContext(), ConfigManager.KEY_MODEL_NAME, "");
+        
         // 显示加载状态
         setupSpinner(spinnerApiModel, new String[]{"加载中..."});
         
         // 如果是本地模型，从本地模型目录中获取可用的模型列表
         if ("local".equals(apiUrl)) {
-            Log.d(TAG, "获取本地模型列表");
+            LogManager.logD(TAG, "获取本地模型列表");
             
             // 从配置中获取模型路径
             String modelPath = ConfigManager.getModelPath(requireContext());
             File modelDir = new File(modelPath);
             
             if (!modelDir.exists() || !modelDir.isDirectory()) {
-                Log.e(TAG, "模型目录不存在: " + modelPath);
+                LogManager.logE(TAG, "模型目录不存在: " + modelPath);
                 setupSpinner(spinnerApiModel, new String[]{"模型目录不存在"});
                 Toast.makeText(requireContext(), "模型目录不存在: " + modelPath, Toast.LENGTH_SHORT).show();
                 return;
@@ -2014,7 +1974,7 @@ public class RagQaFragment extends Fragment {
             File[] modelDirs = modelDir.listFiles(File::isDirectory);
             
             if (modelDirs == null || modelDirs.length == 0) {
-                Log.e(TAG, "模型目录中没有发现模型: " + modelPath);
+                LogManager.logE(TAG, "模型目录中没有发现模型: " + modelPath);
                 setupSpinner(spinnerApiModel, new String[]{"未发现模型"});
                 Toast.makeText(requireContext(), "模型目录中没有发现模型: " + modelPath, Toast.LENGTH_SHORT).show();
                 return;
@@ -2031,9 +1991,14 @@ public class RagQaFragment extends Fragment {
                 setupSpinner(spinnerApiModel, new String[]{"无可用模型"});
             } else {
                 setupSpinner(spinnerApiModel, modelsList.toArray(new String[0]));
+                // 恢复用户之前的选择
+                if (!savedModelName.isEmpty()) {
+                    setSpinnerSelection(spinnerApiModel, savedModelName);
+                    LogManager.logD(TAG, "恢复本地模型选择: " + savedModelName);
+                }
             }
             
-            Log.d(TAG, "成功获取本地模型列表: " + modelsList.size() + "个模型");
+            LogManager.logD(TAG, "成功获取本地模型列表: " + modelsList.size() + "个模型");
             return;
         }
         
@@ -2074,17 +2039,22 @@ public class RagQaFragment extends Fragment {
                         setupSpinner(spinnerApiModel, new String[]{"无可用模型"});
                     } else {
                         setupSpinner(spinnerApiModel, modelsList.toArray(new String[0]));
+                        // 恢复用户之前的选择
+                        if (!savedModelName.isEmpty()) {
+                            setSpinnerSelection(spinnerApiModel, savedModelName);
+                            LogManager.logD(TAG, "恢复在线模型选择: " + savedModelName);
+                        }
                     }
                     
-                    Log.d(TAG, "成功获取模型列表: " + modelsList.size() + "个模型");
+                    LogManager.logD(TAG, "成功获取模型列表: " + modelsList.size() + "个模型");
                 } catch (JSONException e) {
-                    Log.e(TAG, "解析模型列表失败", e);
+                    LogManager.logE(TAG, "解析模型列表失败", e);
                     setupSpinner(spinnerApiModel, new String[]{"获取模型失败"});
                     Toast.makeText(requireContext(), "解析模型列表失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
                 }
             },
             error -> {
-                Log.e(TAG, "获取模型列表失败", error);
+                LogManager.logE(TAG, "获取模型列表失败", error);
                 setupSpinner(spinnerApiModel, new String[]{"获取模型失败"});
                 Toast.makeText(requireContext(), "获取模型列表失败: " + error.getMessage(), Toast.LENGTH_SHORT).show();
             }
@@ -2179,17 +2149,17 @@ public class RagQaFragment extends Fragment {
             
             // 获取模型的向量维度
             int embeddingDimension = embeddingHandler.getEmbeddingDimension();
-            Log.d(TAG, "模型向量维度: " + embeddingDimension);
+            LogManager.logD(TAG, "模型向量维度: " + embeddingDimension);
             updateProgressOnUiThread("模型向量维度: " + embeddingDimension);
 
             // 检查向量维度是否与知识库匹配
             int dbDimension = vectorDb.getMetadata().getEmbeddingDimension();
-            Log.d(TAG, "知识库向量维度: " + dbDimension + ", 模型向量维度: " + embeddingDimension);
+            LogManager.logD(TAG, "知识库向量维度: " + dbDimension + ", 模型向量维度: " + embeddingDimension);
             updateProgressOnUiThread("知识库向量维度: " + dbDimension);
 
             if (dbDimension > 0 && dbDimension != embeddingDimension) {
                 String warningMsg = "警告: 向量维度不匹配! 知识库维度: " + dbDimension + ", 模型维度: " + embeddingDimension;
-                Log.w(TAG, warningMsg);
+                LogManager.logW(TAG, warningMsg);
                 updateProgressOnUiThread(warningMsg);
                 updateProgressOnUiThread("这可能导致搜索失败，建议重新构建知识库或使用匹配的模型");
             }
@@ -2198,7 +2168,7 @@ public class RagQaFragment extends Fragment {
             // 标记模型开始使用
             EmbeddingModelManager modelManager = EmbeddingModelManager.getInstance(requireContext());
             modelManager.markModelInUse();
-            Log.d(TAG, "标记模型开始使用，防止自动卸载");
+            LogManager.logD(TAG, "标记模型开始使用，防止自动卸载");
             //updateProgressOnUiThread("标记模型开始使用，防止自动卸载");
             
             try {
@@ -2239,8 +2209,7 @@ public class RagQaFragment extends Fragment {
                     
                     // 记录详细信息到日志
                     String resultInfo = "相似度: " + result.similarity + ", 文本: " + result.text.substring(0, Math.min(50, result.text.length())) + "...";
-                    Log.d(TAG, resultInfo);
-                    logToFile(resultInfo);
+                    LogManager.logD(TAG, resultInfo);
 
                     // 添加到进度显示 - 只显示匹配序号和相似度值，不显示文本内容
                     similarityInfoBuilder.append("匹配").append(i + 1).append(": ").append(String.format("%.4f", result.similarity));
@@ -2250,8 +2219,7 @@ public class RagQaFragment extends Fragment {
                     
                     // 记录详细信息到日志
                     String resultInfo2 = "相似度: " + result.similarity + ", 文本: " + result.text.substring(0, Math.min(50, result.text.length())) + "...";
-                    Log.d(TAG, resultInfo2);
-                    logToFile(resultInfo2);
+                    LogManager.logD(TAG, resultInfo2);
                 }
 
                 // 保存相似度信息
@@ -2262,7 +2230,7 @@ public class RagQaFragment extends Fragment {
 
                 // 标记模型使用结束
                 modelManager.markModelNotInUse();
-                Log.d(TAG, "标记模型使用结束，允许自动卸载");
+                LogManager.logD(TAG, "标记模型使用结束，允许自动卸载");
                 //updateProgressOnUiThread("标记模型使用结束，允许自动卸载");
                 
                 // 获取API信息
@@ -2275,20 +2243,20 @@ public class RagQaFragment extends Fragment {
                 // callLLMApi(apiUrl, apiKey, apiModel, buildPromptWithKnowledgeBase(editTextSystemPrompt.getText().toString(), userQuery, relevantDocs));
             } catch (Exception e) {
                 String errorMsg = "处理查询失败: " + e.getMessage();
-                Log.e(TAG, errorMsg, e);
+                LogManager.logE(TAG, errorMsg, e);
                 updateProgressOnUiThread(errorMsg);
             }
         } catch (Exception e) {
             String errorMsg = "加载模型失败: " + e.getMessage();
-            Log.e(TAG, errorMsg, e);
+            LogManager.logE(TAG, errorMsg, e);
             updateProgressOnUiThread(errorMsg);
             
             // 关闭数据库
             try {
                 vectorDb.close();
-                Log.d(TAG, "向量数据库已关闭");
+                LogManager.logD(TAG, "向量数据库已关闭");
             } catch (Exception ex) {
-                Log.e(TAG, "关闭向量数据库失败: " + ex.getMessage(), ex);
+                LogManager.logE(TAG, "关闭向量数据库失败: " + ex.getMessage(), ex);
             }
         }
     }
@@ -2380,7 +2348,7 @@ public class RagQaFragment extends Fragment {
                            // 继续执行RAG查询任务
                            continueQueryWithSelectedModel(selectedModel, knowledgeBase, embeddingModelPath, vectorDb);
                        } catch (Exception e) {
-                           Log.e(TAG, "处理模型选择时出错", e);
+                           LogManager.logE(TAG, "处理模型选择时出错", e);
                            updateProgressOnUiThread("错误: 处理模型选择时出错: " + e.getMessage());
                        }
                    }).start();
@@ -2416,7 +2384,7 @@ public class RagQaFragment extends Fragment {
                         // 更新元数据中的modeldir为空字符串（表示使用根目录）
                         vectorDb.getMetadata().setModeldir("");
                         vectorDb.saveDatabase();
-                        Log.d(TAG, "已更新元数据，modeldir设置为空（使用根目录）");
+                        LogManager.logD(TAG, "已更新元数据，modeldir设置为空（使用根目录）");
                         break;
                     }
                 }
@@ -2437,7 +2405,7 @@ public class RagQaFragment extends Fragment {
                             // 更新元数据中的modeldir为选定的目录
                             vectorDb.getMetadata().setModeldir(selectedModel);
                             vectorDb.saveDatabase();
-                            Log.d(TAG, "已更新元数据，modeldir设置为: " + selectedModel);
+                            LogManager.logD(TAG, "已更新元数据，modeldir设置为: " + selectedModel);
                             break;
                         }
                     }
@@ -2455,8 +2423,7 @@ public class RagQaFragment extends Fragment {
         
         // 显示模型信息
         String modelInfo = "使用嵌入模型: " + selectedModel + ", 路径: " + foundModelPath;
-        Log.d(TAG, modelInfo);
-        logToFile(modelInfo);
+        LogManager.logD(TAG, modelInfo);
         updateProgressOnUiThread("正在使用嵌入模型: " + selectedModel);
         
         // 加载嵌入模型
@@ -2489,13 +2456,13 @@ public class RagQaFragment extends Fragment {
             boolean modelLoaded = modelLoadLatch.await(60, TimeUnit.SECONDS);
             if (!modelLoaded) {
                 String errorMsg = "错误: 加载嵌入模型超时";
-                Log.e(TAG, errorMsg);
+                LogManager.logE(TAG, errorMsg);
                 updateProgressOnUiThread(errorMsg);
                 return;
             }
         } catch (InterruptedException e) {
             String errorMsg = "错误: 等待模型加载被中断: " + e.getMessage();
-            Log.e(TAG, errorMsg, e);
+            LogManager.logE(TAG, errorMsg, e);
             updateProgressOnUiThread(errorMsg);
             return;
         }
@@ -2503,7 +2470,7 @@ public class RagQaFragment extends Fragment {
         // 检查是否有错误
         if (modelErrorRef.get() != null) {
             String errorMsg = "错误: 加载嵌入模型失败: " + modelErrorRef.get().getMessage();
-            Log.e(TAG, errorMsg, modelErrorRef.get());
+            LogManager.logE(TAG, errorMsg, modelErrorRef.get());
             updateProgressOnUiThread(errorMsg);
             return;
         }
@@ -2512,7 +2479,7 @@ public class RagQaFragment extends Fragment {
         EmbeddingModelHandler modelHandler = modelHandlerRef.get();
         if (modelHandler == null) {
             String errorMsg = "错误: 创建嵌入模型处理器失败";
-            Log.e(TAG, errorMsg);
+            LogManager.logE(TAG, errorMsg);
             updateProgressOnUiThread(errorMsg);
             return;
         }
@@ -2520,7 +2487,7 @@ public class RagQaFragment extends Fragment {
 
         // 标记模型开始使用
         modelManager.markModelInUse();
-        Log.d(TAG, "标记模型开始使用，防止自动卸载");
+        LogManager.logD(TAG, "标记模型开始使用，防止自动卸载");
         updateProgressOnUiThread("标记模型开始使用，防止自动卸载");
 
         // 生成查询向量
@@ -2555,8 +2522,7 @@ public class RagQaFragment extends Fragment {
                 
                 // 记录详细信息到日志
                 String resultInfo = "相似度: " + result.similarity + ", 文本: " + result.text.substring(0, Math.min(50, result.text.length())) + "...";
-                Log.d(TAG, resultInfo);
-                logToFile(resultInfo);
+                LogManager.logD(TAG, resultInfo);
 
                 // 添加到进度显示 - 只显示匹配序号和相似度值，不显示文本内容
                 similarityInfoBuilder.append("匹配").append(i + 1).append(": ").append(String.format("%.4f", result.similarity));
@@ -2572,7 +2538,7 @@ public class RagQaFragment extends Fragment {
 
             // 标记模型使用结束
             modelManager.markModelNotInUse();
-            Log.d(TAG, "标记模型使用结束，允许自动卸载");
+            LogManager.logD(TAG, "标记模型使用结束，允许自动卸载");
             updateProgressOnUiThread("标记模型使用结束，允许自动卸载");
             
             // 获取API信息
@@ -2586,7 +2552,7 @@ public class RagQaFragment extends Fragment {
             
         } catch (Exception e) {
             String errorMsg = "处理查询失败: " + e.getMessage();
-            Log.e(TAG, errorMsg, e);
+            LogManager.logE(TAG, errorMsg, e);
             updateProgressOnUiThread(errorMsg);
         }
     }
@@ -2601,7 +2567,7 @@ public class RagQaFragment extends Fragment {
             // 从ConfigManager获取模型映射
             return ConfigManager.getModelMapping(requireContext(), "model_" + originalModel, null);
         } catch (Exception e) {
-            Log.e(TAG, "获取模型映射失败", e);
+            LogManager.logE(TAG, "获取模型映射失败", e);
             return null;
         }
     }
@@ -2627,39 +2593,33 @@ public class RagQaFragment extends Fragment {
                     
                     // 更新数据库元数据中的模型信息
                     if (vectorDb.updateEmbeddingModel(selectedModelName)) {
-                        Log.d(TAG, "已更新数据库元数据中的模型信息: " + selectedModelName);
-                        logToFile("已更新数据库元数据中的模型信息: " + selectedModelName);
+                        LogManager.logD(TAG, "已更新数据库元数据中的模型信息: " + selectedModelName);
                         
                         // 保存数据库
                         if (vectorDb.saveDatabase()) {
-                            Log.d(TAG, "已保存数据库元数据");
-                            logToFile("已保存数据库元数据");
+                            LogManager.logD(TAG, "已保存数据库元数据");
                         } else {
-                            Log.e(TAG, "保存数据库元数据失败");
-                            logToFile("保存数据库元数据失败");
+                            LogManager.logE(TAG, "保存数据库元数据失败");
                         }
                     } else {
-                        Log.e(TAG, "更新数据库元数据中的模型信息失败");
-                        logToFile("更新数据库元数据中的模型信息失败");
+                        LogManager.logE(TAG, "更新数据库元数据中的模型信息失败");
                     }
                 } else {
-                    Log.e(TAG, "加载数据库失败");
-                    logToFile("加载数据库失败");
+                    LogManager.logE(TAG, "加载数据库失败");
                 }
             } catch (Exception e) {
-                Log.e(TAG, "更新数据库元数据失败", e);
-                logToFile("更新数据库元数据失败: " + e.getMessage());
+                LogManager.logE(TAG, "更新数据库元数据失败", e);
             } finally {
                 if (vectorDb != null) {
                     try {
                         vectorDb.close();
                     } catch (Exception e) {
-                        Log.e(TAG, "关闭数据库失败", e);
+                        LogManager.logE(TAG, "关闭数据库失败", e);
                     }
                 }
             }
         } catch (Exception e) {
-            Log.e(TAG, "保存模型映射失败", e);
+            LogManager.logE(TAG, "保存模型映射失败", e);
         }
     }
     
@@ -2745,10 +2705,10 @@ public class RagQaFragment extends Fragment {
                         
                         // 显示提示信息
                         Toast.makeText(requireContext(), "已转为知识库笔记", Toast.LENGTH_SHORT).show();
-                        Log.d(TAG, "已将文本转为知识库笔记，长度: " + textToTransfer.length());
+                        LogManager.logD(TAG, "已将文本转为知识库笔记，长度: " + textToTransfer.length());
                     } else {
                         // 第一次尝试失败，再次延迟重试
-                        Log.d(TAG, "第一次尝试获取KnowledgeNoteFragment失败，将在500ms后重试");
+                        LogManager.logD(TAG, "第一次尝试获取KnowledgeNoteFragment失败，将在500ms后重试");
                         
                         // 再次延迟500ms重试
                         new Handler(Looper.getMainLooper()).postDelayed(() -> {
@@ -2776,25 +2736,25 @@ public class RagQaFragment extends Fragment {
                                     KnowledgeNoteFragment knowledgeNoteFragment = (KnowledgeNoteFragment) retryFragment;
                                     knowledgeNoteFragment.insertTextToContentEditor(textToTransfer);
                                     Toast.makeText(requireContext(), "已转为知识库笔记", Toast.LENGTH_SHORT).show();
-                                    Log.d(TAG, "重试成功：已将文本转为知识库笔记，长度: " + textToTransfer.length());
+                                    LogManager.logD(TAG, "重试成功：已将文本转为知识库笔记，长度: " + textToTransfer.length());
                                 } else {
                                     Toast.makeText(requireContext(), "无法获取知识库笔记页面", Toast.LENGTH_SHORT).show();
-                                    Log.e(TAG, "重试后仍无法获取KnowledgeNoteFragment实例");
+                                    LogManager.logE(TAG, "重试后仍无法获取KnowledgeNoteFragment实例");
                                 }
                             } catch (Exception e) {
                                 Toast.makeText(requireContext(), "重试转为笔记失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-                                Log.e(TAG, "重试转为笔记失败", e);
+                                LogManager.logE(TAG, "重试转为笔记失败", e);
                             }
                         }, 500); // 再延迟500ms
                     }
                 } catch (Exception e) {
                     Toast.makeText(requireContext(), "转为笔记失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-                    Log.e(TAG, "转为笔记失败", e);
+                    LogManager.logE(TAG, "转为笔记失败", e);
                 }
             }, 300); // 初始延迟300ms
         } catch (Exception e) {
             Toast.makeText(requireContext(), "转为笔记失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-            Log.e(TAG, "转为笔记失败", e);
+            LogManager.logE(TAG, "转为笔记失败", e);
         }
     }
     
@@ -2805,7 +2765,7 @@ public class RagQaFragment extends Fragment {
         if (textViewResponse != null) {
             float fontSize = ConfigManager.getGlobalTextSize(requireContext());
             textViewResponse.setTextSize(TypedValue.COMPLEX_UNIT_SP, fontSize);
-            Log.d(TAG, "已应用全局字体大小: " + fontSize + "sp");
+            LogManager.logD(TAG, "已应用全局字体大小: " + fontSize + "sp");
         }
     }
     
@@ -2817,19 +2777,19 @@ public class RagQaFragment extends Fragment {
         
         // 检查是否需要恢复之前的查询
         if (queryNeedsResume && lastUserPrompt != null && !lastUserPrompt.isEmpty()) {
-            Log.d(TAG, "检测到需要恢复的查询，将在页面恢复后重新执行");
+            LogManager.logD(TAG, "检测到需要恢复的查询，将在页面恢复后重新执行");
             
             // 重置恢复标记
             queryNeedsResume = false;
             
             // 在UI线程上显示恢复提示
-            new Handler().postDelayed(() -> {
+            new Handler(Looper.getMainLooper()).postDelayed(() -> {
                 try {
                     if (isAdded() && getActivity() != null) {
                         updateProgressOnUiThread("恢复之前的查询: " + lastUserPrompt);
                         
                         // 延迟一秒再执行，确保UI已经完全初始化
-                        new Handler().postDelayed(() -> {
+                        new Handler(Looper.getMainLooper()).postDelayed(() -> {
                             if (isAdded() && getActivity() != null) {
                                 executeRagQuery(lastApiUrl, lastApiKey, lastModel, lastKnowledgeBase, 
                                                 lastSystemPrompt, lastUserPrompt);
@@ -2837,7 +2797,7 @@ public class RagQaFragment extends Fragment {
                         }, 1000);
                     }
                 } catch (Exception e) {
-                    Log.e(TAG, "恢复查询时出错", e);
+                    LogManager.logE(TAG, "恢复查询时出错", e);
                 }
             }, 500);
         }

@@ -50,7 +50,7 @@ import ai.onnxruntime.OrtSession;
  */
 public class EmbeddingModelHandler {
     private static final String TAG = "StarLocalRAG_EmbeddingModel";
-    private static final int MODEL_LOAD_TIMEOUT_SECONDS = 60;
+    private static final int MODEL_LOAD_TIMEOUT_SECONDS = 180;
     
     // ONNX会话状态常量
     private static final int SESSION_STATE_NONE = 0;      // 未初始化
@@ -74,7 +74,7 @@ public class EmbeddingModelHandler {
     private OrtEnvironment ortEnvironment;
     private ModelType modelType;
     private String modelPath;
-    private TokenizerManager tokenizer; // 添加tokenizer字段
+    private TokenizerManager tokenizer; // 使用TokenizerManager进行分词
     private JSONObject configJson; // 添加模型配置字段
     private String modelName; // 添加模型名称字段
     
@@ -118,7 +118,7 @@ public class EmbeddingModelHandler {
      * @throws Exception 如果加载失败
      */
     public EmbeddingModelHandler(String modelPath) throws Exception {
-        this(modelPath, false);
+        this(null, modelPath, false);
     }
     
     /**
@@ -128,6 +128,19 @@ public class EmbeddingModelHandler {
      * @throws Exception 如果加载失败
      */
     public EmbeddingModelHandler(String modelPath, boolean useGpu) throws Exception {
+        this(null, modelPath, useGpu);
+    }
+    
+    /**
+     * 带参数的构造函数，支持 GPU 加速和上下文
+     * @param context 应用上下文
+     * @param modelPath 模型文件路径
+     * @param useGpu 是否使用 GPU 加速
+     * @throws Exception 如果加载失败
+     */
+    public EmbeddingModelHandler(Context context, String modelPath, boolean useGpu) throws Exception {
+        LogManager.logD(TAG, "创建EmbeddingModelHandler实例，context: " + (context != null ? "有效" : "null") + ", 模型路径: " + modelPath);
+        this.context = context;
         this.modelPath = modelPath;
         this.modelType = determineModelType(modelPath);
         this.useGpu = useGpu;
@@ -136,7 +149,7 @@ public class EmbeddingModelHandler {
             if (this.modelType == ModelType.TORCH_SCRIPT) {
                 // 加载TorchScript模型
                 this.torchModel = Module.load(modelPath);
-                Log.d(TAG, "TorchScript模型加载成功");
+                LogManager.logD(TAG, "TorchScript模型加载成功");
             } else if (this.modelType == ModelType.ONNX) {
                 // 加载ONNX模型
                 loadOnnxModel(modelPath);
@@ -149,13 +162,13 @@ public class EmbeddingModelHandler {
                           e.getMessage().contains("HwEditorHelperImpl") || 
                           e.getMessage().contains("GPU") || 
                           e.getMessage().contains("gpu"))) {
-                Log.w(TAG, "GPU加速失败，降级到CPU模式: " + e.getMessage(), e);
+                LogManager.logW(TAG, "GPU加速失败，降级到CPU模式: " + e.getMessage(), e);
                 this.useGpu = false;
                 
                 // 重新尝试加载模型，但不使用GPU
                 if (this.modelType == ModelType.TORCH_SCRIPT) {
                     this.torchModel = Module.load(modelPath);
-                    Log.d(TAG, "TorchScript模型使用CPU模式加载成功");
+                    LogManager.logD(TAG, "TorchScript模型使用CPU模式加载成功");
                 } else if (this.modelType == ModelType.ONNX) {
                     loadOnnxModel(modelPath);
                 }
@@ -167,63 +180,52 @@ public class EmbeddingModelHandler {
     }
     
     /**
-     * 带参数的构造函数，支持 GPU 加速和上下文
-     * @param context 应用上下文
-     * @param modelPath 模型文件路径
-     * @param useGpu 是否使用 GPU 加速
-     * @throws Exception 如果加载失败
-     */
-    public EmbeddingModelHandler(Context context, String modelPath, boolean useGpu) throws Exception {
-        this(modelPath, useGpu);
-        this.context = context;
-    }
-    
-    /**
      * 根据模型文件路径创建嵌入模型处理器
      * @param modelPath 模型文件的完整路径
+     * @param context 应用上下文
      * @return 创建的模型处理器，如果创建失败则返回null
      */
-    public static EmbeddingModelHandler create(String modelPath) {
-        Log.d(TAG, "开始创建嵌入模型处理器，模型路径: " + modelPath);
+    public static EmbeddingModelHandler create(String modelPath, Context context) {
+        LogManager.logD(TAG, "开始创建嵌入模型处理器，模型路径: " + modelPath);
         
         if (modelPath == null || modelPath.isEmpty()) {
-            Log.e(TAG, "模型路径为空");
+            LogManager.logE(TAG, "模型路径为空");
             return null;
         }
         
         try {
             File modelFile = new File(modelPath);
             if (!modelFile.exists()) {
-                Log.e(TAG, "模型文件不存在: " + modelPath);
+                LogManager.logE(TAG, "模型文件不存在: " + modelPath);
                 return null;
             }
             
-            Log.d(TAG, "模型文件存在，大小: " + modelFile.length() + " 字节");
+            LogManager.logD(TAG, "模型文件存在，大小: " + modelFile.length() + " 字节");
             
             // 检查是否是目录
             if (modelFile.isDirectory()) {
-                Log.d(TAG, "指定的路径是目录，正在查找模型文件...");
+                LogManager.logD(TAG, "指定的路径是目录，正在查找模型文件...");
                 
                 // 查找模型文件，支持递归搜索
                 File modelFileFound = findModelFileInDirectory(modelFile);
                 if (modelFileFound != null) {
-                    Log.d(TAG, "找到模型文件: " + modelFileFound.getAbsolutePath() + "，大小: " + modelFileFound.length() + " 字节");
+                    LogManager.logD(TAG, "找到模型文件: " + modelFileFound.getAbsolutePath() + "，大小: " + modelFileFound.length() + " 字节");
                     
                     // 检查是否存在必要的配置文件
                     File modelDir = modelFileFound.getParentFile();
                     checkRequiredConfigFiles(modelDir);
                     
-                    return loadModelWithTimeout(modelFileFound.getAbsolutePath());
+                    return loadModelWithTimeout(modelFileFound.getAbsolutePath(), context);
                 } else {
-                    Log.e(TAG, "在目录及其子目录中没有找到模型文件: " + modelPath);
+                    LogManager.logE(TAG, "在目录及其子目录中没有找到模型文件: " + modelPath);
                     return null;
                 }
             }
             
             // 如果是文件，直接加载
-            return loadModelWithTimeout(modelPath);
+            return loadModelWithTimeout(modelPath, context);
         } catch (Exception e) {
-            Log.e(TAG, "创建嵌入模型处理器失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "创建嵌入模型处理器失败: " + e.getMessage(), e);
             return null;
         }
     }
@@ -234,40 +236,40 @@ public class EmbeddingModelHandler {
      */
     private static void checkRequiredConfigFiles(File modelDir) {
         if (modelDir == null || !modelDir.exists() || !modelDir.isDirectory()) {
-            Log.w(TAG, "模型目录无效，无法检查配置文件");
+            LogManager.logW(TAG, "模型目录无效，无法检查配置文件");
             return;
         }
         
         // 检查config.json
         File configFile = new File(modelDir, "config.json");
         if (configFile.exists()) {
-            Log.d(TAG, "找到config.json: " + configFile.getAbsolutePath() + ", 大小: " + configFile.length() + " 字节");
+            LogManager.logD(TAG, "找到config.json: " + configFile.getAbsolutePath() + ", 大小: " + configFile.length() + " 字节");
         } else {
-            Log.w(TAG, "未找到config.json文件");
+            LogManager.logW(TAG, "未找到config.json文件");
         }
         
         // 检查tokenizer.json
         File tokenizerFile = new File(modelDir, "tokenizer.json");
         if (tokenizerFile.exists()) {
-            Log.d(TAG, "找到tokenizer.json: " + tokenizerFile.getAbsolutePath() + ", 大小: " + tokenizerFile.length() + " 字节");
+            LogManager.logD(TAG, "找到tokenizer.json: " + tokenizerFile.getAbsolutePath() + ", 大小: " + tokenizerFile.length() + " 字节");
         } else {
-            Log.w(TAG, "未找到tokenizer.json文件");
+            LogManager.logW(TAG, "未找到tokenizer.json文件");
         }
         
         // 检查special_tokens_map.json
         File specialTokensMapFile = new File(modelDir, "special_tokens_map.json");
         if (specialTokensMapFile.exists()) {
-            Log.d(TAG, "找到special_tokens_map.json: " + specialTokensMapFile.getAbsolutePath() + ", 大小: " + specialTokensMapFile.length() + " 字节");
+            LogManager.logD(TAG, "找到special_tokens_map.json: " + specialTokensMapFile.getAbsolutePath() + ", 大小: " + specialTokensMapFile.length() + " 字节");
         } else {
-            Log.w(TAG, "未找到special_tokens_map.json文件");
+            LogManager.logW(TAG, "未找到special_tokens_map.json文件");
         }
         
         // 检查tokenizer_config.json
         File tokenizerConfigFile = new File(modelDir, "tokenizer_config.json");
         if (tokenizerConfigFile.exists()) {
-            Log.d(TAG, "找到tokenizer_config.json: " + tokenizerConfigFile.getAbsolutePath() + ", 大小: " + tokenizerConfigFile.length() + " 字节");
+            LogManager.logD(TAG, "找到tokenizer_config.json: " + tokenizerConfigFile.getAbsolutePath() + ", 大小: " + tokenizerConfigFile.length() + " 字节");
         } else {
-            Log.w(TAG, "未找到tokenizer_config.json文件");
+            LogManager.logW(TAG, "未找到tokenizer_config.json文件");
         }
     }
     
@@ -285,7 +287,7 @@ public class EmbeddingModelHandler {
         String[] supportedExtensions = {".pt", ".onnx"};
         
         // 打印目录内容，用于调试
-        Log.d(TAG, "查找目录内容: " + directory.getAbsolutePath());
+        LogManager.logD(TAG, "查找目录内容: " + directory.getAbsolutePath());
         File[] allFiles = directory.listFiles();
         if (allFiles != null) {
             // 检查必要的配置文件是否存在
@@ -295,26 +297,26 @@ public class EmbeddingModelHandler {
             boolean hasTokenizerConfig = false;
             
             for (File file : allFiles) {
-                Log.d(TAG, "  - " + file.getName() + (file.isDirectory() ? " [目录]" : " [文件, " + file.length() + " 字节]"));
+                LogManager.logD(TAG, "  - " + file.getName() + (file.isDirectory() ? " [目录]" : " [文件, " + file.length() + " 字节]"));
                 
                 // 检查必要的配置文件
                 if (file.getName().equals("config.json")) {
                     hasConfigJson = true;
-                    Log.d(TAG, "找到config.json文件");
+                    LogManager.logD(TAG, "找到config.json文件");
                 } else if (file.getName().equals("tokenizer.json")) {
                     hasTokenizerJson = true;
-                    Log.d(TAG, "找到tokenizer.json文件");
+                    LogManager.logD(TAG, "找到tokenizer.json文件");
                 } else if (file.getName().equals("special_tokens_map.json")) {
                     hasSpecialTokensMap = true;
-                    Log.d(TAG, "找到special_tokens_map.json文件");
+                    LogManager.logD(TAG, "找到special_tokens_map.json文件");
                 } else if (file.getName().equals("tokenizer_config.json")) {
                     hasTokenizerConfig = true;
-                    Log.d(TAG, "找到tokenizer_config.json文件");
+                    LogManager.logD(TAG, "找到tokenizer_config.json文件");
                 }
             }
             
             // 记录配置文件状态
-            Log.d(TAG, "配置文件检查结果: config.json=" + hasConfigJson + 
+            LogManager.logD(TAG, "配置文件检查结果: config.json=" + hasConfigJson + 
                       ", tokenizer.json=" + hasTokenizerJson + 
                       ", special_tokens_map.json=" + hasSpecialTokensMap + 
                       ", tokenizer_config.json=" + hasTokenizerConfig);
@@ -322,7 +324,7 @@ public class EmbeddingModelHandler {
             // 首先查找model.onnx文件
             for (File file : allFiles) {
                 if (file.isFile() && file.getName().equals("model.onnx")) {
-                    Log.d(TAG, "找到model.onnx文件: " + file.getAbsolutePath());
+                    LogManager.logD(TAG, "找到model.onnx文件: " + file.getAbsolutePath());
                     return file;
                 }
             }
@@ -333,7 +335,7 @@ public class EmbeddingModelHandler {
                     String fileName = file.getName().toLowerCase();
                     for (String ext : supportedExtensions) {
                         if (fileName.endsWith(ext)) {
-                            Log.d(TAG, "找到模型文件: " + file.getAbsolutePath());
+                            LogManager.logD(TAG, "找到模型文件: " + file.getAbsolutePath());
                             return file;
                         }
                     }
@@ -350,7 +352,7 @@ public class EmbeddingModelHandler {
                 }
             }
         } else {
-            Log.d(TAG, "  无法列出目录内容");
+            LogManager.logD(TAG, "  无法列出目录内容");
         }
         
         return null;
@@ -359,10 +361,11 @@ public class EmbeddingModelHandler {
     /**
      * 使用超时机制加载模型
      * @param modelPath 模型文件路径
+     * @param context 应用上下文
      * @return 加载的模型处理器，如果加载失败则返回null
      */
-    private static EmbeddingModelHandler loadModelWithTimeout(String modelPath) {
-        Log.d(TAG, "使用超时机制加载模型: " + modelPath);
+    private static EmbeddingModelHandler loadModelWithTimeout(String modelPath, Context context) {
+        LogManager.logD(TAG, "使用超时机制加载模型: " + modelPath);
         
         // 创建线程池
         ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -371,10 +374,10 @@ public class EmbeddingModelHandler {
             // 提交加载任务
             Future<EmbeddingModelHandler> future = executor.submit(() -> {
                 try {
-                    EmbeddingModelHandler handler = new EmbeddingModelHandler(modelPath);
+                    EmbeddingModelHandler handler = new EmbeddingModelHandler(context, modelPath, false);
                     return handler;
                 } catch (Exception e) {
-                    Log.e(TAG, "模型加载失败: " + e.getMessage(), e);
+                    LogManager.logE(TAG, "模型加载失败: " + e.getMessage(), e);
                     throw new RuntimeException("模型加载失败: " + e.getMessage(), e);
                 }
             });
@@ -382,9 +385,9 @@ public class EmbeddingModelHandler {
             // 等待加载完成，设置超时
             return future.get(MODEL_LOAD_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         } catch (TimeoutException e) {
-            Log.e(TAG, "模型加载超时: " + e.getMessage(), e);
+            LogManager.logE(TAG, "模型加载超时: " + e.getMessage(), e);
         } catch (Exception e) {
-            Log.e(TAG, "模型加载失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "模型加载失败: " + e.getMessage(), e);
         } finally {
             // 关闭线程池
             executor.shutdownNow();
@@ -400,28 +403,49 @@ public class EmbeddingModelHandler {
      */
     private boolean loadOnnxModel(String modelPath) {
         try {
-            Log.d(TAG, "开始加载ONNX模型: " + modelPath);
+            LogManager.logD(TAG, "开始加载ONNX模型: " + modelPath);
             
-            // 检查模型路径是否为目录
+            // 检查模型路径
             File modelFile = new File(modelPath);
-            if (modelFile.isDirectory()) {
-                Log.d(TAG, "指定的路径是一个目录，尝试在目录中查找模型文件");
+            
+            // 如果是文件，获取其父目录作为模型目录
+            if (modelFile.isFile()) {
+                // 保存原始模型文件路径用于加载模型
+                String modelFilePath = modelPath;
+                
+                // 获取模型目录（父目录）
+                File modelDir = modelFile.getParentFile();
+                if (modelDir != null && modelDir.exists()) {
+                    // 设置模型目录路径，用于后续加载tokenizer等
+                    this.modelPath = modelDir.getAbsolutePath();
+                    LogManager.logD(TAG, "模型文件所在目录: " + this.modelPath);
+                }
+                
+                // 使用原始文件路径加载模型
+                modelPath = modelFilePath;
+            } 
+            // 如果是目录，在目录中查找模型文件
+            else if (modelFile.isDirectory()) {
+                // 保存目录路径
+                this.modelPath = modelPath;
+                LogManager.logD(TAG, "指定的路径是一个目录，尝试在目录中查找模型文件");
+                
                 File foundModelFile = findModelFileInDirectory(modelFile);
                 if (foundModelFile != null) {
                     modelPath = foundModelFile.getAbsolutePath();
-                    Log.d(TAG, "在目录中找到模型文件: " + modelPath);
+                    LogManager.logD(TAG, "在目录中找到模型文件: " + modelPath);
                 } else {
-                    Log.e(TAG, "在目录中未找到有效的模型文件: " + modelPath);
+                    LogManager.logE(TAG, "在目录中未找到有效的模型文件: " + modelPath);
                     return false;
                 }
-            } else if (!modelFile.exists()) {
-                Log.e(TAG, "模型文件不存在: " + modelPath);
+            } else {
+                LogManager.logE(TAG, "模型路径不存在: " + modelPath);
                 return false;
             }
             
             // 创建ONNX运行时环境
             ortEnvironment = OrtEnvironment.getEnvironment();
-            Log.d(TAG, "成功创建ONNX运行时环境");
+            LogManager.logD(TAG, "成功创建ONNX运行时环境");
             
             // 配置会话选项
             OrtSession.SessionOptions sessionOptions = new OrtSession.SessionOptions();
@@ -432,35 +456,134 @@ public class EmbeddingModelHandler {
             
             sessionOptions.setIntraOpNumThreads(numThreads);
             sessionOptions.setInterOpNumThreads(numThreads);
-            Log.d(TAG, "动态设置线程数 - 可用CPU核心: " + availableProcessors + 
+            LogManager.logD(TAG, "动态设置线程数 - 可用CPU核心: " + availableProcessors + 
                   ", 使用内部线程: " + numThreads + ", 外部线程: " + numThreads);
             
             // 设置优化级别
             sessionOptions.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT);
-            Log.d(TAG, "设置优化级别: ALL_OPT");
+            LogManager.logD(TAG, "设置优化级别: ALL_OPT");
+            
+            // 如果启用GPU，按优先级尝试不同的GPU加速方式
+        if (useGpu) {
+            boolean gpuEnabled = false;
+            LogManager.logD(TAG, "EmbeddingModel: 尝试启用GPU加速...");
+            
+            // 检查系统信息
+            String osVersion = android.os.Build.VERSION.RELEASE;
+            String deviceModel = android.os.Build.MODEL;
+            String manufacturer = android.os.Build.MANUFACTURER;
+            LogManager.logI(TAG, String.format("EmbeddingModel GPU环境检查 - 系统版本: %s, 设备型号: %s, 制造商: %s", 
+                osVersion, deviceModel, manufacturer));
+            
+            // 检查是否为HarmonyOS
+            boolean isHarmonyOS = manufacturer.toLowerCase().contains("huawei") || 
+                                 manufacturer.toLowerCase().contains("honor") ||
+                                 android.os.Build.DISPLAY.toLowerCase().contains("harmony");
+            if (isHarmonyOS) {
+                LogManager.logI(TAG, "EmbeddingModel: 检测到HarmonyOS系统，将尝试兼容性GPU加速方案");
+            }
+            
+            // 使用反射机制尝试调用可能存在的GPU加速方法
+            String[] gpuMethods = {"addNNAPI", "addOpenCL", "addCUDA"};
+            String[] gpuNames = {"NNAPI", "OpenCL", "CUDA"};
+            String[] gpuDescriptions = {
+                "Android神经网络API (适用于Android 8.1+)",
+                "开放计算语言 (跨平台并行计算)",
+                "NVIDIA CUDA (NVIDIA GPU专用)"
+            };
+            
+            for (int i = 0; i < gpuMethods.length && !gpuEnabled; i++) {
+                try {
+                    LogManager.logD(TAG, String.format("EmbeddingModel: 尝试启用%s加速 - %s", gpuNames[i], gpuDescriptions[i]));
+                    
+                    // 尝试通过反射调用方法
+                    java.lang.reflect.Method method = ai.onnxruntime.OrtSession.SessionOptions.class.getMethod(gpuMethods[i]);
+                    method.invoke(sessionOptions);
+                    
+                    LogManager.logI(TAG, String.format("EmbeddingModel: ✓ 成功启用%s加速", gpuNames[i]));
+                    gpuEnabled = true;
+                    
+                } catch (NoSuchMethodException e) {
+                    // 方法不存在，跳过
+                    LogManager.logW(TAG, String.format("EmbeddingModel: ✗ %s加速方法不可用 - ONNX Runtime版本可能不支持此加速方式", gpuNames[i]));
+                    
+                } catch (java.lang.reflect.InvocationTargetException e) {
+                    // 方法调用失败，获取具体原因
+                    Throwable cause = e.getCause();
+                    String errorMsg = cause != null ? cause.getMessage() : e.getMessage();
+                    LogManager.logE(TAG, String.format("EmbeddingModel: ✗ %s加速启用失败: %s", gpuNames[i], errorMsg));
+                    
+                    // 针对不同错误提供具体建议
+                    if (errorMsg != null) {
+                        if (errorMsg.contains("NNAPI") && errorMsg.contains("not supported")) {
+                            LogManager.logW(TAG, "EmbeddingModel建议: NNAPI可能在此设备上不受支持，这在某些华为/荣耀设备上较常见");
+                        } else if (errorMsg.contains("OpenCL") && errorMsg.contains("not found")) {
+                            LogManager.logW(TAG, "EmbeddingModel建议: OpenCL驱动未找到，可能需要更新GPU驱动或系统版本");
+                        } else if (errorMsg.contains("CUDA")) {
+                            LogManager.logW(TAG, "EmbeddingModel建议: CUDA仅支持NVIDIA GPU，当前设备可能使用其他GPU");
+                        }
+                    }
+                    
+                } catch (Exception e) {
+                    // 其他未知错误
+                    LogManager.logE(TAG, String.format("EmbeddingModel: ✗ %s加速启用失败 (未知错误): %s", gpuNames[i], e.getClass().getSimpleName() + ": " + e.getMessage()));
+                }
+            }
+            
+            if (!gpuEnabled) {
+                 LogManager.logW(TAG, "EmbeddingModel: 所有GPU加速方式均失败，将使用CPU模式");
+                 
+                 // 执行GPU诊断（仅在第一次失败时执行，避免重复日志）
+                 try {
+                     if (context != null) {
+                         String diagnosticReport = com.example.starlocalrag.GPUDiagnosticTool.performFullDiagnosis(context);
+                         LogManager.logI(TAG, "EmbeddingModel GPU诊断报告:\n" + diagnosticReport);
+                     }
+                 } catch (Exception e) {
+                     LogManager.logE(TAG, "EmbeddingModel GPU诊断失败: " + e.getMessage(), e);
+                 }
+                 
+                 // 提供针对性建议
+                 if (isHarmonyOS) {
+                     LogManager.logI(TAG, "EmbeddingModel HarmonyOS建议: 1) 确保系统版本支持GPU加速 2) 检查开发者选项中的硬件加速设置 3) 尝试重启应用");
+                 } else {
+                     LogManager.logI(TAG, "EmbeddingModel通用建议: 1) 检查设备GPU驱动版本 2) 确认应用权限设置 3) 尝试在开发者选项中启用硬件加速");
+                 }
+                 
+                 LogManager.logI(TAG, "EmbeddingModel CPU模式性能提示: 虽然无法使用GPU加速，但CPU模式仍可正常运行，只是速度相对较慢");
+             } else {
+                 LogManager.logI(TAG, "EmbeddingModel: GPU加速启用成功");
+             }
+        } else {
+            LogManager.logD(TAG, "EmbeddingModel: 未启用GPU加速，使用CPU模式");
+        }
             
             // 加载模型
-            Log.d(TAG, "开始加载ONNX模型: " + modelPath);
             try {
                 onnxSession = ortEnvironment.createSession(modelPath, sessionOptions);
-                Log.d(TAG, "ONNX模型加载成功: " + modelPath);
+                LogManager.logD(TAG, "ONNX模型加载成功: " + modelPath);
             } catch (OrtException e) {
-                Log.e(TAG, "加载ONNX模型失败: " + e.getMessage(), e);
+                LogManager.logE(TAG, "加载ONNX模型失败: " + e.getMessage(), e);
                 return false;
             }
             
-            // 加载tokenizer和配置
-            loadTokenizerAndConfig();
-            
-            // 设置会话状态为就绪
-            synchronized (sessionLock) {
-                sessionState = SESSION_STATE_READY;
-                sessionRetryCount = 0;
+            try {
+                // 加载tokenizer和配置
+                loadTokenizerAndConfig();
+                
+                // 设置会话状态为就绪
+                synchronized (sessionLock) {
+                    sessionState = SESSION_STATE_READY;
+                    sessionRetryCount = 0;
+                }
+            } catch (IOException e) {
+                LogManager.logE(TAG, "加载tokenizer和配置失败: " + e.getMessage(), e);
+                return false;
             }
             
             return true;
         } catch (Exception e) {
-            Log.e(TAG, "加载ONNX模型失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "加载ONNX模型失败: " + e.getMessage(), e);
             
             // 设置会话状态为错误
             synchronized (sessionLock) {
@@ -480,17 +603,17 @@ public class EmbeddingModelHandler {
         File modelFile = new File(modelPath);
         
         if (!modelFile.exists()) {
-            Log.e(TAG, "模型文件不存在: " + modelPath);
+            LogManager.logE(TAG, "模型文件不存在: " + modelPath);
             return ModelType.UNKNOWN;
         }
         
         // 检查文件扩展名
         String fileName = modelFile.getName().toLowerCase();
         if (fileName.endsWith(".pt") || fileName.endsWith(".pth") || fileName.endsWith(".ptl")) {
-            Log.d(TAG, "检测到TorchScript模型: " + modelPath);
+            LogManager.logD(TAG, "检测到TorchScript模型: " + modelPath);
             return ModelType.TORCH_SCRIPT;
         } else if (fileName.endsWith(".onnx")) {
-            Log.d(TAG, "检测到ONNX模型: " + modelPath);
+            LogManager.logD(TAG, "检测到ONNX模型: " + modelPath);
             return ModelType.ONNX;
         }
         
@@ -502,7 +625,7 @@ public class EmbeddingModelHandler {
                 for (File file : files) {
                     if (file.getName().toLowerCase().endsWith(".onnx")) {
                         String onnxPath = file.getAbsolutePath();
-                        Log.d(TAG, "在目录中找到ONNX模型: " + onnxPath);
+                        LogManager.logD(TAG, "在目录中找到ONNX模型: " + onnxPath);
                         this.modelPath = onnxPath; // 更新模型路径
                         return ModelType.ONNX;
                     }
@@ -514,7 +637,7 @@ public class EmbeddingModelHandler {
                         file.getName().toLowerCase().endsWith(".pth") || 
                         file.getName().toLowerCase().endsWith(".ptl")) {
                         String torchPath = file.getAbsolutePath();
-                        Log.d(TAG, "在目录中找到TorchScript模型: " + torchPath);
+                        LogManager.logD(TAG, "在目录中找到TorchScript模型: " + torchPath);
                         this.modelPath = torchPath; // 更新模型路径
                         return ModelType.TORCH_SCRIPT;
                     }
@@ -529,22 +652,22 @@ public class EmbeddingModelHandler {
                 if (fis.read(header) == 4) {
                     // ONNX文件通常以"ONNX"字符串开头
                     if (header[0] == 0x08 && header[1] == 0x00) {
-                        Log.d(TAG, "通过文件头检测到ONNX模型");
+                        LogManager.logD(TAG, "通过文件头检测到ONNX模型");
                         return ModelType.ONNX;
                     }
                     
                     // PyTorch文件通常以特定的魔数开头
                     if (header[0] == 0x80 && header[1] == 0x02) {
-                        Log.d(TAG, "通过文件头检测到TorchScript模型");
+                        LogManager.logD(TAG, "通过文件头检测到TorchScript模型");
                         return ModelType.TORCH_SCRIPT;
                     }
                 }
             }
         } catch (IOException e) {
-            Log.e(TAG, "读取文件头失败: " + e.getMessage());
+            LogManager.logE(TAG, "读取文件头失败: " + e.getMessage());
         }
         
-        Log.d(TAG, "无法确定模型类型，默认尝试作为ONNX模型");
+        LogManager.logD(TAG, "无法确定模型类型，默认尝试作为ONNX模型");
         return ModelType.ONNX; // 默认尝试作为ONNX模型
     }
     
@@ -553,79 +676,351 @@ public class EmbeddingModelHandler {
      * @throws IOException 如果加载失败
      */
     private void loadTokenizerAndConfig() throws IOException {
-        File modelDir = new File(modelPath).getParentFile();
+        // 获取模型文件所在目录
+        File modelFile = new File(modelPath);
+        File modelDir;
+        
+        // 如果模型路径直接指向model.onnx文件，则使用其父目录
+        if (modelFile.getName().equals("model.onnx")) {
+            modelDir = modelFile.getParentFile();
+            LogManager.logD(TAG, "检测到model.onnx文件，使用其父目录作为模型目录: " + modelDir.getAbsolutePath());
+        } else {
+            // 如果路径本身就是目录，则直接使用
+            modelDir = modelFile.isDirectory() ? modelFile : modelFile.getParentFile();
+        }
+        
         if (modelDir == null || !modelDir.exists()) {
             throw new IOException("模型目录不存在: " + modelPath);
         }
         
+        LogManager.logD(TAG, "使用模型目录: " + modelDir.getAbsolutePath());
+        
+        // 获取模型目录名称（例如 bge-m3_static_quant_INT8）
+        String modelDirName = modelDir.getName();
+        
+        // 提取模型的基本名称（去除_static_quant后缀）
+        String baseModelName = modelDirName;
+        if (modelDirName.contains("_static_quant")) {
+            baseModelName = modelDirName.split("_static_quant")[0];
+            LogManager.logD(TAG, "从目录名称提取模型基本名称: " + baseModelName);
+        }
+        
+        // 首先尝试在当前模型目录中查找 tokenizer.json
+        File tokenizerFile = new File(modelDir, "tokenizer.json");
+        boolean tokenizerFound = false;
+        
+        if (tokenizerFile.exists()) {
+            LogManager.logD(TAG, "在模型目录中找到tokenizer.json: " + tokenizerFile.getAbsolutePath());
+            tokenizerFound = true;
+        }
+        
+        // 如果在当前目录中找不到，尝试在父目录中查找基本模型目录
+        if (!tokenizerFound) {
+            File embeddingsDir = modelDir.getParentFile();
+            if (embeddingsDir != null && embeddingsDir.exists()) {
+                LogManager.logD(TAG, "尝试在父目录中查找基本模型目录: " + embeddingsDir.getAbsolutePath());
+                
+                // 在embeddings目录下查找与基本模型名称相同的目录
+                File baseModelDir = new File(embeddingsDir, baseModelName);
+                if (baseModelDir.exists() && baseModelDir.isDirectory()) {
+                    File baseModelTokenizerFile = new File(baseModelDir, "tokenizer.json");
+                    if (baseModelTokenizerFile.exists()) {
+                        LogManager.logD(TAG, "在基本模型目录中找到tokenizer.json: " + baseModelTokenizerFile.getAbsolutePath());
+                        tokenizerFile = baseModelTokenizerFile;
+                        modelDir = baseModelDir;
+                        tokenizerFound = true;
+                    }
+                }
+            }
+        }
+        
+        // 如果仍然找不到tokenizer.json，尝试使用默认路径
+        if (!tokenizerFound) {
+            try {
+                // 使用默认的嵌入模型路径
+                String embeddingModelPath = "/storage/emulated/0/Download/starragdata/embeddings";
+                
+                if (embeddingModelPath != null && !embeddingModelPath.isEmpty()) {
+                    File embeddingsBaseDir = new File(embeddingModelPath);
+                    if (embeddingsBaseDir.exists() && embeddingsBaseDir.isDirectory()) {
+                        // 尝试在默认的嵌入模型路径下查找基本模型目录
+                        File defaultBaseModelDir = new File(embeddingsBaseDir, baseModelName);
+                        if (defaultBaseModelDir.exists() && defaultBaseModelDir.isDirectory()) {
+                            File defaultTokenizerFile = new File(defaultBaseModelDir, "tokenizer.json");
+                            if (defaultTokenizerFile.exists()) {
+                                LogManager.logD(TAG, "在默认的嵌入模型路径中找到tokenizer.json: " + defaultTokenizerFile.getAbsolutePath());
+                                tokenizerFile = defaultTokenizerFile;
+                                modelDir = defaultBaseModelDir;
+                                tokenizerFound = true;
+                            }
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                LogManager.logE(TAG, "使用默认路径查找tokenizer.json时出错", e);
+            }
+        }
+        
+        if (!tokenizerFound) {
+            LogManager.logW(TAG, "无法找到tokenizer.json文件，请确保模型目录结构正确");
+            throw new IOException("无法找到tokenizer.json文件，请检查模型目录结构");
+        }
+        
+        // 检查tokenizer.json文件的大小和可读性
+        if (tokenizerFile.length() == 0) {
+            LogManager.logE(TAG, "tokenizer.json文件大小为0: " + tokenizerFile.getAbsolutePath());
+            throw new IOException("tokenizer.json文件大小为0，可能已损坏");
+        }
+        
+        if (!tokenizerFile.canRead()) {
+            LogManager.logE(TAG, "tokenizer.json文件无法读取: " + tokenizerFile.getAbsolutePath());
+            throw new IOException("tokenizer.json文件无法读取，请检查文件权限");
+        }
+        
+        // 获取模型名称，用于设置分词器类型
+        String modelName = modelDir.getName();
+        // 如果模型名称包含后缀，如"_static_quant_INT8"，则去除后缀
+        if (modelName.contains("_static_quant")) {
+            modelName = modelName.split("_static_quant")[0];
+            LogManager.logD(TAG, "从目录名称提取模型名称: " + modelName);
+        }
+        
         // 在加载新的tokenizer之前，确保释放之前的资源
         if (tokenizer != null) {
-            Log.d(TAG, "释放之前的tokenizer资源");
-            // 如果是我们自己创建的TokenizerManager实例，需要关闭它
-            if (tokenizer instanceof AutoCloseable) {
-                try {
-                    ((AutoCloseable) tokenizer).close();
-                } catch (Exception e) {
-                    Log.w(TAG, "关闭tokenizer资源失败: " + e.getMessage());
-                }
+            LogManager.logD(TAG, "释放之前的tokenizer资源");
+            try {
+                tokenizer.close();
+            } catch (Exception e) {
+                LogManager.logW(TAG, "关闭tokenizer资源失败: " + e.getMessage());
             }
             tokenizer = null;
         }
         
         // 重置全局TokenizerManager，确保使用新模型的tokenizer
         if (context != null) {
-            Log.d(TAG, "重置TokenizerManager以加载新模型");
-            TokenizerManager.reset();
+            LogManager.logD(TAG, "重置TokenizerManager以加载新模型");
+            TokenizerManager.resetManager();
         }
         
         // 初始化TokenizerManager
         if (context != null) {
-            TokenizerManager tokenizerManager = TokenizerManager.getInstance(context);
             try {
-                boolean success = tokenizerManager.initialize(modelDir);
+                TokenizerManager tokenizerManager = TokenizerManager.getInstance(context);
+                
+                // 获取tokenizer.json文件所在的目录
+                File tokenizerDir = tokenizerFile.getParentFile();
+                LogManager.logD(TAG, "使用tokenizer所在目录初始化TokenizerManager: " + tokenizerDir.getAbsolutePath());
+                
+                // 直接传递目录路径给TokenizerManager.initialize
+                boolean success = tokenizerManager.initialize(tokenizerDir);
+                
                 if (success) {
                     this.tokenizer = tokenizerManager;
-                    Log.d(TAG, "成功初始化TokenizerManager");
+                    // 设置模型类型，用于正确处理特殊token
+                    if (modelName != null && !modelName.isEmpty()) {
+                        tokenizerManager.setModelType(modelName);
+                        LogManager.logD(TAG, "设置模型类型: " + modelName);
+                    }
+                    LogManager.logD(TAG, "成功初始化TokenizerManager");
                 } else {
-                    throw new IOException("TokenizerManager初始化失败");
+                    throw new IOException("TokenizerManager初始化失败，无法加载tokenizer");
                 }
-            } catch (IOException e) {
-                throw new IOException("TokenizerManager初始化失败: " + e.getMessage(), e);
+            } catch (Exception e) {
+                LogManager.logE(TAG, "TokenizerManager初始化异常: " + e.getMessage(), e);
+                throw new IOException("初始化TokenizerManager失败: " + e.getMessage(), e);
             }
         } else {
-            throw new IOException("Context为null，无法初始化TokenizerManager");
+            LogManager.logE(TAG, "Context为null，无法初始TokenizerManager");
+            throw new IOException("Context为null，无法初始TokenizerManager");
         }
         
-        // 加载模型配置
+        // 加载配置文件
         File configFile = new File(modelDir, "config.json");
         if (configFile.exists()) {
             try {
                 String configContent = readFileContent(configFile);
                 configJson = new JSONObject(configContent);
-                Log.d(TAG, "模型配置加载成功");
+                LogManager.logD(TAG, "模型配置加载成功");
                 
                 // 从配置中提取模型名称
                 if (configJson.has("model_name")) {
-                    modelName = configJson.getString("model_name");
-                    Log.d(TAG, "从配置中提取模型名称: " + modelName);
+                    this.modelName = configJson.getString("model_name");
+                    LogManager.logD(TAG, "从配置中提取模型名称: " + this.modelName);
                 } else if (configJson.has("model_type")) {
-                    modelName = configJson.getString("model_type");
-                    Log.d(TAG, "从配置中提取模型类型作为名称: " + modelName);
+                    this.modelName = configJson.getString("model_type");
+                    LogManager.logD(TAG, "从配置中提取模型类型作为名称: " + this.modelName);
                 } else if (configJson.has("architectures") && configJson.getJSONArray("architectures").length() > 0) {
-                    modelName = configJson.getJSONArray("architectures").getString(0);
-                    Log.d(TAG, "从配置中提取架构作为名称: " + modelName);
+                    this.modelName = configJson.getJSONArray("architectures").getString(0);
+                    LogManager.logD(TAG, "从配置中提取架构作为名称: " + this.modelName);
                 }
-            } catch (Exception e) {
-                Log.w(TAG, "加载模型配置失败: " + e.getMessage(), e);
+                
+                // 提取嵌入大小
+                if (configJson.has("hidden_size")) {
+                    embeddingSize = configJson.getInt("hidden_size");
+                    LogManager.logD(TAG, "从配置中提取嵌入大小: " + embeddingSize);
+                } else if (configJson.has("dim")) {
+                    embeddingSize = configJson.getInt("dim");
+                    LogManager.logD(TAG, "从配置中提取嵌入大小(dim): " + embeddingSize);
+                }
+                
+                // 提取最大序列长度
+                if (configJson.has("max_position_embeddings")) {
+                    maxSequenceLength = configJson.getInt("max_position_embeddings");
+                    LogManager.logD(TAG, "从配置中提取最大序列长度: " + maxSequenceLength);
+                }
+            } catch (JSONException e) {
+                LogManager.logE(TAG, "解析配置文件失败: " + e.getMessage(), e);
             }
         } else {
-            Log.d(TAG, "未找到config.json文件");
+            LogManager.logW(TAG, "配置文件不存在: " + configFile.getAbsolutePath());
         }
-        
-        // 如果仍然没有模型名称，尝试从路径中提取
-        if (modelName == null || modelName.isEmpty()) {
-            modelName = extractModelNameFromPath(modelPath);
-            Log.d(TAG, "从路径中提取模型名称: " + modelName);
+    }
+    
+    /**
+     * 尝试使用Java实现的Tokenizer初始化
+     * 当TokenizerManager无法初始化时使用此方法作为备用
+     * @param modelDir 模型目录
+     */
+    private void tryInitializeWithJavaTokenizer(File modelDir) {
+        try {
+            LogManager.logD(TAG, "尝试使用Java实现的Tokenizer初始化");
+            
+            // 尝试从应用程序获取Context
+            if (context == null) {
+                Context appContext = getApplicationContext();
+                if (appContext != null) {
+                    LogManager.logD(TAG, "成功从应用程序获取Context");
+                    this.context = appContext;
+                    
+                    // 再次尝试使用TokenizerManager
+                    TokenizerManager tokenizerManager = TokenizerManager.getInstance(appContext);
+                    boolean success = tokenizerManager.initialize(modelDir);
+                    if (success) {
+                        this.tokenizer = tokenizerManager;
+                        LogManager.logD(TAG, "成功使用应用Context初始化TokenizerManager");
+                        return;
+                    }
+                }
+            }
+            
+            // 如果仍然无法使用TokenizerManager，尝试直接使用HuggingfaceTokenizer
+            // 先检查模型目录下是否有tokenizer.json文件
+            File tokenizerFile = new File(modelDir, "tokenizer.json");
+            
+            // 如果模型目录下没有tokenizer.json，尝试在父目录下查找
+            if (!tokenizerFile.exists() && modelDir.getName().equals("model.onnx")) {
+                File parentDir = modelDir.getParentFile();
+                if (parentDir != null && parentDir.exists()) {
+                    tokenizerFile = new File(parentDir, "tokenizer.json");
+                    LogManager.logD(TAG, "在父目录中查找tokenizer.json: " + tokenizerFile.getAbsolutePath());
+                }
+            }
+            
+            // 如果模型目录名包含"_static_quant"等后缀，尝试去除后缀后的目录
+            if (!tokenizerFile.exists() && modelDir.getName().contains("_static_quant")) {
+                String dirName = modelDir.getName().split("_static_quant")[0];
+                
+                // 尝试在多个可能的位置查找
+                List<File> possibleDirs = new ArrayList<>();
+                
+                // 1. 在当前目录的父目录中查找
+                if (modelDir.getParentFile() != null) {
+                    possibleDirs.add(new File(modelDir.getParentFile(), dirName));
+                }
+                
+                // 2. 在当前目录的父目录的父目录中查找
+                if (modelDir.getParentFile() != null && modelDir.getParentFile().getParentFile() != null) {
+                    possibleDirs.add(new File(modelDir.getParentFile().getParentFile(), dirName));
+                }
+                
+                // 3. 在嵌入模型目录的父目录中查找
+                File embeddingsDir = new File(modelDir.getParentFile().getParentFile(), "embeddings");
+                if (embeddingsDir.exists()) {
+                    possibleDirs.add(new File(embeddingsDir, dirName));
+                }
+                
+                // 遍历所有可能的目录
+                for (File dir : possibleDirs) {
+                    if (dir.exists()) {
+                        File candidateFile = new File(dir, "tokenizer.json");
+                        if (candidateFile.exists()) {
+                            tokenizerFile = candidateFile;
+                            LogManager.logD(TAG, "在去除后缀的目录中找到tokenizer.json: " + tokenizerFile.getAbsolutePath());
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            // 如果还是找不到，尝试在embeddings目录下查找
+            if (!tokenizerFile.exists()) {
+                // 尝试在各种可能的位置查找embeddings目录
+                List<File> possibleEmbeddingsDirs = new ArrayList<>();
+                
+                // 1. 在当前目录的父目录中查找
+                if (modelDir.getParentFile() != null) {
+                    possibleEmbeddingsDirs.add(new File(modelDir.getParentFile(), "embeddings"));
+                }
+                
+                // 2. 在当前目录的父目录的父目录中查找
+                if (modelDir.getParentFile() != null && modelDir.getParentFile().getParentFile() != null) {
+                    possibleEmbeddingsDirs.add(new File(modelDir.getParentFile().getParentFile(), "embeddings"));
+                }
+                
+                // 遍历所有可能的embeddings目录
+                for (File dir : possibleEmbeddingsDirs) {
+                    if (dir.exists()) {
+                        // 在embeddings目录下直接查找tokenizer.json
+                        File candidateFile = new File(dir, "tokenizer.json");
+                        if (candidateFile.exists()) {
+                            tokenizerFile = candidateFile;
+                            LogManager.logD(TAG, "在embeddings目录中找到tokenizer.json: " + tokenizerFile.getAbsolutePath());
+                            break;
+                        }
+                        
+                        // 如果没有直接找到，遍历embeddings目录下的所有子目录
+                        File[] subdirs = dir.listFiles(File::isDirectory);
+                        if (subdirs != null) {
+                            for (File subdir : subdirs) {
+                                candidateFile = new File(subdir, "tokenizer.json");
+                                if (candidateFile.exists()) {
+                                    tokenizerFile = candidateFile;
+                                    LogManager.logD(TAG, "在embeddings的子目录中找到tokenizer.json: " + tokenizerFile.getAbsolutePath());
+                                    break;
+                                }
+                            }
+                            if (tokenizerFile.exists()) {
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            if (tokenizerFile.exists()) {
+                LogManager.logD(TAG, "找到tokenizer.json文件，尝试直接加载HuggingfaceTokenizer: " + tokenizerFile.getAbsolutePath());
+                try {
+                    // 使用正确的构造函数，第二个参数表示是从文件加载
+                    com.starlocalrag.tokenizers.HuggingfaceTokenizer huggingfaceTokenizer = 
+                        new com.starlocalrag.tokenizers.HuggingfaceTokenizer(tokenizerFile.getAbsolutePath(), true);
+                    
+                    // 初始化TokenizerManager
+                    TokenizerManager tokenizerManager = TokenizerManager.getInstance(context);
+                    if (tokenizerManager.initialize(tokenizerFile.getParentFile())) {
+                        this.tokenizer = tokenizerManager;
+                        LogManager.logD(TAG, "成功初始化TokenizerManager");
+                    } else {
+                        LogManager.logE(TAG, "初始化TokenizerManager失败");
+                    }
+                } catch (Exception e) {
+                    LogManager.logE(TAG, "初始化HuggingfaceTokenizer失败: " + e.getMessage(), e);
+                }
+            } else {
+                LogManager.logE(TAG, "在多个可能的位置都未找到tokenizer.json文件");
+                LogManager.logE(TAG, "已尝试的路径: " + modelDir.getAbsolutePath() + "/tokenizer.json");
+            }
+        } catch (Exception e) {
+            LogManager.logE(TAG, "备用初始化tokenizer失败: " + e.getMessage(), e);
         }
     }
     
@@ -683,9 +1078,9 @@ public class EmbeddingModelHandler {
         Arrays.fill(attentionMask, 1L);
         
         // 记录输入张量形状和示例
-        Log.d(TAG, "输入张量形状: [1, " + inputIds.length + "]");
-        Log.d(TAG, "输入ID示例: " + Arrays.toString(Arrays.copyOfRange(inputIds, 0, Math.min(10, inputIds.length))));
-        Log.d(TAG, "输入数据类型: INT64 (与PC端保持一致)");
+        LogManager.logD(TAG, "输入张量形状: [1, " + inputIds.length + "]");
+        LogManager.logD(TAG, "输入ID示例: " + Arrays.toString(Arrays.copyOfRange(inputIds, 0, Math.min(10, inputIds.length))));
+        LogManager.logD(TAG, "输入数据类型: INT64 (与PC端保持一致)");
         
         // 记录推理开始时间
         long startTime = System.currentTimeMillis();
@@ -708,7 +1103,7 @@ public class EmbeddingModelHandler {
             OnnxTensor attentionMaskTensor = OnnxTensor.createTensor(ortEnvironment, attentionMaskBuffer, inputShape);
             
             // 记录输入张量信息
-            Log.d(TAG, "输入张量类型 - input_ids: " + inputIdsTensor.getInfo().type + ", attention_mask: " + attentionMaskTensor.getInfo().type);
+            LogManager.logD(TAG, "输入张量类型 - input_ids: " + inputIdsTensor.getInfo().type + ", attention_mask: " + attentionMaskTensor.getInfo().type);
             
             // 准备输入数据
             Map<String, OnnxTensor> inputs = new HashMap<>();
@@ -726,13 +1121,13 @@ public class EmbeddingModelHandler {
             float[] embedding = embeddingData[0]; // 获取第一个（也是唯一的）样本的向量
             
             // 记录向量信息
-            Log.d(TAG, "原始嵌入向量维度: " + embedding.length);
-            Log.d(TAG, "嵌入向量样例 (前5个值): " + 
+            LogManager.logD(TAG, "原始嵌入向量维度: " + embedding.length);
+            LogManager.logD(TAG, "嵌入向量样例 (前5个值): " + 
                 Arrays.toString(Arrays.copyOfRange(embedding, 0, Math.min(5, embedding.length))));
             
             // 记录生成时间
             long endTime = System.currentTimeMillis();
-            Log.d(TAG, "生成嵌入向量耗时: " + (endTime - startTime) + "ms");
+            LogManager.logD(TAG, "生成嵌入向量耗时: " + (endTime - startTime) + "ms");
             
             // 对向量进行L2归一化
             embedding = normalizeVector(embedding);
@@ -747,7 +1142,7 @@ public class EmbeddingModelHandler {
                 for (int i = embedding.length - 5; i < embedding.length; i++) {
                     sb.append(embedding[i]).append(", ");
                 }
-                Log.d(TAG, sb.toString());
+                LogManager.logD(TAG, sb.toString());
                 
                 // 计算向量范数，帮助确认归一化是否有效
                 double norm = 0.0;
@@ -755,7 +1150,7 @@ public class EmbeddingModelHandler {
                     norm += v * v;
                 }
                 norm = Math.sqrt(norm);
-                Log.d(TAG, "嵌入向量L2范数: " + norm + " (应接近1.0)");
+                LogManager.logD(TAG, "嵌入向量L2范数: " + norm + " (应接近1.0)");
             }
             
             // 创建一个副本，避免在关闭张量后访问其内存
@@ -766,7 +1161,7 @@ public class EmbeddingModelHandler {
             
             return embeddingCopy;
         } catch (Exception e) {
-            Log.e(TAG, "生成嵌入向量失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "生成嵌入向量失败: " + e.getMessage(), e);
             throw e;
         }
     }
@@ -778,10 +1173,10 @@ public class EmbeddingModelHandler {
      * @throws Exception 如果生成嵌入失败
      */
     public float[] generateEmbedding(String text) throws Exception {
-        Log.d(TAG, "开始生成嵌入向量，文本长度: " + text.length());
+        LogManager.logD(TAG, "开始生成嵌入向量，文本长度: " + text.length());
         
         if (text == null || text.isEmpty()) {
-            Log.w(TAG, "输入文本为空，返回空向量");
+            LogManager.logW(TAG, "输入文本为空，返回空向量");
             return new float[0];
         }
         
@@ -793,23 +1188,23 @@ public class EmbeddingModelHandler {
             if (modelType == ModelType.ONNX) {
                 // 检查ONNX会话状态并尝试恢复
                 if (!checkAndRecoverOnnxSession()) {
-                    Log.e(TAG, "ONNX会话不可用，无法生成嵌入向量");
+                    LogManager.logE(TAG, "ONNX会话不可用，无法生成嵌入向量");
                     throw new RuntimeException("ONNX会话不可用");
                 }
                 
                 embedding = generateEmbeddingWithOnnx(text);
             } else if (modelType == ModelType.TORCH_SCRIPT) {
                 // Torch模型的实现（暂未实现）
-                Log.e(TAG, "TorchScript模型尚未实现");
+                LogManager.logE(TAG, "TorchScript模型尚未实现");
                 return null;
             } else {
-                Log.e(TAG, "未知的模型类型");
+                LogManager.logE(TAG, "未知的模型类型");
                 return null;
             }
             
             // 记录生成时间
             long endTime = System.currentTimeMillis();
-            Log.d(TAG, "生成嵌入向量耗时: " + (endTime - startTime) + "ms");
+            LogManager.logD(TAG, "生成嵌入向量耗时: " + (endTime - startTime) + "ms");
             
             // 对向量进行L2归一化
             embedding = normalizeVector(embedding);
@@ -824,7 +1219,7 @@ public class EmbeddingModelHandler {
                 for (int i = embedding.length - 5; i < embedding.length; i++) {
                     sb.append(embedding[i]).append(", ");
                 }
-                Log.d(TAG, sb.toString());
+                LogManager.logD(TAG, sb.toString());
                 
                 // 计算向量范数，帮助确认归一化是否有效
                 double norm = 0.0;
@@ -832,12 +1227,12 @@ public class EmbeddingModelHandler {
                     norm += v * v;
                 }
                 norm = Math.sqrt(norm);
-                Log.d(TAG, "嵌入向量L2范数: " + norm + " (应接近1.0)");
+                LogManager.logD(TAG, "嵌入向量L2范数: " + norm + " (应接近1.0)");
             }
             
             return embedding;
         } catch (Exception e) {
-            Log.e(TAG, "生成嵌入向量失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "生成嵌入向量失败: " + e.getMessage(), e);
             throw e;
         }
     }
@@ -893,29 +1288,29 @@ public class EmbeddingModelHandler {
             // 尝试从模型配置中获取维度
             if (configJson != null && configJson.has("hidden_size")) {
                 int hiddenSize = configJson.getInt("hidden_size");
-                Log.d(TAG, "从配置文件获取向量维度: " + hiddenSize + ", 模型路径: " + modelPath);
+                LogManager.logD(TAG, "从配置文件获取向量维度: " + hiddenSize + ", 模型路径: " + modelPath);
                 return hiddenSize;
             }
             
             // 如果配置中没有，则使用默认值
             if (modelName != null) {
                 if (modelName.contains("bge-small") || modelName.contains("bge-base")) {
-                    Log.d(TAG, "根据模型名称判断向量维度: 768, 模型名称: " + modelName + ", 模型路径: " + modelPath);
+                    LogManager.logD(TAG, "根据模型名称判断向量维度: 768, 模型名称: " + modelName + ", 模型路径: " + modelPath);
                     return 768;
                 } else if (modelName.contains("bge-large")) {
-                    Log.d(TAG, "根据模型名称判断向量维度: 1024, 模型名称: " + modelName + ", 模型路径: " + modelPath);
+                    LogManager.logD(TAG, "根据模型名称判断向量维度: 1024, 模型名称: " + modelName + ", 模型路径: " + modelPath);
                     return 1024;
                 } else if (modelName.contains("bge-m3")) {
-                    Log.d(TAG, "根据模型名称判断向量维度: 1024, 模型名称: " + modelName + ", 模型路径: " + modelPath);
+                    LogManager.logD(TAG, "根据模型名称判断向量维度: 1024, 模型名称: " + modelName + ", 模型路径: " + modelPath);
                     return 1024;
                 }
             }
             
             // 默认维度
-            Log.w(TAG, "无法确定向量维度，使用默认值1024, 模型名称: " + modelName + ", 模型路径: " + modelPath);
+            LogManager.logW(TAG, "无法确定向量维度，使用默认值1024, 模型名称: " + modelName + ", 模型路径: " + modelPath);
             return 1024; // 修改默认值为1024
         } catch (Exception e) {
-            Log.e(TAG, "获取嵌入向量维度失败: " + e.getMessage() + ", 模型名称: " + modelName + ", 模型路径: " + modelPath, e);
+            LogManager.logE(TAG, "获取嵌入向量维度失败: " + e.getMessage() + ", 模型名称: " + modelName + ", 模型路径: " + modelPath, e);
             return 1024; // 修改默认值为1024
         }
     }
@@ -927,12 +1322,12 @@ public class EmbeddingModelHandler {
      */
     public void setUseConsistentProcessing(boolean consistent) {
         this.useConsistentProcessing = consistent;
-        Log.d(TAG, "设置一致性处理: " + consistent);
+        LogManager.logD(TAG, "设置一致性处理: " + consistent);
         
         // 如果tokenizer已初始化，同步设置其一致性分词策略
         if (tokenizer != null) {
             tokenizer.setUseConsistentTokenization(consistent);
-            Log.d(TAG, "同步设置tokenizer的一致性分词策略: " + consistent);
+            LogManager.logD(TAG, "同步设置tokenizer的一致性分词策略: " + consistent);
         }
     }
     
@@ -950,12 +1345,12 @@ public class EmbeddingModelHandler {
      */
     public void setDebugMode(boolean debug) {
         this.debugMode = debug;
-        Log.d(TAG, "设置调试模式: " + debug);
+        LogManager.logD(TAG, "设置调试模式: " + debug);
         
         // 如果tokenizer已初始化，同步设置其调试模式
         if (tokenizer != null) {
             tokenizer.setDebugMode(debug);
-            Log.d(TAG, "同步设置tokenizer的调试模式: " + debug);
+            LogManager.logD(TAG, "同步设置tokenizer的调试模式: " + debug);
         }
     }
     
@@ -974,7 +1369,7 @@ public class EmbeddingModelHandler {
      */
     private void debugLog(String message) {
         if (debugMode) {
-            Log.d(TAG, message);
+            LogManager.logD(TAG, message);
         }
     }
 
@@ -984,6 +1379,26 @@ public class EmbeddingModelHandler {
      */
     public String getEmbeddingModel() {
         return modelName != null ? modelName : extractModelNameFromPath(modelPath);
+    }
+    
+    /**
+     * 获取应用程序上下文
+     * 尝试从Android环境获取应用Context
+     * @return 应用程序上下文，如果无法获取则返回null
+     */
+    private Context getApplicationContext() {
+        try {
+            // 尝试通过反射获取应用上下文
+            Class<?> activityThreadClass = Class.forName("android.app.ActivityThread");
+            Object activityThread = activityThreadClass.getMethod("currentActivityThread").invoke(null);
+            Object application = activityThreadClass.getMethod("getApplication").invoke(activityThread);
+            if (application != null) {
+                return (Context) application;
+            }
+        } catch (Exception e) {
+            LogManager.logW(TAG, "无法通过反射获取应用上下文: " + e.getMessage());
+        }
+        return null;
     }
     
     /**
@@ -999,10 +1414,10 @@ public class EmbeddingModelHandler {
             // 首先尝试从目录名称检测是否是bge-m3
             if (parentDir != null) {
                 String dirName = parentDir.getName();
-                Log.d(TAG, "检查目录名称是否包含bge-m3: " + dirName);
+                LogManager.logD(TAG, "检查目录名称是否包含bge-m3: " + dirName);
                 
                 if (dirName.toLowerCase().contains("bge-m3")) {
-                    Log.d(TAG, "检测到bge-m3模型: " + dirName);
+                    LogManager.logD(TAG, "检测到bge-m3模型: " + dirName);
                     return "BGE-M3";
                 }
                 
@@ -1011,7 +1426,7 @@ public class EmbeddingModelHandler {
                 if (tokenizerFile.exists()) {
                     String modelNameFromTokenizer = extractModelNameFromTokenizer(tokenizerFile);
                     if (modelNameFromTokenizer != null && !modelNameFromTokenizer.isEmpty()) {
-                        Log.d(TAG, "从tokenizer.json成功提取模型名称: " + modelNameFromTokenizer);
+                        LogManager.logD(TAG, "从tokenizer.json成功提取模型名称: " + modelNameFromTokenizer);
                         return modelNameFromTokenizer;
                     }
                 }
@@ -1021,7 +1436,7 @@ public class EmbeddingModelHandler {
             if (parentDir != null) {
                 String configName = extractModelNameFromConfig(parentDir);
                 if (configName != null && !configName.isEmpty()) {
-                    Log.d(TAG, "从config.json成功提取模型名称: " + configName);
+                    LogManager.logD(TAG, "从config.json成功提取模型名称: " + configName);
                     return configName;
                 }
             }
@@ -1029,7 +1444,7 @@ public class EmbeddingModelHandler {
             // 尝试从目录名称提取
             if (parentDir != null) {
                 String dirName = parentDir.getName();
-                Log.d(TAG, "尝试从目录名称提取模型名称: " + dirName);
+                LogManager.logD(TAG, "尝试从目录名称提取模型名称: " + dirName);
                 
                 // 检查是否包含常见的模型名称关键词
                 List<String> modelKeywords = Arrays.asList(
@@ -1039,14 +1454,14 @@ public class EmbeddingModelHandler {
                 
                 for (String keyword : modelKeywords) {
                     if (dirName.toLowerCase().contains(keyword.toLowerCase())) {
-                        Log.d(TAG, "从目录名称提取到模型关键词: " + keyword);
+                        LogManager.logD(TAG, "从目录名称提取到模型关键词: " + keyword);
                         return dirName;
                     }
                 }
                 
                 // 如果目录名称不包含关键词，但看起来像是模型名称（包含字母和数字的组合），也返回它
                 if (dirName.matches(".*[a-zA-Z].*") && dirName.matches(".*[0-9].*")) {
-                    Log.d(TAG, "目录名称看起来像模型名称: " + dirName);
+                    LogManager.logD(TAG, "目录名称看起来像模型名称: " + dirName);
                     return dirName;
                 }
             }
@@ -1060,15 +1475,15 @@ public class EmbeddingModelHandler {
                 .trim();
             
             if (!fileName.isEmpty()) {
-                Log.d(TAG, "从文件名提取模型名称: " + fileName);
+                LogManager.logD(TAG, "从文件名提取模型名称: " + fileName);
                 return fileName;
             }
             
             // 如果所有方法都失败，返回一个默认名称
-            Log.d(TAG, "无法提取模型名称，使用默认名称");
+            LogManager.logD(TAG, "无法提取模型名称，使用默认名称");
             return "Embedding Model";
         } catch (Exception e) {
-            Log.e(TAG, "提取模型名称失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "提取模型名称失败: " + e.getMessage(), e);
             return "Embedding Model";
         }
     }
@@ -1080,7 +1495,7 @@ public class EmbeddingModelHandler {
      */
     private String extractModelNameFromTokenizer(File tokenizerFile) {
         try {
-            Log.d(TAG, "尝试从tokenizer.json提取模型名称: " + tokenizerFile.getAbsolutePath());
+            LogManager.logD(TAG, "尝试从tokenizer.json提取模型名称: " + tokenizerFile.getAbsolutePath());
             
             // 读取tokenizer.json文件的前1000个字符，足够检测模型类型
             StringBuilder content = new StringBuilder();
@@ -1104,7 +1519,7 @@ public class EmbeddingModelHandler {
                         int nameEndIndex = contentStr.indexOf("\"", nameStartIndex + 1);
                         if (nameEndIndex != -1) {
                             String name = contentStr.substring(nameStartIndex + 1, nameEndIndex);
-                            Log.d(TAG, "从tokenizer.json的name字段提取模型名称: " + name);
+                            LogManager.logD(TAG, "从tokenizer.json的name字段提取模型名称: " + name);
                             
                             // 如果名称包含bge-m3，直接返回标准化的名称
                             if (name.toLowerCase().contains("bge-m3")) {
@@ -1119,14 +1534,14 @@ public class EmbeddingModelHandler {
                 // 如果找不到name字段或name字段不包含bge-m3，但内容特征符合bge-m3
                 if (contentStr.contains("[\"<s>\",0]") && contentStr.contains("[\"<pad>\",0]") && 
                     contentStr.contains("[\"</s>\",0]") && contentStr.contains("[\"<unk>\",0]")) {
-                    Log.d(TAG, "从tokenizer.json内容特征识别为bge-m3模型");
+                    LogManager.logD(TAG, "从tokenizer.json内容特征识别为bge-m3模型");
                     return "BGE-M3";
                 }
             }
             
             return null;
         } catch (Exception e) {
-            Log.e(TAG, "从tokenizer.json提取模型名称失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "从tokenizer.json提取模型名称失败: " + e.getMessage(), e);
             return null;
         }
     }
@@ -1140,18 +1555,18 @@ public class EmbeddingModelHandler {
         try {
             File configFile = new File(modelDir, "config.json");
             if (!configFile.exists()) {
-                Log.d(TAG, "config.json文件不存在: " + configFile.getAbsolutePath());
+                LogManager.logD(TAG, "config.json文件不存在: " + configFile.getAbsolutePath());
                 return null;
             }
             
-            Log.d(TAG, "尝试从config.json提取模型名称: " + configFile.getAbsolutePath());
+            LogManager.logD(TAG, "尝试从config.json提取模型名称: " + configFile.getAbsolutePath());
             
             // 读取config.json文件内容
             String content = readFileContent(configFile);
             
             // 解析JSON
             JSONObject config = new JSONObject(content);
-            Log.d(TAG, "成功解析config.json");
+            LogManager.logD(TAG, "成功解析config.json");
             
             // 尝试从不同字段提取模型名称
             String name = null;
@@ -1159,7 +1574,7 @@ public class EmbeddingModelHandler {
             // 尝试从model_type字段提取
             if (config.has("model_type") && !config.isNull("model_type")) {
                 name = config.getString("model_type");
-                Log.d(TAG, "从model_type字段提取模型名称: " + name);
+                LogManager.logD(TAG, "从model_type字段提取模型名称: " + name);
             }
             
             // 尝试从architectures字段提取
@@ -1167,20 +1582,20 @@ public class EmbeddingModelHandler {
                 JSONArray architectures = config.getJSONArray("architectures");
                 if (architectures.length() > 0) {
                     name = architectures.getString(0);
-                    Log.d(TAG, "从architectures字段提取模型名称: " + name);
+                    LogManager.logD(TAG, "从architectures字段提取模型名称: " + name);
                 }
             }
             
             // 尝试从_name_or_path字段提取
             if ((name == null || name.isEmpty()) && config.has("_name_or_path") && !config.isNull("_name_or_path")) {
                 name = config.getString("_name_or_path");
-                Log.d(TAG, "从_name_or_path字段提取模型名称: " + name);
+                LogManager.logD(TAG, "从_name_or_path字段提取模型名称: " + name);
             }
             
             // 尝试从name字段提取
             if ((name == null || name.isEmpty()) && config.has("name") && !config.isNull("name")) {
                 name = config.getString("name");
-                Log.d(TAG, "从name字段提取模型名称: " + name);
+                LogManager.logD(TAG, "从name字段提取模型名称: " + name);
             }
             
             // 尝试从hidden_size和embedding_size推断模型大小
@@ -1201,7 +1616,7 @@ public class EmbeddingModelHandler {
                     modelSize = "Large";
                 }
                 
-                Log.d(TAG, "从hidden_size推断模型大小: " + modelSize + " (hidden_size=" + hiddenSize + ")");
+                LogManager.logD(TAG, "从hidden_size推断模型大小: " + modelSize + " (hidden_size=" + hiddenSize + ")");
             }
             
             // 组合模型名称和大小
@@ -1214,7 +1629,7 @@ public class EmbeddingModelHandler {
             
             return null;
         } catch (Exception e) {
-            Log.e(TAG, "从config.json提取模型名称失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "从config.json提取模型名称失败: " + e.getMessage(), e);
             return null;
         }
     }
@@ -1247,7 +1662,7 @@ public class EmbeddingModelHandler {
         
         // 检查路径中是否包含bge-m3
         if (modelPath != null && modelPath.toLowerCase().contains("bge-m3")) {
-            Log.d(TAG, "从路径中检测到bge-m3模型");
+            LogManager.logD(TAG, "从路径中检测到bge-m3模型");
             return "BGE-M3";
         }
         
@@ -1276,7 +1691,7 @@ public class EmbeddingModelHandler {
      */
     private boolean checkAndRecoverOnnxSession() {
         // 记录当前线程信息
-        Log.d(TAG, "检查会话状态 [线程ID: " + Thread.currentThread().getId() + "]");
+        LogManager.logD(TAG, "检查会话状态 [线程ID: " + Thread.currentThread().getId() + "]");
         
         synchronized (sessionLock) {
             // 记录上次检查时间
@@ -1284,25 +1699,25 @@ public class EmbeddingModelHandler {
             
             // 检查会话是否可用
             if (onnxSession != null && sessionState == SESSION_STATE_READY) {
-                Log.d(TAG, "会话状态正常，可以使用");
+                LogManager.logD(TAG, "会话状态正常，可以使用");
                 return true;
             }
             
             // 如果会话正在加载中，等待一段时间
             if (sessionState == SESSION_STATE_LOADING) {
-                Log.d(TAG, "会话正在加载中，等待...");
+                LogManager.logD(TAG, "会话正在加载中，等待...");
                 try {
                     // 等待最多3秒
                     for (int i = 0; i < 30; i++) {
                         // 每100毫秒检查一次
                         Thread.sleep(100);
                         if (onnxSession != null && sessionState == SESSION_STATE_READY) {
-                            Log.d(TAG, "会话已加载完成，可以使用");
+                            LogManager.logD(TAG, "会话已加载完成，可以使用");
                             return true;
                         }
                     }
                 } catch (InterruptedException e) {
-                    Log.e(TAG, "等待会话加载被中断: " + e.getMessage());
+                    LogManager.logE(TAG, "等待会话加载被中断: " + e.getMessage());
                     Thread.currentThread().interrupt();
                 }
             }
@@ -1311,16 +1726,16 @@ public class EmbeddingModelHandler {
             if (onnxSession == null || sessionState == SESSION_STATE_ERROR) {
                 // 检查重试次数
                 if (sessionRetryCount >= MAX_SESSION_RETRY) {
-                    Log.e(TAG, "会话恢复失败，已达到最大重试次数: " + sessionRetryCount);
+                    LogManager.logE(TAG, "会话恢复失败，已达到最大重试次数: " + sessionRetryCount);
                     return false;
                 }
                 
-                Log.d(TAG, "尝试恢复会话，当前重试次数: " + sessionRetryCount);
+                LogManager.logD(TAG, "尝试恢复会话，当前重试次数: " + sessionRetryCount);
                 
                 // 更新会话状态
                 int oldState = sessionState;
                 sessionState = SESSION_STATE_LOADING;
-                Log.d(TAG, "会话状态变更: " + oldState + " -> " + sessionState + " (开始恢复)");
+                LogManager.logD(TAG, "会话状态变更: " + oldState + " -> " + sessionState + " (开始恢复)");
                 
                 // 增加重试计数
                 sessionRetryCount++;
@@ -1330,9 +1745,9 @@ public class EmbeddingModelHandler {
                     if (onnxSession != null) {
                         try {
                             onnxSession.close();
-                            Log.d(TAG, "已关闭旧的ONNX会话");
+                            LogManager.logD(TAG, "已关闭旧的ONNX会话");
                         } catch (Exception e) {
-                            Log.e(TAG, "关闭旧的ONNX会话失败: " + e.getMessage(), e);
+                            LogManager.logE(TAG, "关闭旧的ONNX会话失败: " + e.getMessage(), e);
                         } finally {
                             onnxSession = null;
                         }
@@ -1340,41 +1755,41 @@ public class EmbeddingModelHandler {
                     
                     // 重新加载ONNX模型
                     try {
-                        Log.d(TAG, "重新加载ONNX模型: " + modelPath);
+                        LogManager.logD(TAG, "重新加载ONNX模型: " + modelPath);
                         loadOnnxModel(modelPath);
                         
                         // 检查会话是否加载成功
                         if (onnxSession != null) {
-                            Log.d(TAG, "ONNX会话恢复成功");
+                            LogManager.logD(TAG, "ONNX会话恢复成功");
                             sessionState = SESSION_STATE_READY;
                             return true;
                         } else {
-                            Log.e(TAG, "ONNX会话恢复失败，会话为null");
+                            LogManager.logE(TAG, "ONNX会话恢复失败，会话为null");
                             sessionState = SESSION_STATE_ERROR;
                             return false;
                         }
                     } catch (Exception e) {
-                        Log.e(TAG, "重新加载ONNX模型失败: " + e.getMessage(), e);
+                        LogManager.logE(TAG, "重新加载ONNX模型失败: " + e.getMessage(), e);
                         sessionState = SESSION_STATE_ERROR;
                         return false;
                     }
                 } finally {
                     // 如果会话仍然为null，确保状态为ERROR
                     if (onnxSession == null && sessionState != SESSION_STATE_ERROR) {
-                        Log.e(TAG, "会话为null但状态不是ERROR，更正状态");
+                        LogManager.logE(TAG, "会话为null但状态不是ERROR，更正状态");
                         sessionState = SESSION_STATE_ERROR;
                     }
                     
                     // 记录会话恢复结果
                     boolean success = onnxSession != null && sessionState == SESSION_STATE_READY;
-                    Log.d(TAG, "会话恢复" + (success ? "成功" : "失败") + 
+                    LogManager.logD(TAG, "会话恢复" + (success ? "成功" : "失败") + 
                            "，最终状态: " + sessionState + 
                            "，重试次数: " + sessionRetryCount + "/" + MAX_SESSION_RETRY);
                 }
             }
             
             // 会话仍然不可用
-            Log.e(TAG, "会话检查结束，会话仍然不可用，状态: " + sessionState);
+            LogManager.logE(TAG, "会话检查结束，会话仍然不可用，状态: " + sessionState);
             return false;
         }
     }
@@ -1384,21 +1799,21 @@ public class EmbeddingModelHandler {
      */
     public void close() {
         try {
-            Log.d(TAG, "开始关闭模型资源");
+            LogManager.logD(TAG, "开始关闭模型资源");
             
             synchronized (sessionLock) {
                 if (torchModel != null) {
                     // PyTorch模型不需要显式关闭
-                    Log.d(TAG, "释放TorchScript模型资源");
+                    LogManager.logD(TAG, "释放TorchScript模型资源");
                     torchModel = null;
                 }
                 
                 if (onnxSession != null) {
                     try {
-                        Log.d(TAG, "关闭ONNX会话");
+                        LogManager.logD(TAG, "关闭ONNX会话");
                         onnxSession.close();
                     } catch (Exception e) {
-                        Log.e(TAG, "关闭ONNX会话失败: " + e.getMessage(), e);
+                        LogManager.logE(TAG, "关闭ONNX会话失败: " + e.getMessage(), e);
                     } finally {
                         onnxSession = null;
                         sessionState = SESSION_STATE_NONE;
@@ -1410,9 +1825,9 @@ public class EmbeddingModelHandler {
                 lastSessionCheckTime = 0;
             }
             
-            Log.d(TAG, "模型资源已关闭");
+            LogManager.logD(TAG, "模型资源已关闭");
         } catch (Exception e) {
-            Log.e(TAG, "关闭模型资源失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "关闭模型资源失败: " + e.getMessage(), e);
         }
     }
     
@@ -1422,7 +1837,7 @@ public class EmbeddingModelHandler {
      * @return 归一化后的向量
      */
     private float[] normalizeVector(float[] vector) {
-        Log.d(TAG, "对嵌入向量进行L2归一化，向量长度: " + vector.length);
+        LogManager.logD(TAG, "对嵌入向量进行L2归一化，向量长度: " + vector.length);
         
         float[] normalized = new float[vector.length];
         float norm = 0.0f;
@@ -1434,11 +1849,11 @@ public class EmbeddingModelHandler {
         norm = (float) Math.sqrt(norm);
         
         // 记录归一化前的范数
-        Log.d(TAG, "归一化前的向量L2范数: " + norm);
+        LogManager.logD(TAG, "归一化前的向量L2范数: " + norm);
         
         // 如果范数太小，返回零向量以避免数值问题
         if (norm < 1e-6) {
-            Log.w(TAG, "向量范数接近零 (" + norm + ")，返回零向量");
+            LogManager.logW(TAG, "向量范数接近零 (" + norm + ")，返回零向量");
             return new float[vector.length];
         }
         
@@ -1454,7 +1869,7 @@ public class EmbeddingModelHandler {
         }
         newNorm = (float) Math.sqrt(newNorm);
         
-        Log.d(TAG, "归一化后的向量L2范数: " + newNorm + " (应接近1.0)");
+        LogManager.logD(TAG, "归一化后的向量L2范数: " + newNorm + " (应接近1.0)");
         
         return normalized;
     }
@@ -1470,15 +1885,29 @@ public class EmbeddingModelHandler {
             throw new IOException("分词器未初始化");
         }
         
-        // 确保设置一致性分词策略
-        if (tokenizer instanceof TokenizerManager) {
-            TokenizerManager tokenizerManager = (TokenizerManager) tokenizer;
-            tokenizerManager.setUseConsistentTokenization(useConsistentProcessing);
-            debugLog("设置一致性分词策略: " + useConsistentProcessing);
-        }
+        long startTime = System.currentTimeMillis();
         
-        // 执行分词
-        debugLog("使用TokenizerManager进行分词");
-        return tokenizer.tokenize(text);
+        try {
+            // 设置一致性分词策略
+            tokenizer.setUseConsistentTokenization(useConsistentProcessing);
+            if (debugMode) {
+                LogManager.logD(TAG, "设置一致性分词策略: " + useConsistentProcessing);
+                LogManager.logD(TAG, "开始使用TokenizerManager进行分词");
+            }
+            
+            // 执行分词
+            long[][] result = tokenizer.tokenize(text);
+            
+            if (debugMode) {
+                long endTime = System.currentTimeMillis();
+                LogManager.logD(TAG, String.format("分词完成，耗时: %d ms, 文本长度: %d, token数量: %d", 
+                    (endTime - startTime), text.length(), result[0].length));
+            }
+            
+            return result;
+        } catch (Exception e) {
+            LogManager.logE(TAG, "分词失败: " + e.getMessage(), e);
+            throw new IOException("分词失败: " + e.getMessage(), e);
+        }
     }
 }

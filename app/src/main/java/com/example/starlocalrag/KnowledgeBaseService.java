@@ -69,7 +69,7 @@ public class KnowledgeBaseService extends Service {
     
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        Log.d(TAG, "知识库构建服务已启动");
+        LogManager.logD(TAG, "知识库构建服务已启动");
         
         // 启动前台服务
         startForeground(NOTIFICATION_ID, createNotification("正在构建知识库..."));
@@ -130,7 +130,7 @@ public class KnowledgeBaseService extends Service {
         }
         
         // 停止前台服务
-        stopForeground(true);
+        stopForeground(STOP_FOREGROUND_REMOVE);
         stopSelf();
     }
     
@@ -149,6 +149,6 @@ public class KnowledgeBaseService extends Service {
             wakeLock.release();
         }
         
-        Log.d(TAG, "知识库构建服务已停止");
+        LogManager.logD(TAG, "知识库构建服务已停止");
     }
 }

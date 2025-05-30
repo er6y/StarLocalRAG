@@ -52,6 +52,15 @@ public class TokenizerJNI {
     public static native String decode(long tokenizerPtr, String ids);
     
     /**
+     * 解码token ID为文本，可选择是否跳过特殊token
+     * @param tokenizerPtr 分词器指针
+     * @param ids JSON格式的token ID数组
+     * @param skipSpecialTokens 是否跳过特殊token
+     * @return 解码后的文本
+     */
+    public static native String decode(long tokenizerPtr, String ids, boolean skipSpecialTokens);
+    
+    /**
      * 释放分词器
      * @param tokenizerPtr 分词器指针
      */

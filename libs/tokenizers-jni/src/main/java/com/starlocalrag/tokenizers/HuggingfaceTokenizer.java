@@ -26,8 +26,23 @@ public class HuggingfaceTokenizer implements Closeable, Model {
     // 模型路径
     private String modelPath;
     
+    /**
+     * 检查分词器是否已关闭
+     * @throws IllegalStateException 如果分词器已关闭
+     */
+    private void checkClosed() {
+        if (isClosed) {
+            throw new IllegalStateException("分词器已关闭");
+        }
+    }
+    
     // 词汇表 (token -> id)
     private Map<String, Integer> vocab = new HashMap<>();
+    
+    // 特殊 token ID 数组，初始化为 -1 表示无效
+    private int[] specialTokenIds = new int[256];
+    // 需要保留的特殊 token ID 数组，如思考链相关的标记
+    private int[] preservedTokenIds = new int[256];
     
     // 反向词汇表 (id -> token)
     private Map<Integer, String> vocabReverse = new HashMap<>();
@@ -107,6 +122,14 @@ public class HuggingfaceTokenizer implements Closeable, Model {
      */
     public HuggingfaceTokenizer(String path, boolean isFile) {
         try {
+            // 初始化特殊 token ID 数组
+            for (int i = 0; i < specialTokenIds.length; i++) {
+                specialTokenIds[i] = -1;
+            }
+            for (int i = 0; i < preservedTokenIds.length; i++) {
+                preservedTokenIds[i] = -1;
+            }
+            
             // 保存模型路径
             this.modelPath = path;
             
@@ -117,6 +140,8 @@ public class HuggingfaceTokenizer implements Closeable, Model {
                 // 加载词汇表
                 try {
                     loadVocabFromFile(new File(path));
+                    // 加载特殊 token ID
+                    loadSpecialTokenIds(new File(path));
                 } catch (Exception e) {
                     System.err.println("加载词汇表时出错: " + e.getMessage());
                     // 不抛出异常，因为词汇表加载失败不应影响分词器的基本功能
@@ -336,16 +361,18 @@ public class HuggingfaceTokenizer implements Closeable, Model {
     
     /**
      * 将token ID数组解码为文本
+     * 注意：为了保持一致性，该方法现在直接调用 decodeForModelOutput 方法
      * @param ids token ID数组
      * @return 解码后的文本
      * @throws IllegalStateException 如果分词器已关闭
      */
     public String decode(int[] ids) {
-        return decode(ids, false);
+        // 直接调用 decodeForModelOutput 方法，确保特殊标记被正确过滤
+        return decodeForModelOutput(ids);
     }
     
     /**
-     * 将token ID数组解码为文本，可选择是否跳过特殊token
+     * 将token ID数组解码为文本，并跳过特殊token
      * @param ids token ID数组
      * @param skipSpecialTokens 是否跳过特殊token
      * @return 解码后的文本
@@ -353,27 +380,173 @@ public class HuggingfaceTokenizer implements Closeable, Model {
      */
     public String decode(int[] ids, boolean skipSpecialTokens) {
         checkClosed();
-        
-        if (ids == null || ids.length == 0) {
-            return "";
-        }
-        
-        String result = decodeIdsToString(ids, skipSpecialTokens);
-        if (result == null) {
-            throw new IllegalStateException("解码失败");
-        }
-        
-        return result;
+        return decodeIdsToString(ids, skipSpecialTokens);
     }
     
     /**
-     * 检查分词器是否已关闭
+     * 加载特殊 token ID
+     * @param modelFile 模型文件
+     * @throws IOException 如果读取文件时出错
+     * @throws JSONException 如果解析JSON时出错
+     */
+    private void loadSpecialTokenIds(File modelFile) throws IOException, JSONException {
+        // 如果是目录，则查找 tokenizer.json 文件
+        File tokenizerFile;
+        if (modelFile.isDirectory()) {
+            tokenizerFile = new File(modelFile, "tokenizer.json");
+        } else {
+            // 如果是文件，则尝试从同目录下找 tokenizer.json
+            tokenizerFile = new File(modelFile.getParentFile(), "tokenizer.json");
+        }
+        
+        if (!tokenizerFile.exists()) {
+            System.err.println("未找到 tokenizer.json 文件: " + tokenizerFile.getAbsolutePath());
+            return;
+        }
+        
+        System.out.println("正在加载 tokenizer.json 文件: " + tokenizerFile.getAbsolutePath());
+        
+        // 读取 tokenizer.json 文件
+        StringBuilder content = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(new FileReader(tokenizerFile))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                content.append(line);
+            }
+        }
+        
+        // 解析 JSON
+        JSONObject json = new JSONObject(content.toString());
+        
+        // 获取特殊 token 信息
+        int specialTokenIndex = 0;
+        int preservedTokenIndex = 0;
+        
+        // 处理 added_tokens 部分
+        if (json.has("added_tokens")) {
+            JSONArray addedTokens = json.getJSONArray("added_tokens");
+            for (int i = 0; i < addedTokens.length(); i++) {
+                JSONObject token = addedTokens.getJSONObject(i);
+                String tokenContent = token.getString("content");
+                int id = token.getInt("id");
+                boolean special = token.optBoolean("special", false);
+                
+                if (special) {
+                    // 判断是否是需要保留的特殊 token（如思考链相关的标记）
+                    if (tokenContent.equals("<think>") || tokenContent.equals("</think>")) {
+                        preservedTokenIds[preservedTokenIndex++] = id;
+                        System.out.println("添加需要保留的特殊 token: " + tokenContent + ", ID: " + id);
+                    } else {
+                        specialTokenIds[specialTokenIndex++] = id;
+                        System.out.println("添加需要过滤的特殊 token: " + tokenContent + ", ID: " + id);
+                    }
+                }
+            }
+        }
+        
+        // 处理 special_tokens_map 部分
+        if (json.has("special_tokens_map")) {
+            JSONObject specialTokensMap = json.getJSONObject("special_tokens_map");
+            for (String key : JSONObject.getNames(specialTokensMap)) {
+                Object value = specialTokensMap.get(key);
+                String tokenContent = null;
+                
+                if (value instanceof String) {
+                    tokenContent = (String) value;
+                } else if (value instanceof JSONObject) {
+                    JSONObject tokenObj = (JSONObject) value;
+                    if (tokenObj.has("content")) {
+                        tokenContent = tokenObj.getString("content");
+                    }
+                }
+                
+                if (tokenContent != null && vocab.containsKey(tokenContent)) {
+                    int id = vocab.get(tokenContent);
+                    
+                    // 判断是否是需要保留的特殊 token
+                    if (tokenContent.equals("<think>") || tokenContent.equals("</think>")) {
+                        preservedTokenIds[preservedTokenIndex++] = id;
+                        System.out.println("添加需要保留的特殊 token: " + tokenContent + ", ID: " + id);
+                    } else {
+                        specialTokenIds[specialTokenIndex++] = id;
+                        System.out.println("添加需要过滤的特殊 token: " + tokenContent + ", ID: " + id);
+                    }
+                }
+            }
+        }
+    }
+    
+    /**
+     * 检查是否是特殊 token ID
+     * @param id token ID
+     * @return 如果是需要过滤的特殊 token ID 则返回 true，否则返回 false
+     */
+    private boolean isSpecialTokenId(int id) {
+        String tokenContent = vocabReverse.containsKey(id) ? vocabReverse.get(id) : "<unknown>";
+        System.out.println("检查是否是特殊 token ID: " + id + ", 内容: " + tokenContent);
+        
+        // 首先检查是否是需要保留的特殊 token ID
+        for (int i = 0; i < preservedTokenIds.length && preservedTokenIds[i] != -1; i++) {
+            if (preservedTokenIds[i] == id) {
+                System.out.println("检测到需要保留的特殊 token ID: " + id + ", 内容: " + tokenContent);
+                return false; // 返回 false，表示不将其过滤掉
+            }
+        }
+        
+        // 然后检查是否是需要过滤的特殊 token ID
+        for (int i = 0; i < specialTokenIds.length && specialTokenIds[i] != -1; i++) {
+            if (specialTokenIds[i] == id) {
+                System.out.println("检测到需要过滤的特殊 token ID: " + id + ", 内容: " + tokenContent);
+                return true; // 返回 true，表示需要过滤掉
+            }
+        }
+        
+        return false; // 不是特殊 token ID，不需要过滤
+    }
+    
+    /**
+     * 将token ID数组解码为文本，专门用于模型输出处理
+     * 会过滤掉特定的特殊token，但保留<think>和</think>标记
+     * @param ids token ID数组
+     * @return 解码后的文本
      * @throws IllegalStateException 如果分词器已关闭
      */
-    private void checkClosed() {
-        if (isClosed) {
-            throw new IllegalStateException("分词器已关闭");
+    public String decodeForModelOutput(int[] ids) {
+        checkClosed();
+        
+        System.out.println("输入 token ID 数量: " + ids.length);
+        for (int i = 0; i < Math.min(10, ids.length); i++) {
+            System.out.println("输入 token ID[" + i + "]: " + ids[i] + ", 内容: " + 
+                (vocabReverse.containsKey(ids[i]) ? vocabReverse.get(ids[i]) : "<unknown>"));
         }
+        
+        // 过滤掉特殊 token ID，但保留需要保留的 token ID
+        // 注意：isSpecialTokenId 方法已经考虑了需要保留的特殊 token ID
+        List<Integer> filteredIds = new ArrayList<>();
+        for (int id : ids) {
+            // 如果不是特殊 token ID，则保留
+            if (!isSpecialTokenId(id)) {
+                filteredIds.add(id);
+            } else {
+                String tokenContent = vocabReverse.containsKey(id) ? vocabReverse.get(id) : "<unknown>";
+                System.out.println("过滤掉特殊 token ID: " + id + ", 内容: " + tokenContent);
+            }
+        }
+        
+        //System.out.println("过滤后 token ID 数量: " + filteredIds.size());
+        
+        // 将过滤后的 ID 转换为数组
+        int[] filteredIdsArray = new int[filteredIds.size()];
+        for (int i = 0; i < filteredIds.size(); i++) {
+            filteredIdsArray[i] = filteredIds.get(i);
+        }
+        
+        // 解码
+        String result = decodeIdsToString(filteredIdsArray);
+    
+        
+        //System.out.println("字符串过滤后的解码结果: " + result);
+        return result;
     }
     
     /**
@@ -470,18 +643,22 @@ public class HuggingfaceTokenizer implements Closeable, Model {
         // 移除所有未替换的变量表达式
         result = result.replaceAll("\\{\\{[^\\}]*\\}\\}", "");
         
-        // 如果启用思考模式，确保添加思考标记
-        if (enableThinking && !result.contains("<think>")) {
-            String thinkTag = specialTokens.getOrDefault("think_tag", "<think>");
-            String imStart = specialTokens.getOrDefault("im_start", "");
-            String assistantRole = specialTokens.getOrDefault("assistant", "assistant");
+        // 如果禁用思考模式，在用户提示词尾部添加/no_think指令
+        if (!enableThinking) {
+            // 查找最后一个用户消息的位置
+            String imStart = specialTokens.getOrDefault("im_start", "<|im_start|>");
+            String imEnd = specialTokens.getOrDefault("im_end", "<|im_end|>");
+            String userRole = "user";
             
-            // 尝试在助手角色后添加思考标记
-            if (imStart != null && !imStart.isEmpty()) {
-                String assistantStart = imStart + assistantRole;
-                if (result.contains(assistantStart)) {
-                    int pos = result.indexOf(assistantStart) + assistantStart.length();
-                    result = result.substring(0, pos) + "\n" + thinkTag + result.substring(pos);
+            // 查找最后一个用户消息的结束位置
+            String userStart = imStart + userRole;
+            int lastUserIndex = result.lastIndexOf(userStart);
+            if (lastUserIndex >= 0) {
+                // 查找该用户消息的结束标记
+                int userEndIndex = result.indexOf(imEnd, lastUserIndex);
+                if (userEndIndex >= 0) {
+                    // 在用户消息结束标记前添加/no_think指令
+                    result = result.substring(0, userEndIndex) + "\n/no_think" + result.substring(userEndIndex);
                 }
             }
         }
@@ -514,10 +691,7 @@ public class HuggingfaceTokenizer implements Closeable, Model {
             // 根据角色添加相应的标记
             result.append(imStart).append(role).append("\n");
             
-            // 如果是助手角色且启用思考模式，添加思考标记
-            if ("assistant".equals(role) && enableThinking) {
-                result.append(thinkTag).append("\n");
-            }
+            // 思考模式处理已移至统一的/no_think指令方式
             
             result.append(content).append("\n");
             result.append(imEnd).append("\n");
@@ -526,8 +700,27 @@ public class HuggingfaceTokenizer implements Closeable, Model {
         // 如果需要添加生成提示
         if (addGenerationPrompt) {
             result.append(imStart).append("assistant\n");
-            if (enableThinking) {
-                result.append(thinkTag).append("\n");
+            // 思考模式处理已移至统一的/no_think指令方式
+        }
+        
+        // 如果禁用思考模式，在最后一个用户消息尾部添加/no_think指令
+        if (!enableThinking && messages.length() > 0) {
+            // 查找最后一个用户消息
+            for (int i = messages.length() - 1; i >= 0; i--) {
+                JSONObject message = messages.getJSONObject(i);
+                String role = message.getString("role");
+                if ("user".equals(role)) {
+                    // 在结果中查找这个用户消息的位置并添加/no_think指令
+                    String userStart = imStart + "user";
+                    int userIndex = result.lastIndexOf(userStart);
+                    if (userIndex >= 0) {
+                        int userEndIndex = result.indexOf(imEnd, userIndex);
+                        if (userEndIndex >= 0 && !result.substring(userIndex, userEndIndex).contains("/no_think")) {
+                            result.insert(userEndIndex, "\n/no_think");
+                        }
+                    }
+                    break;
+                }
             }
         }
         

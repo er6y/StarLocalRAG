@@ -2,6 +2,7 @@ package com.example.starlocalrag.api;
 
 import android.content.Context;
 import android.util.Log;
+import com.example.starlocalrag.LogManager;
 
 import com.example.starlocalrag.ConfigManager;
 
@@ -234,9 +235,9 @@ public class LlmModelFactory {
                     localModels
             ));
             
-            Log.d(TAG, "更新本地模型列表，找到" + localModels.length + "个模型");
+            LogManager.logD(TAG, "更新本地模型列表，找到" + localModels.length + "个模型");
         } catch (Exception e) {
-            Log.e(TAG, "更新本地模型列表失败", e);
+            LogManager.logE(TAG, "更新本地模型列表失败", e);
         }
     }
 }

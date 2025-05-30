@@ -97,6 +97,10 @@ public class EmbeddingModelManager {
         
         if (context != null) {
             instance.applicationContext = context.getApplicationContext();
+            
+            // 初始化GPU设置
+            instance.useGpu = ConfigManager.getBoolean(context, ConfigManager.KEY_USE_GPU, false);
+            LogManager.logD(TAG, "EmbeddingModelManager初始化: GPU加速设置为 " + (instance.useGpu ? "启用" : "禁用"));
         }
         
         return instance;
@@ -145,7 +149,7 @@ public class EmbeddingModelManager {
                     
                     // 检查模型路径是否匹配
                     if (!currentModelPath.equals(modelPath)) {
-                        Log.d(TAG, "模型路径不匹配，需要重新加载。当前路径: " + currentModelPath + "，请求路径: " + modelPath);
+                        LogManager.logD(TAG, "模型路径不匹配，需要重新加载。当前路径: " + currentModelPath + "，请求路径: " + modelPath);
                         LogManager.getInstance(applicationContext).i(TAG, "模型路径不匹配，需要重新加载。当前模型: " + 
                             new File(currentModelPath).getName() + "，请求模型: " + new File(modelPath).getName());
                         needReload = true;
@@ -156,7 +160,7 @@ public class EmbeddingModelManager {
                                 currentGpuSetting ? "GPU" : "CPU", 
                                 this.useGpu ? "GPU" : "CPU");
                             
-                            Log.d(TAG, gpuStatusMsg + "，需要重新加载模型");
+                            LogManager.logD(TAG, gpuStatusMsg + "，需要重新加载模型");
                             LogManager.getInstance(applicationContext).i(TAG, gpuStatusMsg + "，需要重新加载模型");
                             needReload = true;
                         } else {
@@ -164,7 +168,7 @@ public class EmbeddingModelManager {
                                 currentGpuSetting ? "GPU" : "CPU", 
                                 this.useGpu ? "GPU" : "CPU");
                             
-                            Log.d(TAG, gpuStatusMsg + "，直接使用现有模型");
+                            LogManager.logD(TAG, gpuStatusMsg + "，直接使用现有模型");
                             LogManager.getInstance(applicationContext).d(TAG, gpuStatusMsg + 
                                 "，直接使用现有模型: " + new File(currentModelPath).getName());
                         }
@@ -173,7 +177,7 @@ public class EmbeddingModelManager {
                     String gpuStatusMsg = String.format("当前GPU加速设置: %s，已加载模型状态: 无效", 
                         currentGpuSetting ? "GPU" : "CPU");
                     
-                    Log.e(TAG, gpuStatusMsg + "，需要重新加载: " + e.getMessage(), e);
+                    LogManager.logE(TAG, gpuStatusMsg + "，需要重新加载: " + e.getMessage(), e);
                     LogManager.getInstance(applicationContext).e(TAG, gpuStatusMsg + "，需要重新加载: " + e.getMessage());
                     needReload = true;
                 }
@@ -181,7 +185,7 @@ public class EmbeddingModelManager {
                 String gpuStatusMsg = String.format("当前GPU加速设置: %s，已加载模型状态: 未加载", 
                     currentGpuSetting ? "GPU" : "CPU");
                 
-                Log.d(TAG, gpuStatusMsg + "，需要加载模型: " + modelPath);
+                LogManager.logD(TAG, gpuStatusMsg + "，需要加载模型: " + modelPath);
                 LogManager.getInstance(applicationContext).i(TAG, gpuStatusMsg + 
                     "，需要加载模型: " + new File(modelPath).getName());
                 needReload = true;
@@ -189,17 +193,17 @@ public class EmbeddingModelManager {
             
             // 如果需要重新加载模型
             if (needReload) {
-                Log.d(TAG, "开始加载模型: " + modelPath);
+                LogManager.logD(TAG, "开始加载模型: " + modelPath);
                 
                 // 关闭现有模型
                 if (currentModel != null) {
                     try {
                         String modelName = new File(currentModelPath).getName();
-                        Log.d(TAG, "关闭现有模型: " + modelName);
+                        LogManager.logD(TAG, "关闭现有模型: " + modelName);
                         LogManager.getInstance(applicationContext).i(TAG, "关闭现有模型: " + modelName);
                         currentModel.close();
                     } catch (Exception e) {
-                        Log.e(TAG, "关闭现有模型失败: " + e.getMessage(), e);
+                        LogManager.logE(TAG, "关闭现有模型失败: " + e.getMessage(), e);
                         LogManager.getInstance(applicationContext).e(TAG, "关闭现有模型失败: " + e.getMessage());
                     }
                     currentModel = null;
@@ -221,7 +225,7 @@ public class EmbeddingModelManager {
                 boolean debugMode = SettingsFragment.isDebugModeEnabled(applicationContext);
                 if (currentModel != null) {
                     currentModel.setDebugMode(debugMode);
-                    Log.d(TAG, "模型加载完成，设置调试模式: " + (debugMode ? "启用" : "禁用"));
+                    LogManager.logD(TAG, "模型加载完成，设置调试模式: " + (debugMode ? "启用" : "禁用"));
                     LogManager.getInstance(applicationContext).d(TAG, "模型 " + new File(modelPath).getName() + 
                         " 加载完成，设置调试模式: " + (debugMode ? "启用" : "禁用"));
                 }
@@ -281,7 +285,7 @@ public class EmbeddingModelManager {
                 
                 // 检查模型路径是否匹配
                 if (!currentModelPath.equals(modelPath)) {
-                    Log.d(TAG, "异步加载 - 模型路径不匹配，需要重新加载。当前路径: " + currentModelPath + "，请求路径: " + modelPath);
+                    LogManager.logD(TAG, "异步加载 - 模型路径不匹配，需要重新加载。当前路径: " + currentModelPath + "，请求路径: " + modelPath);
                     LogManager.getInstance(applicationContext).i(TAG, "异步加载 - 模型路径不匹配，需要重新加载。当前模型: " + 
                         new File(currentModelPath).getName() + "，请求模型: " + new File(modelPath).getName());
                     needReload = true;
@@ -292,7 +296,7 @@ public class EmbeddingModelManager {
                             currentGpuSetting ? "GPU" : "CPU", 
                             this.useGpu ? "GPU" : "CPU");
                         
-                        Log.d(TAG, gpuStatusMsg + "，需要重新加载模型");
+                        LogManager.logD(TAG, gpuStatusMsg + "，需要重新加载模型");
                         LogManager.getInstance(applicationContext).i(TAG, gpuStatusMsg + "，需要重新加载模型");
                         needReload = true;
                     } else {
@@ -300,7 +304,7 @@ public class EmbeddingModelManager {
                             currentGpuSetting ? "GPU" : "CPU", 
                             this.useGpu ? "GPU" : "CPU");
                         
-                        Log.d(TAG, gpuStatusMsg + "，直接使用现有模型");
+                        LogManager.logD(TAG, gpuStatusMsg + "，直接使用现有模型");
                         LogManager.getInstance(applicationContext).d(TAG, gpuStatusMsg + 
                             "，直接使用现有模型: " + new File(currentModelPath).getName());
                     }
@@ -309,7 +313,7 @@ public class EmbeddingModelManager {
                 String gpuStatusMsg = String.format("异步加载 - 当前GPU加速设置: %s，已加载模型状态: 无效", 
                     currentGpuSetting ? "GPU" : "CPU");
                 
-                Log.e(TAG, gpuStatusMsg + "，需要重新加载: " + e.getMessage(), e);
+                LogManager.logE(TAG, gpuStatusMsg + "，需要重新加载: " + e.getMessage(), e);
                 LogManager.getInstance(applicationContext).e(TAG, gpuStatusMsg + "，需要重新加载: " + e.getMessage());
                 needReload = true;
             }
@@ -317,7 +321,7 @@ public class EmbeddingModelManager {
             String gpuStatusMsg = String.format("异步加载 - 当前GPU加速设置: %s，已加载模型状态: 未加载", 
                 currentGpuSetting ? "GPU" : "CPU");
             
-            Log.d(TAG, gpuStatusMsg + "，需要加载模型: " + modelPath);
+            LogManager.logD(TAG, gpuStatusMsg + "，需要加载模型: " + modelPath);
             LogManager.getInstance(applicationContext).i(TAG, gpuStatusMsg + 
                 "，需要加载模型: " + new File(modelPath).getName());
             needReload = true;
@@ -337,17 +341,17 @@ public class EmbeddingModelManager {
                 
                 // 如果需要重新加载模型
                 if (finalNeedReload) {
-                    Log.d(TAG, "异步加载 - 开始加载模型: " + modelPath);
+                    LogManager.logD(TAG, "异步加载 - 开始加载模型: " + modelPath);
                     
                     // 关闭现有模型
                     if (currentModel != null) {
                         try {
                             String modelName = new File(currentModelPath).getName();
-                            Log.d(TAG, "关闭现有模型: " + modelName);
+                            LogManager.logD(TAG, "关闭现有模型: " + modelName);
                             LogManager.getInstance(applicationContext).i(TAG, "关闭现有模型: " + modelName);
                             currentModel.close();
                         } catch (Exception e) {
-                            Log.e(TAG, "关闭现有模型失败: " + e.getMessage(), e);
+                            LogManager.logE(TAG, "关闭现有模型失败: " + e.getMessage(), e);
                             LogManager.getInstance(applicationContext).e(TAG, "关闭现有模型失败: " + e.getMessage());
                         }
                         currentModel = null;
@@ -369,19 +373,19 @@ public class EmbeddingModelManager {
                     boolean debugMode = SettingsFragment.isDebugModeEnabled(applicationContext);
                     if (currentModel != null) {
                         currentModel.setDebugMode(debugMode);
-                        Log.d(TAG, "模型加载完成，设置调试模式: " + (debugMode ? "启用" : "禁用"));
+                        LogManager.logD(TAG, "模型加载完成，设置调试模式: " + (debugMode ? "启用" : "禁用"));
                         LogManager.getInstance(applicationContext).d(TAG, "模型 " + new File(modelPath).getName() + 
                             " 加载完成，设置调试模式: " + (debugMode ? "启用" : "禁用"));
                     }
                 } else {
-                    Log.d(TAG, "异步加载 - 使用现有模型，无需重新加载");
+                    LogManager.logD(TAG, "异步加载 - 使用现有模型，无需重新加载");
                 }
                 
                 // 通知模型加载完成
                 final EmbeddingModelHandler model = currentModel;
                 mainHandler.post(() -> callback.onModelReady(model));
             } catch (Exception e) {
-                Log.e(TAG, "异步加载 - 加载模型失败: " + e.getMessage(), e);
+                LogManager.logE(TAG, "异步加载 - 加载模型失败: " + e.getMessage(), e);
                 LogManager.getInstance(applicationContext).e(TAG, "异步加载 - 加载模型失败: " + e.getMessage());
                 mainHandler.post(() -> callback.onModelError(e));
             } finally {
@@ -412,26 +416,26 @@ public class EmbeddingModelManager {
             // 根据设置决定是否使用GPU
             if (useGpu) {
                 String loadMsg = String.format("尝试使用GPU加速设置加载模型: %s", new File(modelPath).getName());
-                Log.d(TAG, loadMsg);
+                LogManager.logD(TAG, loadMsg);
                 notifyLoadProgress(modelPath, "尝试使用GPU加载模型...");
                 LogManager.getInstance(applicationContext).i(TAG, loadMsg);
                 
                 try {
                     // 使用GPU加载模型，传递Context参数
                     model = new EmbeddingModelHandler(applicationContext, modelPath, true);
-                    Log.d(TAG, "模型加速: GPU模式加载成功");
+                    LogManager.logD(TAG, "模型加速: GPU模式加载成功");
                     LogManager.getInstance(applicationContext).i(TAG, "模型加速: GPU模式加载成功 - " + new File(modelPath).getName());
                     notifyLoadComplete(modelPath);
                     return model;
                 } catch (Exception e) {
-                    Log.w(TAG, "GPU加载失败，降级到CPU模式: " + e.getMessage(), e);
+                    LogManager.logW(TAG, "GPU加载失败，降级到CPU模式: " + e.getMessage(), e);
                     LogManager.getInstance(applicationContext).w(TAG, "GPU加载失败，降级到CPU模式: " + e.getMessage());
                     notifyLoadProgress(modelPath, "GPU加载失败，降级到CPU模式...");
                 }
             } else {
                 // 如果不使用GPU，则直接使用CPU加载
                 String loadMsg = String.format("尝试使用CPU加速设置加载模型: %s", new File(modelPath).getName());
-                Log.d(TAG, loadMsg);
+                LogManager.logD(TAG, loadMsg);
                 notifyLoadProgress(modelPath, "使用CPU加载模型...");
                 LogManager.getInstance(applicationContext).i(TAG, loadMsg);
                 
@@ -443,7 +447,7 @@ public class EmbeddingModelManager {
             
             // 如果GPU加载失败，则使用CPU加载
             String loadMsg = String.format("尝试使用CPU加速设置加载模型: %s", new File(modelPath).getName());
-            Log.d(TAG, loadMsg);
+            LogManager.logD(TAG, loadMsg);
             notifyLoadProgress(modelPath, "使用CPU加载模型...");
             LogManager.getInstance(applicationContext).i(TAG, loadMsg);
             
@@ -455,46 +459,9 @@ public class EmbeddingModelManager {
             throw e;
         }
         
-        Log.d(TAG, "模型加速: CPU模式加载成功");
+        LogManager.logD(TAG, "模型加速: CPU模式加载成功");
         LogManager.getInstance(applicationContext).i(TAG, "模型加速: CPU模式加载成功 - " + new File(modelPath).getName());
         return model;
-    }
-    
-    /**
-     * 安排模型卸载定时任务
-     * 只有在超时未使用时才会卸载模型
-     */
-    private synchronized void scheduleModelUnload() {
-        // 取消现有任务
-        cancelUnloadTask();
-        
-        // 创建新的定时任务
-        unloadTimer = new Timer();
-        unloadTimer.schedule(new TimerTask() {
-            @Override
-            public void run() {
-                synchronized (EmbeddingModelManager.this) {
-                    // 检查是否超时未使用
-                    long currentTime = System.currentTimeMillis();
-                    if (currentTime - lastAccessTime >= UNLOAD_TIMEOUT_MS && !isModelBusy.get()) {
-                        Log.d(TAG, "模型超时未使用，自动卸载");
-                        
-                        // 卸载模型
-                        if (currentModel != null) {
-                            try {
-                                currentModel.close();
-                            } catch (Exception e) {
-                                Log.e(TAG, "卸载模型失败: " + e.getMessage(), e);
-                            }
-                            currentModel = null;
-                            currentModelPath = null;
-                        }
-                        
-                        cancelUnloadTask();
-                    }
-                }
-            }
-        }, UNLOAD_TIMEOUT_MS, UNLOAD_TIMEOUT_MS); // 首次延迟和周期都是超时时间
     }
     
     /**
@@ -508,6 +475,20 @@ public class EmbeddingModelManager {
     }
     
     /**
+     * 安排模型卸载定时任务
+     * 已禁用超时卸载机制，模型将常驻内存
+     */
+    private synchronized void scheduleModelUnload() {
+        // 取消现有任务
+        cancelUnloadTask();
+        
+        // 记录日志，模型将常驻内存
+        LogManager.logD(TAG, "已禁用模型超时卸载机制，模型将常驻内存");
+        
+        // 不创建定时卸载任务，模型将一直保持在内存中
+    }
+    
+    /**
      * 标记模型开始使用
      * 更新最后访问时间并取消定时卸载任务
      */
@@ -518,7 +499,7 @@ public class EmbeddingModelManager {
         // 取消定时卸载任务
         cancelUnloadTask();
         
-        Log.d(TAG, "标记模型开始使用");
+        LogManager.logD(TAG, "标记模型开始使用");
     }
     
     /**
@@ -532,7 +513,7 @@ public class EmbeddingModelManager {
         // 安排定时卸载任务
         scheduleModelUnload();
         
-        Log.d(TAG, "标记模型使用结束，安排定时卸载任务");
+        LogManager.logD(TAG, "标记模型使用结束，安排定时卸载任务");
     }
     
     /**
@@ -579,6 +560,25 @@ public class EmbeddingModelManager {
     private void notifyLoadError(String modelPath, Exception e) {
         if (loadListener != null) {
             mainHandler.post(() -> loadListener.onLoadError(modelPath, e));
+        }
+    }
+    
+    /**
+     * 更新GPU设置
+     * @param useGpu 是否使用GPU
+     */
+    public synchronized void updateGpuSetting(boolean useGpu) {
+        LogManager.logD(TAG, "EmbeddingModel GPU设置更新: " + (useGpu ? "启用" : "禁用") + "GPU加速");
+        
+        // 更新GPU设置
+        this.useGpu = useGpu;
+        
+        // 如果当前有加载的模型，记录提示信息
+        if (currentModel != null) {
+            LogManager.logW(TAG, "EmbeddingModel GPU设置: GPU设置已更新，但当前模型仍在使用中。新的GPU设置将在下次加载模型时生效。");
+            LogManager.logI(TAG, "EmbeddingModel GPU设置: 如需立即应用新的GPU设置，请重新加载模型或重启应用。");
+        } else {
+            LogManager.logI(TAG, "EmbeddingModel GPU设置: GPU设置已更新，将在下次加载模型时生效。");
         }
     }
 }

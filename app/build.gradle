@@ -35,6 +35,22 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+    
+    // 添加编译选项以显示详细错误信息
+    tasks.withType(JavaCompile) {
+        options.compilerArgs += ["-Xlint:all", "-Xmaxerrs", "1000"]
+        options.encoding = "UTF-8"
+    }
+    
+    // 添加dex选项以增加编译时内存
+    dexOptions {
+        javaMaxHeapSize "4g"
+        preDexLibraries = false
+        additionalParameters = [
+            "--multi-dex",
+            "--set-max-idx-number=48000"
+        ]
+    }
     // If using Kotlin
     // kotlinOptions {
     //     jvmTarget = '1.8'
@@ -108,8 +124,8 @@ dependencies {
     implementation 'org.pytorch:pytorch_android:1.13.1'
     implementation 'org.pytorch:pytorch_android_torchvision:1.13.1'
     
-    // ONNX Runtime
-    implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.15.1'
+    // ONNX Runtime - 更新到最新版本以获得更好的GPU支持
+    implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.21.0'
     
     // Tokenizers JNI
     implementation project(':libs:tokenizers-jni')

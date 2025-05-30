@@ -4,6 +4,7 @@ import com.example.starlocalrag.api.TokenizerManager;
 import android.content.Context;
 import android.net.Uri;
 import android.util.Log;
+import com.example.starlocalrag.LogManager;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -471,12 +472,12 @@ public class TextChunkProcessor {
         }
         
         // 使用LangChainTextSplitter进行文本分割，确保与PC端一致
-        Log.d(TAG, "使用LangChainTextSplitter进行文本分割");
+        LogManager.logD(TAG, "使用LangChainTextSplitter进行文本分割");
         // 从ConfigManager获取最小分块大小，而不是使用硬编码值
         LangChainTextSplitter splitter = new LangChainTextSplitter(chunkSize, chunkOverlap, minChunkSize);
         List<String> chunks = splitter.splitText(text);
         
-        Log.d(TAG, "文本分割完成，生成了" + chunks.size() + "个文本块");
+        LogManager.logD(TAG, "文本分割完成，生成了" + chunks.size() + "个文本块");
         
         return chunks;
     }
@@ -494,7 +495,7 @@ public class TextChunkProcessor {
         try {
             int totalChunks = chunks.size();
             logMessage("开始向量化处理，共 " + totalChunks + " 个文本块");
-            Log.d(TAG, "开始向量化处理，共 " + totalChunks + " 个文本块");
+            LogManager.logD(TAG, "开始向量化处理，共 " + totalChunks + " 个文本块");
             
             // 获取EmbeddingModelManager实例，用于标记模型使用状态
             EmbeddingModelManager modelManager = EmbeddingModelManager.getInstance(context);
@@ -502,7 +503,7 @@ public class TextChunkProcessor {
             try {
                 // 标记模型开始使用
                 modelManager.markModelInUse();
-                Log.d(TAG, "标记模型开始使用");
+                LogManager.logD(TAG, "标记模型开始使用");
                 
                 // 初始化进度日志
                 StringBuilder progressLog = new StringBuilder("向量化进度");
@@ -531,7 +532,7 @@ public class TextChunkProcessor {
                         progressLog.append(".");
                         
                         // 计算当前百分比
-                        int currentPercentage = (int)((i + 1) * 100 / totalChunks);
+                        int currentPercentage = (i + 1) * 100 / totalChunks;
                         
                         // 检查是否需要显示百分比
                         boolean showPercentage = currentPercentage / 10 > lastPercentage / 10 || i == totalChunks - 1;
@@ -549,7 +550,7 @@ public class TextChunkProcessor {
                         
                         // 每100个文本块或最后一个文本块时，记录详细日志（仅在调试日志中显示）
                         if (i % 100 == 0 || i == totalChunks - 1) {
-                            Log.d(TAG, "向量化详细进度: " + (i + 1) + "/" + totalChunks + 
+                            LogManager.logD(TAG, "向量化详细进度: " + (i + 1) + "/" + totalChunks + 
                                   "，线程ID: " + Thread.currentThread().getId() + 
                                   "，源文件: " + source);
                         }
@@ -578,7 +579,7 @@ public class TextChunkProcessor {
                 // 保存数据库
                 vectorDB.saveDatabase();
                 logMessage("向量化处理完成");
-                Log.d(TAG, "向量化处理全部完成，共处理 " + totalChunks + " 个文本块，线程ID: " + Thread.currentThread().getId());
+                LogManager.logD(TAG, "向量化处理全部完成，共处理 " + totalChunks + " 个文本块，线程ID: " + Thread.currentThread().getId());
                 
                 // 通知向量化处理完成
                 if (progressCallback != null) {
@@ -587,11 +588,11 @@ public class TextChunkProcessor {
             } finally {
                 // 无论成功还是失败，最后标记模型为不再使用
                 modelManager.markModelNotInUse();
-                Log.d(TAG, "批量向量化处理完成，已标记模型为不再使用状态");
+                LogManager.logD(TAG, "批量向量化处理完成，已标记模型为不再使用状态");
                 
                 // 关闭数据库
                 vectorDB.close();
-                Log.d(TAG, "向量数据库已关闭");
+                LogManager.logD(TAG, "向量数据库已关闭");
             }
             
             return !isTaskCancelled.get();
@@ -700,13 +701,13 @@ public class TextChunkProcessor {
     public boolean processFilesAndBuildKnowledgeBase(String knowledgeBaseName, String embeddingModel, 
                                                   List<Uri> files, int chunkSize, int chunkOverlap) {
         try {
-            Log.d(TAG, "开始处理文件并构建知识库，线程ID: " + Thread.currentThread().getId() + 
+            LogManager.logD(TAG, "开始处理文件并构建知识库，线程ID: " + Thread.currentThread().getId() + 
                   "，知识库: " + knowledgeBaseName + "，文件数: " + files.size());
             
             // 获取知识库目录路径
             String knowledgeBasePath = ConfigManager.getKnowledgeBasePath(context);
             String fullKnowledgeBasePath = knowledgeBasePath + File.separator + knowledgeBaseName;
-            Log.d(TAG, "知识库目录: " + fullKnowledgeBasePath);
+            LogManager.logD(TAG, "知识库目录: " + fullKnowledgeBasePath);
             logMessage("知识库目录: " + fullKnowledgeBasePath);
             
             // 创建知识库目录
@@ -728,7 +729,7 @@ public class TextChunkProcessor {
             
             // 获取模型的向量维度
             int embeddingDimension = model.getEmbeddingDimension();
-            Log.d(TAG, "模型向量维度: " + embeddingDimension);
+            LogManager.logD(TAG, "模型向量维度: " + embeddingDimension);
             logMessage("模型向量维度: " + embeddingDimension);
             
             // 初始化TokenizerManager
@@ -797,7 +798,7 @@ public class TextChunkProcessor {
             
             // 向量化处理开始前标记模型为正在使用，防止在向量化过程中被自动卸载
             modelManager.markModelInUse();
-            Log.d(TAG, "开始批量向量化处理，已标记模型为正在使用状态，防止自动卸载");
+            LogManager.logD(TAG, "开始批量向量化处理，已标记模型为正在使用状态，防止自动卸载");
             
             try {
                 // 生成向量并添加到数据库
@@ -809,7 +810,7 @@ public class TextChunkProcessor {
                     // 检查任务是否取消
                     if (isTaskCancelled.get()) {
                         logMessage("任务已取消");
-                        Log.d(TAG, "向量化处理中断：任务被取消，已处理 " + i + "/" + totalChunks + " 个文本块");
+                        LogManager.logD(TAG, "向量化处理中断：任务被取消，已处理 " + i + "/" + totalChunks + " 个文本块");
                         vectorDB.close();
                         return false;
                     }
@@ -822,7 +823,7 @@ public class TextChunkProcessor {
                     try {
                         // 每100个文本块记录一次日志
                         if (i % 100 == 0 || i == totalChunks - 1) {
-                            Log.d(TAG, "向量化进度: " + i + "/" + totalChunks + 
+                            LogManager.logD(TAG, "向量化进度: " + i + "/" + totalChunks + 
                                   "，线程ID: " + Thread.currentThread().getId() + 
                                   "，源文件: " + source);
                         }
@@ -851,7 +852,7 @@ public class TextChunkProcessor {
                 // 保存数据库
                 vectorDB.saveDatabase();
                 logMessage("向量化处理完成");
-                Log.d(TAG, "向量化处理全部完成，共处理 " + totalChunks + " 个文本块，线程ID: " + Thread.currentThread().getId());
+                LogManager.logD(TAG, "向量化处理全部完成，共处理 " + totalChunks + " 个文本块，线程ID: " + Thread.currentThread().getId());
                 
                 // 通知向量化处理完成
                 if (progressCallback != null) {
@@ -860,11 +861,11 @@ public class TextChunkProcessor {
             } finally {
                 // 无论成功还是失败，最后标记模型为不再使用
                 modelManager.markModelNotInUse();
-                Log.d(TAG, "批量向量化处理完成，已标记模型为不再使用状态");
+                LogManager.logD(TAG, "批量向量化处理完成，已标记模型为不再使用状态");
                 
                 // 关闭数据库
                 vectorDB.close();
-                Log.d(TAG, "向量数据库已关闭");
+                LogManager.logD(TAG, "向量数据库已关闭");
             }
             
             return !isTaskCancelled.get();
@@ -914,7 +915,7 @@ public class TextChunkProcessor {
      * 记录日志消息
      */
     private void logMessage(String message) {
-        Log.d(TAG, message);
+        LogManager.logD(TAG, message);
         if (progressCallback != null) {
             progressCallback.onLog(message);
         }
@@ -924,7 +925,7 @@ public class TextChunkProcessor {
      * 记录错误消息
      */
     private void logError(String message, Exception e) {
-        Log.e(TAG, message, e);
+        LogManager.logE(TAG, message, e);
         if (progressCallback != null) {
             progressCallback.onError(message);
         }

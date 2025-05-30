@@ -31,6 +31,8 @@ import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
@@ -60,6 +62,9 @@ public class BuildKnowledgeBaseFragment extends Fragment {
 
     private static final String TAG = "StarLocalRAG_Build";
     private static final int REQUEST_OPEN_DOCUMENT = 1;
+
+    // ActivityResultLauncher替代startActivityForResult
+    private ActivityResultLauncher<Intent> documentPickerLauncher;
 
     private Button buttonBrowseFiles;
     private Button buttonClearFiles;
@@ -171,9 +176,9 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                                             String blocksStr = status.substring(blocksStart + 4, blocksEnd).trim();
                                             try {
                                                 int extractedTextBlocks = Integer.parseInt(blocksStr);
-                                                Log.d(TAG, "提取到文本块数量: " + extractedTextBlocks);
+                                                LogManager.logD(TAG, "提取到文本块数量: " + extractedTextBlocks);
                                             } catch (NumberFormatException e) {
-                                                Log.e(TAG, "解析文本块数量失败: " + e.getMessage());
+                                                LogManager.logE(TAG, "解析文本块数量失败: " + e.getMessage());
                                             }
                                         }
                                     }
@@ -193,11 +198,11 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                                             processedFilesCount = processed;
                                             totalFiles = total;
                                             
-                                            Log.d(TAG, "文本提取进度变量: " + processedFilesCount + "/" + totalFiles + " " + formatElapsedTime());
+                                            LogManager.logD(TAG, "文本提取进度变量: " + processedFilesCount + "/" + totalFiles + " " + formatElapsedTime());
                                         }
                                     }
                                 } catch (Exception e) {
-                                    Log.e(TAG, "解析文本提取进度信息失败: " + status, e);
+                                    LogManager.logE(TAG, "解析文本提取进度信息失败: " + status, e);
                                 }
                                 updateProgressUI(progress, status);
                             } else if (status.contains("正在生成向量")) {
@@ -229,7 +234,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                                         }
                                     }
                                 } catch (Exception e) {
-                                    Log.e(TAG, "向量化进度信息失败: " + status, e);
+                                    LogManager.logE(TAG, "向量化进度信息失败: " + status, e);
                                 }
                                 updateProgressLabel();
                                 //updateProgressUI(progress, status);
@@ -244,9 +249,9 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                                     processedChunks = 0;
                                     vectorizationPercentage = 0;
                                     
-                                    Log.d(TAG, "文本提取完成，获取到总块数: " + totalChunks + " " + formatElapsedTime());
+                                    LogManager.logD(TAG, "文本提取完成，获取到总块数: " + totalChunks + " " + formatElapsedTime());
                                 } catch (Exception e) {
-                                    Log.e(TAG, "解析文本块总数失败: " + status, e);
+                                    LogManager.logE(TAG, "解析文本块总数失败: " + status, e);
                                 }
                                 updateProgressUI(progress, status);
                             } else if (status.contains("向量化处理完成")) {
@@ -257,7 +262,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                                 totalChunks = totalChunks;
                                 vectorizationPercentage = 100;
                                 
-                                Log.d(TAG, "向量化处理完成 " + formatElapsedTime());
+                                LogManager.logD(TAG, "向量化处理完成 " + formatElapsedTime());
                                 updateProgressUI(progress, status + " Total:" + totalChunks + " " + formatElapsedTime());
                             }
                             else
@@ -291,13 +296,13 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                         if (batteryOptimizationDisabled && getActivity() instanceof MainActivity) {
                             ((MainActivity) getActivity()).restoreBatteryOptimization();
                             batteryOptimizationDisabled = false;
-                            Log.d(TAG, "已恢复电池优化设置（构建" + (success ? "完成" : "取消") + "时）");
+                            LogManager.logD(TAG, "已恢复电池优化设置（构建" + (success ? "完成" : "取消") + "时）");
                         }
                         
                         // 关闭防锁屏
                         if (isKeepScreenOn) {
                             enableKeepScreenOn(false);
-                            Log.d(TAG, "已关闭防锁屏（构建" + (success ? "完成" : "取消") + "时）");
+                            LogManager.logD(TAG, "已关闭防锁屏（构建" + (success ? "完成" : "取消") + "时）");
                         }
                     });
                 }
@@ -311,14 +316,14 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                 }
             });
             
-            Log.d(TAG, "已连接到知识库构建服务");
+            LogManager.logD(TAG, "已连接到知识库构建服务");
         }
         
         @Override
         public void onServiceDisconnected(ComponentName name) {
             builderService = null;
             isServiceBound = false;
-            Log.d(TAG, "与知识库构建服务的连接已断开");
+            LogManager.logD(TAG, "与知识库构建服务的连接已断开");
         }
     };
 
@@ -326,6 +331,9 @@ public class BuildKnowledgeBaseFragment extends Fragment {
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle savedInstanceState) {
         View view = inflater.inflate(R.layout.fragment_build_knowledge_base, container, false);
+        
+        // 初始化ActivityResultLauncher
+        initializeActivityResultLauncher();
         
         // 初始化UI元素
         buttonBrowseFiles = view.findViewById(R.id.buttonBrowseFiles);
@@ -366,12 +374,12 @@ public class BuildKnowledgeBaseFragment extends Fragment {
         spinnerEmbeddingModel.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-                Log.d(TAG, "选择了词嵌入模型: " + parent.getItemAtPosition(position).toString());
+                LogManager.logD(TAG, "选择了词嵌入模型: " + parent.getItemAtPosition(position).toString());
             }
 
             @Override
             public void onNothingSelected(AdapterView<?> parent) {
-                Log.d(TAG, "未选择词嵌入模型");
+                LogManager.logD(TAG, "未选择词嵌入模型");
             }
         });
         
@@ -393,39 +401,10 @@ public class BuildKnowledgeBaseFragment extends Fragment {
         intent.addCategory(Intent.CATEGORY_OPENABLE);
         intent.setType("*/*");
         intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
-        startActivityForResult(intent, REQUEST_OPEN_DOCUMENT);
+        documentPickerLauncher.launch(intent);
     }
     
-    // 处理文件选择结果
-    @Override
-    public void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        
-        if (requestCode == REQUEST_OPEN_DOCUMENT && resultCode == Activity.RESULT_OK) {
-            if (data != null) {
-                // 处理多选文件
-                if (data.getClipData() != null) {
-                    int count = data.getClipData().getItemCount();
-                    for (int i = 0; i < count; i++) {
-                        Uri uri = data.getClipData().getItemAt(i).getUri();
-                        if (!selectedFiles.contains(uri)) {
-                            selectedFiles.add(uri);
-                        }
-                    }
-                } 
-                // 处理单选文件
-                else if (data.getData() != null) {
-                    Uri uri = data.getData();
-                    if (!selectedFiles.contains(uri)) {
-                        selectedFiles.add(uri);
-                    }
-                }
-                
-                // 更新文件列表显示
-                updateFileListDisplay();
-            }
-        }
-    }
+
     
     // 更新文件列表显示
     private void updateFileListDisplay() {
@@ -454,7 +433,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                 fileName = new File(uri.getPath()).getName();
             }
         } catch (Exception e) {
-            Log.e(TAG, "获取文件名失败", e);
+            LogManager.logE(TAG, "获取文件名失败", e);
         }
         return fileName;
     }
@@ -467,7 +446,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
     
     // 加载词嵌入模型
     private void loadEmbeddingModels() {
-        Log.d(TAG, "开始加载词嵌入模型");
+        LogManager.logD(TAG, "开始加载词嵌入模型");
         
         // 显示加载状态
         String[] loadingState = {"加载中..."};
@@ -479,18 +458,18 @@ public class BuildKnowledgeBaseFragment extends Fragment {
         executor.execute(() -> {
             // 从ConfigManager获取嵌入模型目录
             String embeddingModelPath = ConfigManager.getEmbeddingModelPath(requireContext());
-            Log.d(TAG, "嵌入模型目录路径: " + embeddingModelPath);
+            LogManager.logD(TAG, "嵌入模型目录路径: " + embeddingModelPath);
             
             // 获取embeddings目录
             File embeddingsDir = new File(embeddingModelPath);
             if (!embeddingsDir.exists()) {
-                Log.d(TAG, "嵌入模型目录不存在，尝试创建: " + embeddingModelPath);
+                LogManager.logD(TAG, "嵌入模型目录不存在，尝试创建: " + embeddingModelPath);
                 boolean created = embeddingsDir.mkdirs();
-                Log.d(TAG, "创建目录结果: " + created);
+                LogManager.logD(TAG, "创建目录结果: " + created);
                 
                 // 如果外部目录创建失败，回退到内部存储
                 if (!created) {
-                    Log.d(TAG, "回退到应用内部存储");
+                    LogManager.logD(TAG, "回退到应用内部存储");
                     embeddingsDir = new File(requireContext().getFilesDir(), "embeddings");
                     if (!embeddingsDir.exists()) {
                         embeddingsDir.mkdirs();
@@ -500,7 +479,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
             
             // 获取所有文件作为模型
             File[] files = embeddingsDir.listFiles();
-            Log.d(TAG, "发现模型文件数量: " + (files != null ? files.length : 0));
+            LogManager.logD(TAG, "发现模型文件数量: " + (files != null ? files.length : 0));
             
             // 在主线程更新UI
             mainHandler.post(() -> {
@@ -512,13 +491,13 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                     ArrayAdapter<String> modelsAdapter = new ArrayAdapter<>(requireContext(), android.R.layout.simple_spinner_item, models);
                     modelsAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
                     spinnerEmbeddingModel.setAdapter(modelsAdapter);
-                    Log.d(TAG, "已加载 " + models.length + " 个词嵌入模型");
+                    LogManager.logD(TAG, "已加载 " + models.length + " 个词嵌入模型");
                 } else {
                     String[] noModels = {"无可用模型"};
                     ArrayAdapter<String> noModelsAdapter = new ArrayAdapter<>(requireContext(), android.R.layout.simple_spinner_item, noModels);
                     noModelsAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
                     spinnerEmbeddingModel.setAdapter(noModelsAdapter);
-                    Log.d(TAG, "未找到可用的词嵌入模型");
+                    LogManager.logD(TAG, "未找到可用的词嵌入模型");
                 }
             });
         });
@@ -526,24 +505,24 @@ public class BuildKnowledgeBaseFragment extends Fragment {
     
     // 加载知识库名称列表
     private void loadKnowledgeBaseNames() {
-        Log.d(TAG, "开始加载知识库名称列表");
+        LogManager.logD(TAG, "开始加载知识库名称列表");
         
         knowledgeBaseNames.clear();
         
         // 从ConfigManager获取知识库目录
         String knowledgeBasePath = ConfigManager.getKnowledgeBasePath(requireContext());
-        Log.d(TAG, "知识库目录路径: " + knowledgeBasePath);
+        LogManager.logD(TAG, "知识库目录路径: " + knowledgeBasePath);
         
         // 获取知识库目录
         File knowledgeBaseDir = new File(knowledgeBasePath);
         if (!knowledgeBaseDir.exists()) {
-            Log.d(TAG, "知识库目录不存在，尝试创建: " + knowledgeBasePath);
+            LogManager.logD(TAG, "知识库目录不存在，尝试创建: " + knowledgeBasePath);
             boolean created = knowledgeBaseDir.mkdirs();
-            Log.d(TAG, "创建目录结果: " + created);
+            LogManager.logD(TAG, "创建目录结果: " + created);
             
             // 如果外部目录创建失败，回退到内部存储
             if (!created) {
-                Log.d(TAG, "回退到应用内部存储");
+                LogManager.logD(TAG, "回退到应用内部存储");
                 knowledgeBaseDir = new File(requireContext().getFilesDir(), "knowledge_bases");
                 if (!knowledgeBaseDir.exists()) {
                     knowledgeBaseDir.mkdirs();
@@ -554,7 +533,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
         // 获取所有子目录作为知识库
         File[] directories = knowledgeBaseDir.listFiles(File::isDirectory);
         if (directories != null) {
-            Log.d(TAG, "发现知识库数量: " + directories.length);
+            LogManager.logD(TAG, "发现知识库数量: " + directories.length);
             for (File dir : directories) {
                 if (!dir.getName().equals("无")) {
                     knowledgeBaseNames.add(dir.getName());
@@ -575,10 +554,10 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                 if (position >= 0 && position < knowledgeBaseNames.size()) {
                     String selected = knowledgeBaseNames.get(position);
                     if (!selected.isEmpty()) {
-                        Log.d(TAG, "已选择知识库: " + selected);
+                        LogManager.logD(TAG, "已选择知识库: " + selected);
                         // 保存选择到ConfigManager
                         ConfigManager.setString(requireContext(), ConfigManager.KEY_KNOWLEDGE_BASE, selected);
-                        Log.d(TAG, "已保存知识库选择到ConfigManager: " + selected);
+                        LogManager.logD(TAG, "已保存知识库选择到ConfigManager: " + selected);
                     }
                 }
             }
@@ -600,7 +579,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
             String lastKnowledgeBase = ConfigManager.getString(requireContext(), 
                     ConfigManager.KEY_KNOWLEDGE_BASE, "");
             
-            Log.d(TAG, "从ConfigManager加载上次选择的知识库: " + 
+            LogManager.logD(TAG, "从ConfigManager加载上次选择的知识库: " + 
                     (lastKnowledgeBase.isEmpty() ? "[空]" : lastKnowledgeBase));
             
             if (!lastKnowledgeBase.isEmpty()) {
@@ -608,13 +587,13 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                 for (int i = 0; i < knowledgeBaseNames.size(); i++) {
                     if (knowledgeBaseNames.get(i).equals(lastKnowledgeBase)) {
                         spinnerKnowledgeBaseName.setSelection(i);
-                        Log.d(TAG, "已选择上次使用的知识库: " + lastKnowledgeBase);
+                        LogManager.logD(TAG, "已选择上次使用的知识库: " + lastKnowledgeBase);
                         break;
                     }
                 }
             }
         } catch (Exception e) {
-            Log.e(TAG, "加载知识库选择失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "加载知识库选择失败: " + e.getMessage(), e);
         }
     }
     
@@ -718,7 +697,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
         // 确保父目录存在
         if (!knowledgeBaseParentDir.exists()) {
             if (!knowledgeBaseParentDir.mkdirs()) {
-                Log.e(TAG, "无法创建知识库父目录: " + knowledgeBasePath);
+                LogManager.logE(TAG, "无法创建知识库父目录: " + knowledgeBasePath);
                 // 回退到应用内部存储
                 knowledgeBaseParentDir = new File(requireContext().getFilesDir(), "knowledge_bases");
                 if (!knowledgeBaseParentDir.exists()) {
@@ -729,7 +708,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
         
         // 检查知识库是否已存在
         File knowledgeBaseDir = new File(knowledgeBaseParentDir, knowledgeBaseName);
-        Log.d(TAG, "检查知识库是否存在: " + knowledgeBaseDir.getAbsolutePath());
+        LogManager.logD(TAG, "检查知识库是否存在: " + knowledgeBaseDir.getAbsolutePath());
         
         if (knowledgeBaseDir.exists()) {
             // 显示确认对话框
@@ -846,7 +825,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
             // 加载模型以获取维度信息
             EmbeddingModelHandler model = EmbeddingModelManager.getInstance(requireContext()).getModel(embeddingModelPath);
             int modelDimension = model.getEmbeddingDimension();
-            Log.d(TAG, "当前模型向量维度: " + modelDimension);
+            LogManager.logD(TAG, "当前模型向量维度: " + modelDimension);
             
             // 检查知识库是否已存在
             File vectorDbFile = new File(knowledgeBaseDir, "vectorstore.db");
@@ -861,7 +840,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                     // 在追加模式下，如果维度不匹配，显示错误并停止
                     String errorMsg = "错误: 向量维度不匹配! 现有知识库维度: " + existingDimension + 
                                      ", 当前模型维度: " + modelDimension;
-                    Log.e(TAG, errorMsg);
+                    LogManager.logE(TAG, errorMsg);
                     textViewProgress.append("\n" + errorMsg + "\n追加模式下维度必须匹配，请使用覆盖模式或选择匹配维度的模型。");
                     
                     // 恢复UI状态
@@ -890,7 +869,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                 }
             } else if (overwrite && vectorDbFile.exists()) {
                 // 在覆盖模式下，删除现有数据库文件
-                Log.d(TAG, "覆盖模式: 删除现有数据库文件");
+                LogManager.logD(TAG, "覆盖模式: 删除现有数据库文件");
                 vectorDbFile.delete();
                 
                 // 删除元数据文件
@@ -902,7 +881,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                 textViewProgress.append("\n覆盖模式: 已删除现有数据库文件");
             }
         } catch (Exception e) {
-            Log.e(TAG, "检查向量维度时出错: " + e.getMessage(), e);
+            LogManager.logE(TAG, "检查向量维度时出错: " + e.getMessage(), e);
             textViewProgress.append("\n检查向量维度时出错: " + e.getMessage());
         }
         
@@ -923,15 +902,15 @@ public class BuildKnowledgeBaseFragment extends Fragment {
         bindBuilderService();
         
         // 等待服务绑定完成
-        new Handler().postDelayed(() -> {
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
             if (isServiceBound && builderService != null) {
                 // 使用前台服务开始构建知识库
                 builderService.startBuildKnowledgeBase(knowledgeBaseName, embeddingModel, selectedFiles);
                 
-                Log.d(TAG, "已通过前台服务开始构建知识库: " + knowledgeBaseName);
+                LogManager.logD(TAG, "已通过前台服务开始构建知识库: " + knowledgeBaseName);
             } else {
                 // 服务绑定失败，回退到传统方式
-                Log.e(TAG, "服务绑定失败，回退到传统方式构建知识库");
+                LogManager.logE(TAG, "服务绑定失败，回退到传统方式构建知识库");
                 Utils.showToastSafely(requireContext(), "无法启动前台服务，构建过程可能会在应用切换到后台时暂停", Toast.LENGTH_LONG);
                 
                 // 使用传统方式构建知识库（在UI线程中执行）
@@ -1012,7 +991,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                             //                    processedChunks, totalChunks, percentage);
                             
                             // 添加详细日志，记录向量化进度
-                            //Log.d(TAG, "向量化进度: " + processedChunks + "/" + totalChunks + " (" + percentage + "%)");
+                            //LogManager.logD(TAG, "向量化进度: " + processedChunks + "/" + totalChunks + " (" + percentage + "%)");
                             
                             // 更新进度UI，直接传递百分比值
                             //updateProgressUI(Math.round(percentage), progressInfo);
@@ -1037,7 +1016,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                     @Override
                     public void onError(String errorMessage) {
                         // 处理错误
-                        Log.e(TAG, "错误: " + errorMessage);
+                        LogManager.logE(TAG, "错误: " + errorMessage);
                         mainHandler.post(() -> {
                             appendToProgress("错误: " + errorMessage);
                         });
@@ -1046,7 +1025,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                     @Override
                     public void onLog(String message) {
                         // 记录日志
-                        Log.d(TAG, message);
+                        LogManager.logD(TAG, message);
                         mainHandler.post(() -> {
                             // 检查是否是向量化进度信息
                             if (message != null && message.startsWith("向量化进度")) {
@@ -1098,7 +1077,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                 });
                 
             } catch (Exception e) {
-                Log.e(TAG, "知识库构建失败", e);
+                LogManager.logE(TAG, "知识库构建失败", e);
                 
                 // 在UI线程中处理异常
                 mainHandler.post(() -> {
@@ -1179,7 +1158,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                 buttonCreateKnowledgeBase.setText("新建知识库");
                 Utils.showToastSafely(getActivity(), isTaskCancelled ? "任务已中断" : "知识库创建完成", Toast.LENGTH_SHORT);
             } else {
-                Log.w(TAG, "Fragment未附加到Context，无法更新UI");
+                LogManager.logW(TAG, "Fragment未附加到Context，无法更新UI");
             }
         });
     }
@@ -1209,7 +1188,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                         }
                     } catch (Exception e) {
                         // 如果滚动失败，至少确保文本被添加
-                        Log.e(TAG, "滚动到底部失败", e);
+                        LogManager.logE(TAG, "滚动到底部失败", e);
                     }
                 }
             }
@@ -1257,8 +1236,8 @@ public class BuildKnowledgeBaseFragment extends Fragment {
             textViewProgressLabel.setText(progressText);
             
             // 添加详细日志，记录进度状态
-            if (Log.isLoggable(TAG, Log.DEBUG)) {
-                Log.d(TAG, "更新进度标签 - 阶段: " + currentStage + ", 文件进度: " + processedFilesCount + "/" + totalFiles + 
+            if (LogManager.logIsLoggable(TAG, LogManager.LOG_LEVEL_DEBUG)) {
+                LogManager.logD(TAG, "更新进度标签 - 阶段: " + currentStage + ", 文件进度: " + processedFilesCount + "/" + totalFiles + 
                       ", 向量化进度: " + processedChunks + "/" + totalChunks + " (" + vectorizationPercentage + "%)");
             }
         }
@@ -1312,7 +1291,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                             }
                         } catch (Exception e) {
                             // 如果滚动失败，至少确保文本被添加
-                            Log.e(TAG, "滚动到底部失败", e);
+                            LogManager.logE(TAG, "滚动到底部失败", e);
                         }
                     }
                 }
@@ -1351,7 +1330,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                         }
                     } catch (Exception e) {
                         // 如果滚动失败，至少确保文本被添加
-                        Log.e(TAG, "滚动到底部失败", e);
+                        LogManager.logE(TAG, "滚动到底部失败", e);
                     }
                 }
             }
@@ -1372,15 +1351,15 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                 // 启用屏幕常亮
                 getActivity().getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
                 isKeepScreenOn = true;
-                Log.d(TAG, "已启用屏幕常亮");
+                LogManager.logD(TAG, "已启用屏幕常亮");
             } else {
                 // 禁用屏幕常亮
                 getActivity().getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
                 isKeepScreenOn = false;
-                Log.d(TAG, "已禁用屏幕常亮");
+                LogManager.logD(TAG, "已禁用屏幕常亮");
             }
         } catch (Exception e) {
-            Log.e(TAG, "设置屏幕常亮状态失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "设置屏幕常亮状态失败: " + e.getMessage(), e);
         }
     }
     
@@ -1392,7 +1371,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
             float fontSize = ConfigManager.getGlobalTextSize(requireContext());
             textViewFileList.setTextSize(TypedValue.COMPLEX_UNIT_SP, fontSize);
             textViewProgress.setTextSize(TypedValue.COMPLEX_UNIT_SP, fontSize);
-            Log.d(TAG, "已应用全局字体大小: " + fontSize + "sp");
+            LogManager.logD(TAG, "已应用全局字体大小: " + fontSize + "sp");
         }
     }
     
@@ -1419,7 +1398,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
         File oldDir = new File(knowledgeBaseParentDir, oldName);
         File newDir = new File(knowledgeBaseParentDir, newName);
         
-        Log.d(TAG, "尝试重命名知识库: " + oldDir.getAbsolutePath() + " -> " + newDir.getAbsolutePath());
+        LogManager.logD(TAG, "尝试重命名知识库: " + oldDir.getAbsolutePath() + " -> " + newDir.getAbsolutePath());
         
         if (oldDir.exists()) {
             if (oldDir.renameTo(newDir)) {
@@ -1430,6 +1409,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                 loadKnowledgeBaseNames();
                 
                 // 选择新名称
+                @SuppressWarnings("unchecked")
                 ArrayAdapter<String> adapter = (ArrayAdapter<String>) spinnerKnowledgeBaseName.getAdapter();
                 int position = -1;
                 for (int i = 0; i < adapter.getCount(); i++) {
@@ -1444,16 +1424,16 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                 }
                 
                 // 记录日志
-                Log.d(TAG, "知识库重命名成功: " + oldName + " -> " + newName);
+                LogManager.logD(TAG, "知识库重命名成功: " + oldName + " -> " + newName);
             } else {
                 // 重命名失败
                 Utils.showToastSafely(requireContext(), "知识库重命名失败", Toast.LENGTH_SHORT);
-                Log.e(TAG, "知识库重命名失败: " + oldName + " -> " + newName);
+                LogManager.logE(TAG, "知识库重命名失败: " + oldName + " -> " + newName);
             }
         } else {
             // 原目录不存在
             Utils.showToastSafely(requireContext(), "知识库不存在: " + oldName, Toast.LENGTH_SHORT);
-            Log.e(TAG, "知识库不存在: " + oldDir.getAbsolutePath());
+            LogManager.logE(TAG, "知识库不存在: " + oldDir.getAbsolutePath());
         }
     }
 
@@ -1483,7 +1463,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
         if (!isServiceBound) {
             Intent intent = new Intent(requireContext(), KnowledgeBaseBuilderService.class);
             requireContext().bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE);
-            Log.d(TAG, "正在绑定知识库构建服务");
+            LogManager.logD(TAG, "正在绑定知识库构建服务");
         }
     }
     
@@ -1494,7 +1474,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
         if (isServiceBound) {
             requireContext().unbindService(serviceConnection);
             isServiceBound = false;
-            Log.d(TAG, "已解绑知识库构建服务");
+            LogManager.logD(TAG, "已解绑知识库构建服务");
         }
     }
     
@@ -1508,7 +1488,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
         } else {
             requireContext().startService(intent);
         }
-        Log.d(TAG, "已启动知识库构建服务");
+        LogManager.logD(TAG, "已启动知识库构建服务");
     }
     
     /**
@@ -1517,7 +1497,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
     private void stopBuilderService() {
         Intent intent = new Intent(requireContext(), KnowledgeBaseBuilderService.class);
         requireContext().stopService(intent);
-        Log.d(TAG, "已停止知识库构建服务");
+        LogManager.logD(TAG, "已停止知识库构建服务");
     }
     
     @Override
@@ -1573,7 +1553,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
             enableKeepScreenOn(false);
         }
         
-        Log.d(TAG, "任务完成: " + message + ", 成功: " + success);
+        LogManager.logD(TAG, "任务完成: " + message + ", 成功: " + success);
     }
     
     // 重置进度计数和计时器
@@ -1635,8 +1615,41 @@ public class BuildKnowledgeBaseFragment extends Fragment {
      * @param newStage 新阶段
      */
     private void recordProcessingStageChange(ProcessingStage oldStage, ProcessingStage newStage) {
-        Log.d(TAG, "处理阶段变更: " + oldStage + " -> " + newStage 
+        LogManager.logD(TAG, "处理阶段变更: " + oldStage + " -> " + newStage 
                + ", 文件处理: " + processedFilesCount + "/" + totalFiles
                + ", 向量化: " + processedChunks + "/" + totalChunks + " (" + vectorizationPercentage + "%)");
+    }
+    
+    /**
+     * 初始化ActivityResultLauncher
+     */
+    private void initializeActivityResultLauncher() {
+        documentPickerLauncher = registerForActivityResult(
+            new ActivityResultContracts.StartActivityForResult(),
+            result -> {
+                if (result.getResultCode() == Activity.RESULT_OK) {
+                    Intent data = result.getData();
+                    if (data != null) {
+                        // 处理多选文件
+                        if (data.getClipData() != null) {
+                            int count = data.getClipData().getItemCount();
+                            for (int i = 0; i < count; i++) {
+                                Uri uri = data.getClipData().getItemAt(i).getUri();
+                                if (!selectedFiles.contains(uri)) {
+                                    selectedFiles.add(uri);
+                                }
+                            }
+                        } else if (data.getData() != null) {
+                            // 处理单选文件
+                            Uri uri = data.getData();
+                            if (!selectedFiles.contains(uri)) {
+                                selectedFiles.add(uri);
+                            }
+                        }
+                        updateFileListDisplay();
+                    }
+                }
+            }
+        );
     }
 }

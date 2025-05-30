@@ -151,7 +151,23 @@ SQLiteVectorDatabaseHandler 存储向量到数据库
 
 这种设计确保了向量操作的正确性，同时为用户提供了清晰的错误信息和解决方案。
 
-### 3.2 性能优化
+### 3.2 编译与构建优化
+
+1. **编译错误修复最佳实践**
+   - **特殊字符处理**：移除代码中的特殊Unicode字符（如✓、✗等），这些字符可能导致编译器无法正确解析代码
+   - **类型转换优化**：
+     - 对于必要的未检查类型转换，使用`@SuppressWarnings("unchecked")`注解抑制警告
+     - 移除冗余的类型转换，如当方法返回类型已经是目标类型时，避免不必要的强制转换
+     - 确保数组维度声明中使用正确的数据类型，避免不必要的int强制转换
+   - **接口实现完整性**：确保匿名类或实现类完整实现接口中的所有抽象方法
+   - **编译配置优化**：
+     - 在`build.gradle`中添加详细的编译选项，如`-Xlint:all`显示所有警告
+     - 设置`-Xmaxerrs`和`-Xmaxwarns`参数控制错误和警告的显示数量
+     - 配置编码为UTF-8，确保中文注释和字符串的正确处理
+   - **渐进式错误修复**：按照编译器报告的错误优先级逐一修复，先解决语法错误，再处理警告
+   - **代码质量保证**：定期运行完整构建检查，确保所有模块都能正确编译
+
+### 3.3 性能优化
 
 1. **内存管理**
    - 使用单例模式管理嵌入模型，避免重复加载
@@ -166,6 +182,16 @@ SQLiteVectorDatabaseHandler 存储向量到数据库
    - 开启ONNX Runtime详细日志，便于排查内存占用问题
    - 定期手动触发GC，及时回收不再使用的内存
    - 安全关闭所有张量和会话资源，避免内存泄漏
+   - **JVM内存配置优化**：
+     * AndroidManifest.xml中配置`android:largeHeap="true"`启用大内存模式
+     * gradle.properties中配置`org.gradle.jvmargs=-Xmx4096m`增加Gradle守护进程内存
+     * build.gradle中配置`dexOptions.javaMaxHeapSize "4g"`增加编译时内存
+     * GlobalApplication中实现内存监控，实时显示JVM和系统内存状态
+   - **KV缓存优化**：
+     * 修复KV缓存张量类型转换问题，支持IntBuffer和FloatBuffer多种数据类型
+     * 实现自适应缓存大小调整，根据内存状况动态禁用KV缓存
+     * 添加详细的KV缓存创建日志，便于问题诊断
+     * 解决cache_length张量创建时的LongBuffer类型错误
    
 2. **LLM分词与推理优化**
    - 实现专用的LocalLLMTokenizer，与RAG知识库分词器完全隔离
@@ -204,7 +230,11 @@ SQLiteVectorDatabaseHandler 存储向量到数据库
    - 对于移动设备，处理长文本时内存消耗是主要瓶颈，即使模型本身只有600MB
 
 2. **处理速度**
-   - 支持GPU加速，自动降级到CPU模式
+   - **GPU加速支持**：
+     * EmbeddingModel和LocalLLM均支持GPU加速
+     * 支持NNAPI、OpenCL、CUDA等多种GPU后端
+     * GPU加速失败时自动降级到CPU模式，确保稳定性
+     * 用户可在设置中开启/关闭GPU加速，实时生效
    - 优化分块策略，减少不必要的处理
    - 使用TokenizerManager统一分词策略，提高检索准确性
    - 缓存常用数据，减少重复计算
@@ -477,10 +507,51 @@ SQLiteVectorDatabaseHandler 存储向量到数据库
    - 与现有模型工厂方法无缝集成
 
 4. **GPU加速支持**：
-   - 实现GPU加速检测和自动降级机制
-   - 在GPU加速失败时自动回退到CPU模式，确保模型始终能够加载
-   - 提供详细的日志记录，便于排查GPU加速问题
-   - 使用异常处理确保GPU加速失败不会导致应用崩溃
+   - **EmbeddingModel GPU加速**：
+     * 在`EmbeddingModelHandler`中实现GPU加速支持
+     * 支持NNAPI、OpenCL、CUDA等多种GPU加速方式
+     * GPU加速失败时自动降级到CPU模式
+     * 通过`EmbeddingModelManager`统一管理GPU设置
+   - **LocalLLM GPU加速**：
+     * 在`LocalLlmHandler`中实现GPU加速支持
+     * 支持多种GPU加速后端的自动检测和启用
+     * 通过`LocalLlmAdapter`提供GPU设置更新接口
+   - **统一GPU配置管理**：
+     * 在设置界面提供GPU加速开关
+     * 实时更新GPU设置，无需重启应用
+     * 在`MainActivity`中监听设置变更并同步到各组件
+   - **错误处理和日志**：
+     * 提供详细的GPU加速日志记录
+     * 使用异常处理确保GPU加速失败不会导致应用崩溃
+     * 通过`GPUErrorHandler`统一处理GPU相关错误
+   - **GPU故障诊断与排除**：
+     * `GPUDiagnosticTool`：提供详细的GPU硬件信息、系统兼容性检查和HarmonyOS特殊处理
+     * `GPUConfigChecker`：验证AndroidManifest.xml配置、权限设置和硬件特性支持
+     * 应用启动时自动执行GPU配置检查，提前发现配置问题
+     * GPU加速失败时自动生成详细诊断报告，包含系统信息、硬件特性、配置状态
+     * 针对华为HarmonyOS设备提供专门的优化建议和配置指导
+     * 创建`GPU_TROUBLESHOOTING_GUIDE.md`故障排除指南，包含常见问题FAQ和修复方案
+   - **HarmonyOS GPU适配优化**：
+     * `HarmonyOSGPUAdapter`：专门处理HarmonyOS设备的GPU加速优化
+     * 实现HarmonyOS特定的OpenCL缓存配置和Mali GPU优化
+     * 支持Vulkan API的设备本地内存配置和FP16精度优化
+     * 检测HarmonyOS GPU访问权限，包括ohos.permission.USE_GPU权限
+     * 提供系统级GPU调度策略和内存管理优化
+     * 支持Vulkan计算支持检测和配置参数调整
+   - **Mali GPU专项优化**：
+     * `MaliGPUOptimizer`：针对Mali-G610等Mali GPU架构的性能优化
+     * 实现Mali GPU架构检测，支持从系统路径和OpenGL渲染器获取GPU信息
+     * 提供Mali GPU特定的ONNX Runtime配置，包括线程数、内存带宽、卷积优化
+     * 支持Mali GPU性能监控，读取GPU使用率、频率和温度
+     * 实现GPU频率调节器优化，设置性能模式和最小频率
+     * 提供Mali GPU内存分配策略，包括内存池大小、压缩和垃圾回收优化
+     * 检测Mali GPU特性支持，包括OpenCL、Vulkan、计算着色器和FP16支持
+   - **OpenGL ES计算加速**：
+     * `OpenGLESComputeAccelerator`：使用OpenGL ES 3.2计算着色器实现GPU加速
+     * 支持OpenGL ES计算着色器的初始化和支持检测
+     * 提供基础计算和矩阵乘法的计算着色器程序
+     * 实现GPU内存缓冲区管理和计算结果读取
+     * 支持计算着色器资源的清理和释放
 
 5. **UI交互优化**：
    - 在API URL选择器中添加固定的“本地”选项
@@ -724,7 +795,272 @@ SQLiteVectorDatabaseHandler 存储向量到数据库
 
 这些优化提高了应用的稳定性和可靠性，确保分词器能够正确地与用户选择的模型集成，并在模型切换时正确管理资源。通过增强的错误处理和调试信息，开发者可以更容易地识别和解决分词器相关的问题。
 
-### 3.17 Rust分词器集成
+### 3.17 本地LLM推理中断功能
+
+为了提升用户体验，特别是在处理长时间推理任务时，我们实现了本地LLM推理的中断功能：
+
+1. **停止标志机制**：
+   - 在`LocalLlmHandler`类中添加`AtomicBoolean shouldStopInference`原子布尔变量
+   - 实现`stopInference()`方法设置停止标志
+   - 实现`shouldStopInference()`方法检查停止状态
+   - 实现`resetStopFlag()`方法重置停止标志
+
+2. **推理循环中断检查**：
+   - 在`LocalLLMOnnxHandler`的`inferenceStream`方法中添加`LocalLlmHandler`参数
+   - 在自回归生成循环的开始处添加停止检查逻辑
+   - 当检测到停止标志时，记录日志、调用错误回调并返回
+   - 确保推理过程能够及时响应停止请求
+
+3. **适配器层集成**：
+   - 在`LocalLlmAdapter`的`stopGeneration`方法中调用`localLlmHandler.stopInference()`
+   - 确保停止功能与现有API适配器接口保持一致
+   - 提供统一的停止接口，便于上层调用
+
+4. **UI层停止逻辑**：
+   - 在`RagQaFragment`的`handleSendStopClick`方法中添加本地模型停止逻辑
+   - 根据当前API URL判断是否为本地模型（"local"）
+   - 调用`LocalLlmAdapter.getInstance(requireContext()).stopGeneration()`停止本地LLM推理
+   - 添加异常处理和日志记录，确保停止操作的稳定性
+
+5. **线程安全设计**：
+   - 使用`AtomicBoolean`确保停止标志的线程安全访问
+   - 在推理开始时重置停止标志，避免上次操作的影响
+   - 在推理过程中定期检查停止标志，确保及时响应
+
+这些功能带来的主要好处：
+- 用户可以随时中断长时间运行的本地LLM推理任务
+- 避免了因无法停止推理而导致的应用无响应问题
+- 提供了与在线模型一致的用户体验
+- 增强了应用的可控性和用户友好性
+- 通过线程安全的设计确保了功能的稳定性
+
+### 3.18 RAG界面模型选择记忆功能
+
+为了提升用户体验，避免每次使用时都需要重新选择模型，我们实现了模型选择的记忆功能：
+
+1. **模型选择保存机制**：
+   - 在`RagQaFragment`的`fetchModelsForApi`方法中实现模型选择的保存和恢复
+   - 在刷新模型列表时保存当前选择的模型名称
+   - 在新的模型列表加载完成后，自动恢复之前选择的模型
+
+2. **配置持久化**：
+   - 使用`ConfigManager`保存用户最后选择的模型名称
+   - 模型选择信息存储在`.config`文件中，确保应用重启后仍能恢复
+   - 支持不同API地址对应不同的模型选择记忆
+
+3. **智能匹配逻辑**：
+   - 在模型列表更新时，查找与保存的模型名称匹配的选项
+   - 如果找到匹配的模型，自动设置为选中状态
+   - 如果未找到匹配项，保持默认选择（通常是第一个模型）
+
+4. **用户交互优化**：
+   - 为模型Spinner添加选择监听器，实时保存用户的选择
+   - 在用户切换模型时立即保存新的选择
+   - 提供详细的日志记录，便于调试和用户反馈
+
+这些功能显著改善了用户体验：
+- 避免了每次使用时都需要重新选择模型的繁琐操作
+- 提高了应用的易用性和用户满意度
+- 确保了用户偏好设置的持久化保存
+- 支持多API环境下的独立模型选择记忆
+
+### 3.19 RAG 界面布局优化与思考模式功能整合
+
+为了提升用户体验和操作便利性，我们对RAG问答界面进行了布局优化，并将思考模式功能从设置页面迁移到RAG界面。
+
+#### 3.19.1 界面布局优化
+
+**布局调整目标**：
+- 调整大模型下拉框宽度，使其与知识库选择框对齐，提升视觉一致性
+- 在界面右侧空白区域添加思考模式复选框，充分利用界面空间
+- 优化控件间距和对齐方式，提升整体界面美观度
+
+**实现细节**：
+- 修改`fragment_rag_qa.xml`布局文件：
+  - 为大模型Spinner添加`layout_marginEnd`和`layout_constraintEnd_toStartOf`约束
+  - 添加思考模式CheckBox控件，使用ConstraintLayout进行精确定位
+  - 调整控件间距，确保界面元素合理分布
+
+#### 3.19.2 思考模式功能迁移
+
+**功能迁移原因**：
+- 思考模式是RAG问答过程中的核心功能，应该就近放置在使用场景附近
+- 减少用户在设置页面和RAG界面之间的切换操作
+- 提升功能的可发现性和使用便利性
+
+**实现细节**：
+1. **UI控件迁移**：
+   - 在`RagQaFragment`中添加`checkBoxThinkingMode`控件
+   - 从`SettingsFragment`中移除`switchNoThinking`相关代码
+   - 更新布局文件，移除设置页面的思考模式开关
+
+2. **状态管理逻辑**：
+   - 实现复选框状态与`ConfigManager.getNoThinking()`的逻辑映射
+   - 注意处理布尔值反转关系：`no_thinking=true`对应复选框未选中，`no_thinking=false`对应复选框选中
+   - 在`loadConfig()`方法中加载思考模式状态并设置复选框初始状态
+
+3. **配置同步机制**：
+   - 添加复选框状态变化监听器，实时保存配置到文件
+   - 使用`ConfigManager.setNoThinking()`方法保存用户选择
+   - 确保配置变更立即生效，无需重启应用
+
+**技术亮点**：
+- 界面布局优化，提升视觉一致性和空间利用率
+- 功能就近原则，将相关功能放在使用场景附近
+- 配置状态实时同步，保证数据一致性
+- 正确处理逻辑映射关系，避免状态混乱
+- 代码清理和重构，移除冗余的UI控件和逻辑
+
+#### 3.19.3 思考模式参数传递修复
+
+**问题发现**：
+在实际测试中发现，尽管思考模式复选框已正确迁移到RAG界面，但思考模式设置未能正确传递到推理过程中。具体表现为：
+- 用户勾选思考模式复选框后，模型仍按非思考模式进行推理
+- 生成的回答中包含思考内容，但采样参数未按思考模式调整
+- 日志显示思考模式状态保存成功，但推理时未读取正确状态
+
+**根本原因分析**：
+1. **硬编码问题**：`LocalLlmHandler.inference()`方法中思考模式被硬编码为`false`
+2. **参数传递缺失**：推理调用链中缺少从UI配置到底层推理的参数传递
+3. **状态读取错误**：未从`ConfigManager`正确读取用户设置的思考模式状态
+
+**修复实现**：
+
+1. **修复LocalLlmHandler参数读取**：
+```java
+// 修复前：硬编码思考模式
+boolean thinkingMode = false; // 默认关闭思考模式
+
+// 修复后：从配置读取思考模式
+boolean thinkingMode = !ConfigManager.getNoThinking(context);
+LogManager.logD(TAG, "思考模式设置: " + (thinkingMode ? "启用" : "禁用"));
+```
+
+2. **停止推理逻辑优化**：
+- 在`RagQaFragment.handleSendStopClick()`中添加停止标志重置逻辑
+- 在`LocalLlmAdapter`中添加`resetStopFlag()`方法
+- 确保每次开始新推理前重置停止状态，避免上次停止状态影响新推理
+
+3. **推理循环停止检查**：
+- `LocalLLMOnnxHandler.inferenceStream()`中已有完善的停止检查机制
+- 在每个token生成循环中检查`handler.shouldStopInference()`
+- 确保用户点击停止按钮后能及时中断推理过程
+
+**修复效果验证**：
+- 思考模式勾选后，推理参数正确调整（temperature=0.6, topK=20）
+- 停止按钮功能正常，能及时中断推理过程
+- 日志正确显示思考模式的启用/禁用状态
+- 用户体验得到显著改善
+
+#### 3.19.5 思考模式实现逻辑优化
+
+**问题背景**：
+原有的思考模式实现通过在模板中添加`<think>`标记来控制思考模式，但这种方式与模型的实际工作机制不符。正确的实现应该是：
+- `enableThinking=true`：启用思考模式，不添加任何特殊指令
+- `enableThinking=false`：禁用思考模式，在用户提示词尾部添加`/no_think`指令
+
+**实现修改**：
+在`HuggingfaceTokenizer.java`的`applyChatTemplate`方法中进行了以下修改：
+
+1. **移除原有的思考标记添加逻辑**：
+```java
+// 原有逻辑（已移除）
+if (enableThinking && !result.contains("<think>")) {
+    // 添加<think>标记的代码
+}
+```
+
+2. **新增/no_think指令添加逻辑**：
+```java
+// 新逻辑：禁用思考模式时添加/no_think指令
+if (!enableThinking) {
+    // 在最后一个用户消息尾部添加/no_think指令
+    String userStart = imStart + userRole;
+    int lastUserIndex = result.lastIndexOf(userStart);
+    if (lastUserIndex >= 0) {
+        int userEndIndex = result.indexOf(imEnd, lastUserIndex);
+        if (userEndIndex >= 0) {
+            result = result.substring(0, userEndIndex) + "\n/no_think" + result.substring(userEndIndex);
+        }
+    }
+}
+```
+
+**技术优势**：
+- 符合模型的原生工作机制
+- 通过指令而非模板标记控制思考模式
+- 更加灵活和可控的实现方式
+- 减少了模板复杂性，提高了可维护性
+
+**影响范围**：
+- `HuggingfaceTokenizer.applyChatTemplate()`方法
+- `applyTemplate()`私有方法
+- `applyDefaultTemplate()`私有方法
+- 所有使用思考模式的推理流程
+
+**实现细节**：
+- 在`applyTemplate()`方法中，将原来的思考标记添加逻辑替换为`/no_think`指令添加逻辑
+- 在`applyDefaultTemplate()`方法中，移除了助手角色的思考标记添加代码
+- 确保`/no_think`指令只在禁用思考模式时添加，避免重复添加
+- 保持与现有配置管理系统的兼容性
+
+#### 3.19.4 ONNX Runtime版本升级
+
+**升级背景**：
+针对用户反馈的GPU加速问题，特别是华为HarmonyOS设备上NNAPI和OpenCL支持不足的问题，我们进行了ONNX Runtime版本升级。
+
+**版本变更**：
+- **升级前**：ONNX Runtime 1.15.1
+- **升级后**：ONNX Runtime 1.21.0
+
+**升级原因**：
+1. **NNAPI弃用**：Google已弃用NNAPI，ONNX Runtime 1.19+版本中NNAPI被标记为弃用状态
+2. **兼容性改进**：新版本对Android设备的GPU支持更加完善
+3. **性能优化**：包含更多算子支持和内存管理优化
+4. **安全更新**：修复了已知的安全漏洞和稳定性问题
+
+**技术实现**：
+```gradle
+// build.gradle 更新
+// 升级前
+implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.15.1'
+
+// 升级后
+implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.21.0'
+```
+
+**GPU加速替代方案**：
+由于NNAPI已被弃用，提供以下替代优化方案：
+
+1. **CPU多线程优化**：
+   - 利用ARM CPU的多核性能
+   - 优化线程池配置
+   - 内存访问模式优化
+
+2. **模型量化**：
+   - 使用INT8量化减少计算负担
+   - 动态量化提升推理速度
+   - 保持模型精度的同时提升性能
+
+3. **内存优化**：
+   - 减少模型加载时的内存占用
+   - 优化推理过程中的内存分配
+   - 及时释放不必要的内存资源
+
+**文档更新**：
+同步更新了`GPU_TROUBLESHOOTING_GUIDE.md`，添加了：
+- ONNX Runtime版本升级说明
+- NNAPI弃用的影响分析
+- 针对华为HarmonyOS设备的优化建议
+- CPU模式下的性能调优方案
+
+**预期效果**：
+- 提升在新Android设备上的兼容性
+- 改善推理性能和稳定性
+- 为未来的GPU加速技术迁移做好准备
+- 提供更好的错误处理和日志信息
+
+### 3.20 Rust分词器集成
 
 为了提高分词性能和跨平台一致性，我们实现了基于Rust的分词器库，并通过JNI集成到Android应用中。这种实现方式具有以下优势：
 
@@ -1005,6 +1341,34 @@ SQLiteVectorDatabaseHandler 存储向量到数据库
     - 添加了推理性能统计功能，在模型输出完成后自动追加统计信息：
       - 推理时间：记录从开始推理到结束的总时间（秒）
       - 内存最大占用：监控推理过程中的内存峰值使用情况（MB）
+
+21. **GPU加速优化与HarmonyOS适配**：
+    - **HarmonyOS GPU适配最佳实践**：
+      - 针对华为HarmonyOS设备实现专门的GPU优化策略，优先使用OpenCL和Vulkan API
+      - 实现HarmonyOS特定的GPU权限检测，包括ohos.permission.USE_GPU权限验证
+      - 提供系统级GPU调度策略优化，包括GPU频率调节和内存管理
+      - 支持Vulkan计算支持检测和设备本地内存配置优化
+    - **Mali GPU性能优化策略**：
+      - 实现Mali GPU架构自动检测，支持Mali-G610等主流Mali GPU
+      - 提供Mali GPU特定的ONNX Runtime配置，包括线程数、内存带宽、卷积优化
+      - 实现Mali GPU性能实时监控，包括GPU使用率、频率和温度监控
+      - 支持GPU频率调节器优化，自动设置性能模式和最小频率
+      - 提供Mali GPU内存分配策略，包括内存池大小、压缩和垃圾回收优化
+    - **OpenGL ES计算着色器加速**：
+      - 实现OpenGL ES 3.2计算着色器的GPU加速支持
+      - 提供基础计算和矩阵乘法的计算着色器程序
+      - 实现GPU内存缓冲区管理和计算结果高效读取
+      - 支持计算着色器资源的自动清理和释放
+    - **GPU加速错误处理与降级策略**：
+      - 实现渐进式GPU加速启用，按优先级尝试不同GPU后端
+      - 提供详细的GPU错误诊断和针对性建议
+      - 实现GPU加速失败时的自动CPU降级机制
+      - 支持Mali GPU特性检测，包括OpenCL、Vulkan、计算着色器和FP16支持检查
+    - **GPU配置管理与权限处理**：
+      - 在AndroidManifest.xml中添加完整的GPU相关权限和硬件特性声明
+      - 实现GPU配置有效性检查，包括硬件特性、权限和驱动支持
+      - 提供GPU故障排除指南，包含常见问题FAQ和修复方案
+      - 支持HarmonyOS和标准Android设备的差异化GPU配置策略
       - 生成速度：计算每秒生成的token数量（token/s）
     - 实现了内存监控机制：
       - 添加了`getUsedMemory()`方法，利用Java Runtime API获取当前内存使用情况

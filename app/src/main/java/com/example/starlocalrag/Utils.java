@@ -4,6 +4,7 @@ import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
+import com.example.starlocalrag.LogManager;
 import android.widget.Toast;
 
 import java.io.BufferedReader;
@@ -31,7 +32,7 @@ public class Utils {
                 content.append(line).append("\n");
             }
         } catch (IOException e) {
-            Log.e(TAG, "读取文件失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "读取文件失败: " + e.getMessage(), e);
             throw e;
         }
         return content.toString();
@@ -45,7 +46,7 @@ public class Utils {
      */
     public static void showToastSafely(final Context context, final String message, final int duration) {
         if (context == null) {
-            Log.e(TAG, "无法显示Toast：Context为空");
+            LogManager.logE(TAG, "无法显示Toast：Context为空");
             return;
         }
         
@@ -58,11 +59,11 @@ public class Utils {
                     Toast.makeText(appContext, message, duration).show();
                 } catch (Exception e) {
                     // 捕获所有可能的异常，避免崩溃
-                    Log.e(TAG, "显示Toast失败: " + e.getMessage());
+                    LogManager.logE(TAG, "显示Toast失败: " + e.getMessage());
                 }
             });
         } catch (Exception e) {
-            Log.e(TAG, "启动Toast线程失败: " + e.getMessage());
+            LogManager.logE(TAG, "启动Toast线程失败: " + e.getMessage());
         }
     }
 }

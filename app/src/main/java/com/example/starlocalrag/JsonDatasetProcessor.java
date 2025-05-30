@@ -42,30 +42,30 @@ public class JsonDatasetProcessor {
         List<String> chunks = new ArrayList<>();
         
         try {
-            Log.d(TAG, "开始处理JSON数据，内容长度: " + jsonContent.length() + " 字符");
+            LogManager.logD(TAG, "开始处理JSON数据，内容长度: " + jsonContent.length() + " 字符");
             
             // 首先尝试解析为 JSON 对象或数组
             if (jsonContent.trim().startsWith("[")) {
                 // JSON 数组格式
                 JSONArray jsonArray = new JSONArray(jsonContent);
-                Log.d(TAG, "检测到JSON数组格式，共 " + jsonArray.length() + " 个元素");
+                LogManager.logD(TAG, "检测到JSON数组格式，共 " + jsonArray.length() + " 个元素");
                 processJsonArray(context, jsonArray, chunks);
             } else if (jsonContent.trim().startsWith("{")) {
                 // JSON 对象格式
                 JSONObject jsonObject = new JSONObject(jsonContent);
-                Log.d(TAG, "检测到JSON对象格式，包含 " + jsonObject.length() + " 个字段");
+                LogManager.logD(TAG, "检测到JSON对象格式，包含 " + jsonObject.length() + " 个字段");
                 processJsonObject(context, jsonObject, chunks);
             } else {
-                Log.e(TAG, "无法识别的 JSON 格式");
+                LogManager.logE(TAG, "无法识别的 JSON 格式");
                 return chunks;
             }
             
-            Log.d(TAG, "JSON 处理完成，生成 " + chunks.size() + " 个文本块");
-            Log.d(TAG, "优化开关状态: " + (chunks.size() > 0 ? "开启" : "关闭"));
-            Log.d(TAG, "分块数量: " + chunks.size());
+            LogManager.logD(TAG, "JSON 处理完成，生成 " + chunks.size() + " 个文本块");
+            LogManager.logD(TAG, "优化开关状态: " + (chunks.size() > 0 ? "开启" : "关闭"));
+            LogManager.logD(TAG, "分块数量: " + chunks.size());
             return chunks;
         } catch (JSONException e) {
-            Log.e(TAG, "JSON 解析失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "JSON 解析失败: " + e.getMessage(), e);
             return chunks;
         }
     }
@@ -80,37 +80,37 @@ public class JsonDatasetProcessor {
         List<String> chunks = new ArrayList<>();
         
         try {
-            Log.d(TAG, "开始处理JSON数据，内容长度: " + jsonContent.length() + " 字符" + 
+            LogManager.logD(TAG, "开始处理JSON数据，内容长度: " + jsonContent.length() + " 字符" + 
                   (ignoreMinSize ? " (忽略最小块大小限制)" : ""));
             
             // 首先尝试解析为 JSON 对象或数组
             if (jsonContent.trim().startsWith("[")) {
                 // JSON 数组格式
                 JSONArray jsonArray = new JSONArray(jsonContent);
-                Log.d(TAG, "检测到JSON数组格式，共 " + jsonArray.length() + " 个元素");
+                LogManager.logD(TAG, "检测到JSON数组格式，共 " + jsonArray.length() + " 个元素");
                 
                 // 检查是否为特定数据集
                 if (ignoreMinSize) {
-                    Log.d(TAG, "使用特定数据集处理模式，忽略最小块大小限制");
+                    LogManager.logD(TAG, "使用特定数据集处理模式，忽略最小块大小限制");
                 }
                 
                 processJsonArray(context, jsonArray, chunks, ignoreMinSize);
             } else if (jsonContent.trim().startsWith("{")) {
                 // JSON 对象格式
                 JSONObject jsonObject = new JSONObject(jsonContent);
-                Log.d(TAG, "检测到JSON对象格式，包含 " + jsonObject.length() + " 个字段");
+                LogManager.logD(TAG, "检测到JSON对象格式，包含 " + jsonObject.length() + " 个字段");
                 processJsonObject(context, jsonObject, chunks);
             } else {
-                Log.e(TAG, "无法识别的 JSON 格式");
+                LogManager.logE(TAG, "无法识别的 JSON 格式");
                 return chunks;
             }
             
-            Log.d(TAG, "JSON 处理完成，生成 " + chunks.size() + " 个文本块");
-            Log.d(TAG, "优化开关状态: " + (chunks.size() > 0 ? "开启" : "关闭"));
-            Log.d(TAG, "分块数量: " + chunks.size());
+            LogManager.logD(TAG, "JSON 处理完成，生成 " + chunks.size() + " 个文本块");
+            LogManager.logD(TAG, "优化开关状态: " + (chunks.size() > 0 ? "开启" : "关闭"));
+            LogManager.logD(TAG, "分块数量: " + chunks.size());
             return chunks;
         } catch (JSONException e) {
-            Log.e(TAG, "JSON 解析失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "JSON 解析失败: " + e.getMessage(), e);
             return chunks;
         }
     }
@@ -122,7 +122,7 @@ public class JsonDatasetProcessor {
      */
     public static boolean isJsonContent(String text) {
         if (text == null || text.trim().isEmpty()) {
-            Log.d(TAG, "文本为空，不是JSON格式");
+            LogManager.logD(TAG, "文本为空，不是JSON格式");
             return false;
         }
         
@@ -135,23 +135,23 @@ public class JsonDatasetProcessor {
         boolean potentialJson = (startsWithBrace && endsWithBrace) || (startsWithBracket && endsWithBracket);
         
         if (!potentialJson) {
-            Log.d(TAG, "文本不符合JSON基本格式要求（不是以{或[开头，以}或]结尾）");
+            LogManager.logD(TAG, "文本不符合JSON基本格式要求（不是以{或[开头，以}或]结尾）");
             return false;
         }
         
         // 检查是否为Alpaca格式的JSON数组
         if (startsWithBracket && trimmedText.contains("\"instruction\"") && 
             (trimmedText.contains("\"output\"") || trimmedText.contains("\"response\""))) {
-            Log.d(TAG, "检测到可能是Alpaca格式的JSON数组");
+            LogManager.logD(TAG, "检测到可能是Alpaca格式的JSON数组");
             
             // 尝试解析完整文本
             try {
                 new JSONArray(trimmedText);
-                Log.d(TAG, "成功解析完整JSON数组，确认为有效JSON格式");
+                LogManager.logD(TAG, "成功解析完整JSON数组，确认为有效JSON格式");
                 return true;
             } catch (JSONException e) {
                 // 如果完整解析失败，尝试修复和部分解析
-                Log.d(TAG, "完整JSON解析失败: " + e.getMessage() + "，尝试修复和部分解析");
+                LogManager.logD(TAG, "完整JSON解析失败: " + e.getMessage() + "，尝试修复和部分解析");
                 
                 try {
                     // 尝试解析前10个元素，检查是否为有效的JSON数组格式
@@ -202,11 +202,11 @@ public class JsonDatasetProcessor {
                     if (elementCount > 0) {
                         String partialJson = validJsonBuilder.toString();
                         new JSONArray(partialJson);
-                        Log.d(TAG, "部分JSON解析成功，找到 " + elementCount + " 个有效元素，确认为JSON格式");
+                        LogManager.logD(TAG, "部分JSON解析成功，找到 " + elementCount + " 个有效元素，确认为JSON格式");
                         return true;
                     }
                 } catch (Exception ex) {
-                    Log.d(TAG, "部分JSON解析也失败: " + ex.getMessage());
+                    LogManager.logD(TAG, "部分JSON解析也失败: " + ex.getMessage());
                 }
             }
         }
@@ -228,31 +228,31 @@ public class JsonDatasetProcessor {
                         String firstElement = startPart.substring(0, firstElementEnd) + "]";
                         try {
                             new JSONArray(firstElement);
-                            Log.d(TAG, "成功解析JSON数组的第一个元素，确认为有效JSON格式");
+                            LogManager.logD(TAG, "成功解析JSON数组的第一个元素，确认为有效JSON格式");
                             return true;
                         } catch (JSONException e) {
-                            Log.d(TAG, "第一个元素解析失败: " + e.getMessage());
+                            LogManager.logD(TAG, "第一个元素解析失败: " + e.getMessage());
                         }
                     }
                 }
                 
-                Log.d(TAG, "文件过大，无法完整验证JSON格式，但基本结构符合JSON要求");
+                LogManager.logD(TAG, "文件过大，无法完整验证JSON格式，但基本结构符合JSON要求");
                 return potentialJson; // 返回基于基本结构的判断
             } else {
                 // 对于小文件，尝试完整解析
                 if (startsWithBrace) {
                     new JSONObject(trimmedText);
-                    Log.d(TAG, "成功解析JSON对象格式");
+                    LogManager.logD(TAG, "成功解析JSON对象格式");
                 } else {
                     new JSONArray(trimmedText);
-                    Log.d(TAG, "成功解析JSON数组格式");
+                    LogManager.logD(TAG, "成功解析JSON数组格式");
                 }
                 
-                Log.d(TAG, "文本是有效的JSON格式，总长度: " + trimmedText.length() + " 字符");
+                LogManager.logD(TAG, "文本是有效的JSON格式，总长度: " + trimmedText.length() + " 字符");
                 return true;
             }
         } catch (JSONException e) {
-            Log.d(TAG, "JSON解析失败: " + e.getMessage() + "，可能不是有效的JSON格式");
+            LogManager.logD(TAG, "JSON解析失败: " + e.getMessage() + "，可能不是有效的JSON格式");
             return false;
         }
     }
@@ -324,7 +324,7 @@ public class JsonDatasetProcessor {
     private static void processJsonArray(Context context, JSONArray jsonArray, List<String> chunks) throws JSONException {
         // 检查是否为空数组
         if (jsonArray.length() == 0) {
-            Log.d(TAG, "JSON数组为空，无法处理");
+            LogManager.logD(TAG, "JSON数组为空，无法处理");
             return;
         }
         
@@ -332,7 +332,7 @@ public class JsonDatasetProcessor {
         JSONObject firstItem = null;
         try {
             firstItem = jsonArray.getJSONObject(0);
-            Log.d(TAG, "成功获取JSON数组第一个元素，开始识别格式");
+            LogManager.logD(TAG, "成功获取JSON数组第一个元素，开始识别格式");
             
             // 输出第一个元素的所有字段，帮助调试
             Iterator<String> keys = firstItem.keys();
@@ -341,11 +341,11 @@ public class JsonDatasetProcessor {
                 String key = keys.next();
                 fieldsInfo.append(key).append(", ");
             }
-            Log.d(TAG, fieldsInfo.toString());
+            LogManager.logD(TAG, fieldsInfo.toString());
             
         } catch (JSONException e) {
             // 如果不是对象，可能是简单数组，直接返回
-            Log.d(TAG, "JSON 数组元素不是对象，无法识别数据集类型: " + e.getMessage());
+            LogManager.logD(TAG, "JSON 数组元素不是对象，无法识别数据集类型: " + e.getMessage());
             return;
         }
         
@@ -355,27 +355,27 @@ public class JsonDatasetProcessor {
         boolean isDPO = isDPOFormat(firstItem);
         boolean isConversation = isConversationFormat(firstItem);
         
-        Log.d(TAG, "数据集格式识别结果: isAlpaca=" + isAlpaca + ", isCoT=" + isCoT + 
+        LogManager.logD(TAG, "数据集格式识别结果: isAlpaca=" + isAlpaca + ", isCoT=" + isCoT + 
               ", isDPO=" + isDPO + ", isConversation=" + isConversation);
         
         // 检查是否为特定数据集，需要特殊处理
         boolean isSpecialDataset = isSpecialDataset(jsonArray);
         
         if (isAlpaca) {
-            Log.d(TAG, "识别为Alpaca格式数据集" + (isSpecialDataset ? " (特定数据集，忽略大小限制)" : ""));
+            LogManager.logD(TAG, "识别为Alpaca格式数据集" + (isSpecialDataset ? " (特定数据集，忽略大小限制)" : ""));
             processAlpacaDataset(context, jsonArray, chunks, isSpecialDataset);
         } else if (isCoT) {
-            Log.d(TAG, "识别为CoT格式数据集" + (isSpecialDataset ? " (特定数据集，忽略大小限制)" : ""));
+            LogManager.logD(TAG, "识别为CoT格式数据集" + (isSpecialDataset ? " (特定数据集，忽略大小限制)" : ""));
             processCoTDataset(context, jsonArray, chunks, isSpecialDataset);
         } else if (isDPO) {
-            Log.d(TAG, "识别为DPO格式数据集" + (isSpecialDataset ? " (特定数据集，忽略大小限制)" : ""));
+            LogManager.logD(TAG, "识别为DPO格式数据集" + (isSpecialDataset ? " (特定数据集，忽略大小限制)" : ""));
             processDPODataset(context, jsonArray, chunks, isSpecialDataset);
         } else if (isConversation) {
-            Log.d(TAG, "识别为对话格式数据集" + (isSpecialDataset ? " (特定数据集，忽略大小限制)" : ""));
+            LogManager.logD(TAG, "识别为对话格式数据集" + (isSpecialDataset ? " (特定数据集，忽略大小限制)" : ""));
             processConversationDataset(context, jsonArray, chunks, isSpecialDataset);
         } else {
             // 未识别的格式，尝试通用处理
-            Log.d(TAG, "未识别的数据集格式，尝试通用处理");
+            LogManager.logD(TAG, "未识别的数据集格式，尝试通用处理");
             processGenericJsonArray(context, jsonArray, chunks);
         }
     }
@@ -389,7 +389,7 @@ public class JsonDatasetProcessor {
     private static void processJsonArray(Context context, JSONArray jsonArray, List<String> chunks, boolean ignoreMinSize) throws JSONException {
         // 检查是否为空数组
         if (jsonArray.length() == 0) {
-            Log.d(TAG, "JSON数组为空，无法处理");
+            LogManager.logD(TAG, "JSON数组为空，无法处理");
             return;
         }
         
@@ -397,7 +397,7 @@ public class JsonDatasetProcessor {
         JSONObject firstItem = null;
         try {
             firstItem = jsonArray.getJSONObject(0);
-            Log.d(TAG, "成功获取JSON数组第一个元素，开始识别格式");
+            LogManager.logD(TAG, "成功获取JSON数组第一个元素，开始识别格式");
             
             // 输出第一个元素的所有字段，帮助调试
             Iterator<String> keys = firstItem.keys();
@@ -406,11 +406,11 @@ public class JsonDatasetProcessor {
                 String key = keys.next();
                 fieldsInfo.append(key).append(", ");
             }
-            Log.d(TAG, fieldsInfo.toString());
+            LogManager.logD(TAG, fieldsInfo.toString());
             
         } catch (JSONException e) {
             // 如果不是对象，可能是简单数组，直接返回
-            Log.d(TAG, "JSON 数组元素不是对象，无法识别数据集类型: " + e.getMessage());
+            LogManager.logD(TAG, "JSON 数组元素不是对象，无法识别数据集类型: " + e.getMessage());
             return;
         }
         
@@ -420,27 +420,27 @@ public class JsonDatasetProcessor {
         boolean isDPO = isDPOFormat(firstItem);
         boolean isConversation = isConversationFormat(firstItem);
         
-        Log.d(TAG, "数据集格式识别结果: isAlpaca=" + isAlpaca + ", isCoT=" + isCoT + 
+        LogManager.logD(TAG, "数据集格式识别结果: isAlpaca=" + isAlpaca + ", isCoT=" + isCoT + 
               ", isDPO=" + isDPO + ", isConversation=" + isConversation);
         
         // 检查是否为特定数据集，需要特殊处理
         boolean isSpecialDataset = isSpecialDataset(jsonArray);
         
         if (isAlpaca) {
-            Log.d(TAG, "识别为Alpaca格式数据集" + (isSpecialDataset ? " (特定数据集，忽略大小限制)" : ""));
+            LogManager.logD(TAG, "识别为Alpaca格式数据集" + (isSpecialDataset ? " (特定数据集，忽略大小限制)" : ""));
             processAlpacaDataset(context, jsonArray, chunks, isSpecialDataset);
         } else if (isCoT) {
-            Log.d(TAG, "识别为CoT格式数据集" + (isSpecialDataset ? " (特定数据集，忽略大小限制)" : ""));
+            LogManager.logD(TAG, "识别为CoT格式数据集" + (isSpecialDataset ? " (特定数据集，忽略大小限制)" : ""));
             processCoTDataset(context, jsonArray, chunks, isSpecialDataset);
         } else if (isDPO) {
-            Log.d(TAG, "识别为DPO格式数据集" + (isSpecialDataset ? " (特定数据集，忽略大小限制)" : ""));
+            LogManager.logD(TAG, "识别为DPO格式数据集" + (isSpecialDataset ? " (特定数据集，忽略大小限制)" : ""));
             processDPODataset(context, jsonArray, chunks, isSpecialDataset);
         } else if (isConversation) {
-            Log.d(TAG, "识别为对话格式数据集" + (isSpecialDataset ? " (特定数据集，忽略大小限制)" : ""));
+            LogManager.logD(TAG, "识别为对话格式数据集" + (isSpecialDataset ? " (特定数据集，忽略大小限制)" : ""));
             processConversationDataset(context, jsonArray, chunks, isSpecialDataset);
         } else {
             // 未识别的格式，尝试通用处理
-            Log.d(TAG, "未识别的数据集格式，尝试通用处理");
+            LogManager.logD(TAG, "未识别的数据集格式，尝试通用处理");
             processGenericJsonArray(context, jsonArray, chunks);
         }
     }
@@ -464,7 +464,7 @@ public class JsonDatasetProcessor {
                 if (firstItem.has("instruction") && 
                     (firstItem.has("output") || firstItem.has("response")) &&
                     firstItem.optString("instruction", "").contains("STAR")) {
-                    Log.d(TAG, "检测到STAR特定数据集，将忽略最小块大小限制");
+                    LogManager.logD(TAG, "检测到STAR特定数据集，将忽略最小块大小限制");
                     return true;
                 }
                 
@@ -476,7 +476,7 @@ public class JsonDatasetProcessor {
                         String fileName = Log.getStackTraceString(new Throwable());
                         if (fileName.contains("datasets-sb") || fileName.contains("alpaca") || 
                             fileName.contains("STAR") || fileName.contains("star")) {
-                            Log.d(TAG, "通过堆栈信息检测到特定数据集，将忽略最小块大小限制");
+                            LogManager.logD(TAG, "通过堆栈信息检测到特定数据集，将忽略最小块大小限制");
                             return true;
                         }
                     }
@@ -485,7 +485,7 @@ public class JsonDatasetProcessor {
             
             return false;
         } catch (Exception e) {
-            Log.e(TAG, "检查特定数据集时出错: " + e.getMessage());
+            LogManager.logE(TAG, "检查特定数据集时出错: " + e.getMessage());
             return false;
         }
     }
@@ -513,7 +513,7 @@ public class JsonDatasetProcessor {
         }
         
         // 未识别的格式，尝试通用处理
-        Log.d(TAG, "未识别的数据集格式，尝试通用处理");
+        LogManager.logD(TAG, "未识别的数据集格式，尝试通用处理");
         processGenericJsonObject(context, jsonObject, chunks);
     }
     
@@ -536,7 +536,7 @@ public class JsonDatasetProcessor {
         boolean isAlpaca = hasInstruction && (hasOutput || hasResponse || hasCompletion);
         
         // 详细日志
-        Log.d(TAG, "格式检查 - Alpaca: " + 
+        LogManager.logD(TAG, "格式检查 - Alpaca: " + 
               "hasInstruction=" + hasInstruction + 
               ", hasOutput=" + hasOutput + 
               ", hasResponse=" + hasResponse + 
@@ -560,11 +560,11 @@ public class JsonDatasetProcessor {
                 else if (hasResponse) outputContent = response;
                 else if (hasCompletion) outputContent = completion;
                 
-                Log.d(TAG, "Alpaca格式样本: instruction长度=" + instruction.length() + 
+                LogManager.logD(TAG, "Alpaca格式样本: instruction长度=" + instruction.length() + 
                       ", 输出内容长度=" + outputContent.length() +
                       (hasInput ? ", input长度=" + input.length() : ""));
             } catch (Exception e) {
-                Log.e(TAG, "读取Alpaca字段时出错: " + e.getMessage());
+                LogManager.logE(TAG, "读取Alpaca字段时出错: " + e.getMessage());
             }
         }
         
@@ -601,7 +601,7 @@ public class JsonDatasetProcessor {
      * @param ignoreMinSize 是否忽略最小块大小限制，严格按照项的个数处理
      */
     private static void processAlpacaDataset(Context context, JSONArray jsonArray, List<String> chunks, boolean ignoreMinSize) throws JSONException {
-        Log.d(TAG, "开始处理Alpaca格式数据集...");
+        LogManager.logD(TAG, "开始处理Alpaca格式数据集...");
         int originalChunksSize = chunks.size();
         int validItemCount = 0;
         int skippedItemCount = 0;
@@ -614,27 +614,27 @@ public class JsonDatasetProcessor {
             if (item.has("instruction")) {
                 String instruction = item.getString("instruction");
                 chunk.append("指令: ").append(instruction).append("\n\n");
-                Log.d(TAG, "Alpaca项[" + i + "] - 指令长度: " + instruction.length());
+                LogManager.logD(TAG, "Alpaca项[" + i + "] - 指令长度: " + instruction.length());
             }
             
             // 添加输入（如果有）
             if (item.has("input") && !item.getString("input").isEmpty()) {
                 String input = item.getString("input");
                 chunk.append("输入: ").append(input).append("\n\n");
-                Log.d(TAG, "Alpaca项[" + i + "] - 输入长度: " + input.length());
+                LogManager.logD(TAG, "Alpaca项[" + i + "] - 输入长度: " + input.length());
             }
             
             // 添加输出/响应/completion
             String output = "";
             if (item.has("output")) {
                 output = item.getString("output");
-                Log.d(TAG, "Alpaca项[" + i + "] - 输出字段长度: " + output.length());
+                LogManager.logD(TAG, "Alpaca项[" + i + "] - 输出字段长度: " + output.length());
             } else if (item.has("response")) {
                 output = item.getString("response");
-                Log.d(TAG, "Alpaca项[" + i + "] - 响应字段长度: " + output.length());
+                LogManager.logD(TAG, "Alpaca项[" + i + "] - 响应字段长度: " + output.length());
             } else if (item.has("completion")) {
                 output = item.getString("completion");
-                Log.d(TAG, "Alpaca项[" + i + "] - completion字段长度: " + output.length());
+                LogManager.logD(TAG, "Alpaca项[" + i + "] - completion字段长度: " + output.length());
             }
             
             if (!output.isEmpty()) {
@@ -645,7 +645,7 @@ public class JsonDatasetProcessor {
             if (item.has("system") && !item.getString("system").isEmpty()) {
                 String system = item.getString("system");
                 chunk.append("\n\n系统: ").append(system);
-                Log.d(TAG, "Alpaca项[" + i + "] - 系统提示长度: " + system.length());
+                LogManager.logD(TAG, "Alpaca项[" + i + "] - 系统提示长度: " + system.length());
             }
             
             String chunkText = chunk.toString();
@@ -656,21 +656,21 @@ public class JsonDatasetProcessor {
                 chunks.add(chunkText);
                 validItemCount++;
                 // 记录块大小，用于调试
-                Log.d(TAG, "添加Alpaca文本块[" + i + "]: 大小=" + chunkText.length() + " 字符" + 
+                LogManager.logD(TAG, "添加Alpaca文本块[" + i + "]: 大小=" + chunkText.length() + " 字符" + 
                       (ignoreMinSize && chunkText.length() < minChunkSize ? " (忽略大小限制)" : ""));
             } else {
                 skippedItemCount++;
-                Log.d(TAG, "跳过过小的Alpaca文本块[" + i + "]: 大小=" + chunkText.length() + " 字符，小于最小限制 " + minChunkSize);
+                LogManager.logD(TAG, "跳过过小的Alpaca文本块[" + i + "]: 大小=" + chunkText.length() + " 字符，小于最小限制 " + minChunkSize);
             }
             
             // 每处理100个项目记录一次日志
             if (i % 100 == 0 || i == jsonArray.length() - 1) {
-                Log.d(TAG, "Alpaca数据集处理进度: " + (i + 1) + "/" + jsonArray.length());
+                LogManager.logD(TAG, "Alpaca数据集处理进度: " + (i + 1) + "/" + jsonArray.length());
             }
         }
         
         int addedChunks = chunks.size() - originalChunksSize;
-        Log.d(TAG, "Alpaca数据集处理完成，总项目数: " + jsonArray.length() + 
+        LogManager.logD(TAG, "Alpaca数据集处理完成，总项目数: " + jsonArray.length() + 
               ", 有效项目: " + validItemCount + 
               ", 跳过项目: " + skippedItemCount + 
               ", 添加块数: " + addedChunks +
@@ -689,7 +689,7 @@ public class JsonDatasetProcessor {
      * 处理 CoT (Chain of Thought) 格式数据集
      */
     private static void processCoTDataset(Context context, JSONArray jsonArray, List<String> chunks, boolean ignoreMinSize) throws JSONException {
-        Log.d(TAG, "开始处理CoT格式数据集...");
+        LogManager.logD(TAG, "开始处理CoT格式数据集...");
         for (int i = 0; i < jsonArray.length(); i++) {
             JSONObject item = jsonArray.getJSONObject(i);
             StringBuilder chunk = new StringBuilder();
@@ -718,18 +718,18 @@ public class JsonDatasetProcessor {
             if (ignoreMinSize || chunkText.length() >= minChunkSize) {
                 chunks.add(chunkText);
                 // 记录块大小，用于调试
-                Log.d(TAG, "添加CoT文本块: 大小=" + chunkText.length() + " 字符" + 
+                LogManager.logD(TAG, "添加CoT文本块: 大小=" + chunkText.length() + " 字符" + 
                       (ignoreMinSize && chunkText.length() < minChunkSize ? " (忽略大小限制)" : ""));
             } else {
-                Log.d(TAG, "跳过过小的CoT文本块: 大小=" + chunkText.length() + " 字符，小于最小限制 " + minChunkSize);
+                LogManager.logD(TAG, "跳过过小的CoT文本块: 大小=" + chunkText.length() + " 字符，小于最小限制 " + minChunkSize);
             }
             
             // 每处理100个项目记录一次日志
             if (i % 100 == 0 || i == jsonArray.length() - 1) {
-                Log.d(TAG, "CoT数据集处理进度: " + (i + 1) + "/" + jsonArray.length());
+                LogManager.logD(TAG, "CoT数据集处理进度: " + (i + 1) + "/" + jsonArray.length());
             }
         }
-        Log.d(TAG, "CoT数据集处理完成，共提取 " + chunks.size() + " 个训练样本");
+        LogManager.logD(TAG, "CoT数据集处理完成，共提取 " + chunks.size() + " 个训练样本");
     }
     
     /**
@@ -766,14 +766,14 @@ public class JsonDatasetProcessor {
                 if (ignoreMinSize || chunkText.length() >= minChunkSize) {
                     chunks.add(chunkText);
                     // 记录块大小，用于调试
-                    Log.d(TAG, "添加DPO文本块: 大小=" + chunkText.length() + " 字符" + 
+                    LogManager.logD(TAG, "添加DPO文本块: 大小=" + chunkText.length() + " 字符" + 
                           (ignoreMinSize && chunkText.length() < minChunkSize ? " (忽略大小限制)" : ""));
                 } else {
-                    Log.d(TAG, "跳过过小的DPO文本块: 大小=" + chunkText.length() + " 字符，小于最小限制 " + minChunkSize);
+                    LogManager.logD(TAG, "跳过过小的DPO文本块: 大小=" + chunkText.length() + " 字符，小于最小限制 " + minChunkSize);
                 }
                 
                 // 添加调试日志
-                Log.d(TAG, "DPO数据集项处理: 提取prompt和chosen，忽略rejected字段");
+                LogManager.logD(TAG, "DPO数据集项处理: 提取prompt和chosen，忽略rejected字段");
             }
             
             // 注意：我们不使用拒绝的回答，因为它可能会降低训练质量
@@ -814,10 +814,10 @@ public class JsonDatasetProcessor {
                 if (ignoreMinSize || chunkText.length() >= minChunkSize) {
                     chunks.add(chunkText);
                     // 记录块大小，用于调试
-                    Log.d(TAG, "添加对话文本块: 大小=" + chunkText.length() + " 字符" + 
+                    LogManager.logD(TAG, "添加对话文本块: 大小=" + chunkText.length() + " 字符" + 
                           (ignoreMinSize && chunkText.length() < minChunkSize ? " (忽略大小限制)" : ""));
                 } else {
-                    Log.d(TAG, "跳过过小的对话文本块: 大小=" + chunkText.length() + " 字符，小于最小限制 " + minChunkSize);
+                    LogManager.logD(TAG, "跳过过小的对话文本块: 大小=" + chunkText.length() + " 字符，小于最小限制 " + minChunkSize);
                 }
             } else if (item.has("input") && item.has("output")) {
                 // 处理输入-输出对
@@ -831,10 +831,10 @@ public class JsonDatasetProcessor {
                 if (ignoreMinSize || chunkText.length() >= minChunkSize) {
                     chunks.add(chunkText);
                     // 记录块大小，用于调试
-                    Log.d(TAG, "添加对话文本块: 大小=" + chunkText.length() + " 字符" + 
+                    LogManager.logD(TAG, "添加对话文本块: 大小=" + chunkText.length() + " 字符" + 
                           (ignoreMinSize && chunkText.length() < minChunkSize ? " (忽略大小限制)" : ""));
                 } else {
-                    Log.d(TAG, "跳过过小的对话文本块: 大小=" + chunkText.length() + " 字符，小于最小限制 " + minChunkSize);
+                    LogManager.logD(TAG, "跳过过小的对话文本块: 大小=" + chunkText.length() + " 字符，小于最小限制 " + minChunkSize);
                 }
             } else {
                 // 未识别的对话格式，尝试通用处理
@@ -887,9 +887,9 @@ public class JsonDatasetProcessor {
         if (chunkText.length() >= minChunkSize) {
             chunks.add(chunkText.trim());
             // 记录块大小，用于调试
-            Log.d(TAG, "添加对话文本块: 大小=" + chunkText.length() + " 字符");
+            LogManager.logD(TAG, "添加对话文本块: 大小=" + chunkText.length() + " 字符");
         } else {
-            Log.d(TAG, "跳过过小的对话文本块: 大小=" + chunkText.length() + " 字符，小于最小限制 " + minChunkSize);
+            LogManager.logD(TAG, "跳过过小的对话文本块: 大小=" + chunkText.length() + " 字符，小于最小限制 " + minChunkSize);
         }
     }
     
@@ -924,9 +924,9 @@ public class JsonDatasetProcessor {
         if (chunkText.length() >= minChunkSize) {
             chunks.add(chunkText.trim());
             // 记录块大小，用于调试
-            Log.d(TAG, "添加对话文本块: 大小=" + chunkText.length() + " 字符");
+            LogManager.logD(TAG, "添加对话文本块: 大小=" + chunkText.length() + " 字符");
         } else {
-            Log.d(TAG, "跳过过小的对话文本块: 大小=" + chunkText.length() + " 字符，小于最小限制 " + minChunkSize);
+            LogManager.logD(TAG, "跳过过小的对话文本块: 大小=" + chunkText.length() + " 字符，小于最小限制 " + minChunkSize);
         }
     }
     
@@ -951,14 +951,14 @@ public class JsonDatasetProcessor {
                         if (chunkText.length() >= minChunkSize) {
                             chunks.add(chunkText);
                             // 记录块大小，用于调试
-                            Log.d(TAG, "添加通用文本块: 大小=" + chunkText.length() + " 字符");
+                            LogManager.logD(TAG, "添加通用文本块: 大小=" + chunkText.length() + " 字符");
                         } else {
-                            Log.d(TAG, "跳过过小的通用文本块: 大小=" + chunkText.length() + " 字符，小于最小限制 " + minChunkSize);
+                            LogManager.logD(TAG, "跳过过小的通用文本块: 大小=" + chunkText.length() + " 字符，小于最小限制 " + minChunkSize);
                         }
                     }
                 }
             } catch (JSONException e) {
-                Log.e(TAG, "处理 JSON 数组项时出错: " + e.getMessage(), e);
+                LogManager.logE(TAG, "处理 JSON 数组项时出错: " + e.getMessage(), e);
             }
         }
     }
@@ -1013,7 +1013,7 @@ public class JsonDatasetProcessor {
                 }
             } catch (JSONException e) {
                 // 忽略错误，继续处理其他键
-                Log.e(TAG, "处理键 '" + key + "' 时出错: " + e.getMessage(), e);
+                LogManager.logE(TAG, "处理键 '" + key + "' 时出错: " + e.getMessage(), e);
             }
         }
         
@@ -1023,9 +1023,9 @@ public class JsonDatasetProcessor {
         if (chunkText.length() >= minChunkSize) {
             chunks.add(chunkText.trim());
             // 记录块大小，用于调试
-            Log.d(TAG, "添加通用文本块: 大小=" + chunkText.length() + " 字符");
+            LogManager.logD(TAG, "添加通用文本块: 大小=" + chunkText.length() + " 字符");
         } else {
-            Log.d(TAG, "跳过过小的通用文本块: 大小=" + chunkText.length() + " 字符，小于最小限制 " + minChunkSize);
+            LogManager.logD(TAG, "跳过过小的通用文本块: 大小=" + chunkText.length() + " 字符，小于最小限制 " + minChunkSize);
         }
     }
 }

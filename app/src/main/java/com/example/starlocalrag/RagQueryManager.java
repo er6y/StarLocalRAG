@@ -2,6 +2,7 @@ package com.example.starlocalrag;
 
 import android.content.Context;
 import android.util.Log;
+import com.example.starlocalrag.LogManager;
 
 import com.example.starlocalrag.api.LlmApiAdapter;
 import com.example.starlocalrag.api.LlmModelFactory;
@@ -42,7 +43,7 @@ public class RagQueryManager {
         if ("无".equals(knowledgeBase) || "无可用知识库".equals(knowledgeBase)) {
             // 不使用知识库，直接构建提示词
             String fullPrompt = buildDirectPrompt(systemPrompt, userPrompt);
-            Log.d(TAG, "不使用知识库，直接构建提示词: " + fullPrompt);
+            LogManager.logD(TAG, "不使用知识库，直接构建提示词: " + fullPrompt);
             
             // 回调进度更新
             callback.onProgressUpdate("正在构建提示词...", "不使用知识库，直接构建提示词");
@@ -75,7 +76,7 @@ public class RagQueryManager {
                 try {
                     // 查询知识库获取相关内容
                     String relevantContent = queryKnowledgeBase(knowledgeBase, userPrompt);
-                    Log.d(TAG, "知识库查询结果(前200字符): " + 
+                    LogManager.logD(TAG, "知识库查询结果(前200字符): " + 
                           (relevantContent.length() > 200 ? relevantContent.substring(0, 200) + "..." : relevantContent));
                     
                     // 回调进度更新
@@ -108,7 +109,7 @@ public class RagQueryManager {
                     });
                     
                 } catch (Exception e) {
-                    Log.e(TAG, "RAG查询异常", e);
+                    LogManager.logE(TAG, "RAG查询异常", e);
                     callback.onQueryError("RAG查询错误: " + e.getMessage());
                 }
             }).start();
@@ -120,11 +121,11 @@ public class RagQueryManager {
      */
     private String queryKnowledgeBase(String knowledgeBase, String query) {
         if ("无".equals(knowledgeBase) || "无可用知识库".equals(knowledgeBase)) {
-            Log.d(TAG, "未选择知识库，跳过知识库查询");
+            LogManager.logD(TAG, "未选择知识库，跳过知识库查询");
             return ""; // 如果选择了"无"
         }
         
-        Log.d(TAG, "开始查询知识库: " + knowledgeBase);
+        LogManager.logD(TAG, "开始查询知识库: " + knowledgeBase);
         
         try {
             // 获取知识库目录
@@ -145,7 +146,7 @@ public class RagQueryManager {
                 for (int i = 0; i < count; i++) {
                     if (files[i].isFile() && files[i].getName().endsWith(".txt")) {
                         try (BufferedReader reader = new BufferedReader(new FileReader(files[i]))) {
-                            Log.d(TAG, "读取知识库文件: " + files[i].getName());
+                            LogManager.logD(TAG, "读取知识库文件: " + files[i].getName());
                             
                             String line;
                             while ((line = reader.readLine()) != null) {
@@ -158,7 +159,7 @@ public class RagQueryManager {
             
             return relevantContent.toString();
         } catch (IOException e) {
-            Log.e(TAG, "查询知识库错误", e);
+            LogManager.logE(TAG, "查询知识库错误", e);
             return "查询知识库错误: " + e.getMessage();
         }
     }

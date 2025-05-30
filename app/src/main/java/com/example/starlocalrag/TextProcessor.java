@@ -3,6 +3,7 @@ package com.example.starlocalrag;
 import android.content.Context;
 import android.net.Uri;
 import android.util.Log;
+import com.example.starlocalrag.LogManager;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -49,7 +50,7 @@ public class TextProcessor {
         this.minChunkSize = ConfigManager.getMinChunkSize(context); // 获取最小分块限制
         this.documentParser = new DocumentParser(context);
         
-        Log.d(TAG, "创建TextProcessor实例，从ConfigManager获取配置：" +
+        LogManager.logD(TAG, "创建TextProcessor实例，从ConfigManager获取配置：" +
               "分块大小=" + chunkSize + ", 重叠大小=" + chunkOverlap + ", 最小分块大小=" + minChunkSize);
     }
     
@@ -69,33 +70,33 @@ public class TextProcessor {
             
             // 如果文本太长，截断处理
             if (cleanedText.length() > MAX_FILE_SIZE / 2) { // 字符数约为字节数的一半
-                Log.w(TAG, "文本过长: " + cleanedText.length() + " 字符，将被截断至 " + (MAX_FILE_SIZE / 2) + " 字符");
+                LogManager.logW(TAG, "文本过长: " + cleanedText.length() + " 字符，将被截断至 " + (MAX_FILE_SIZE / 2) + " 字符");
                 cleanedText = cleanedText.substring(0, MAX_FILE_SIZE / 2) + "\n... [文本过长，已截断]";
             }
             
             // 记录文件类型信息
             String fileName = uri.getLastPathSegment();
             if (fileName != null) {
-                Log.d(TAG, "文件名: " + fileName + ", 大小: " + cleanedText.length() + " 字符");
+                LogManager.logD(TAG, "文件名: " + fileName + ", 大小: " + cleanedText.length() + " 字符");
                 
                 // 检查是否是JSON文件
                 if (fileName.toLowerCase().endsWith(".json")) {
                     boolean jsonOptimizationEnabled = ConfigManager.isJsonDatasetSplittingEnabled(context);
-                    Log.d(TAG, "检测到JSON文件，JSON优化配置状态: " + (jsonOptimizationEnabled ? "启用" : "禁用"));
+                    LogManager.logD(TAG, "检测到JSON文件，JSON优化配置状态: " + (jsonOptimizationEnabled ? "启用" : "禁用"));
                     
                     if (jsonOptimizationEnabled) {
-                        Log.d(TAG, "将使用JsonDatasetProcessor处理JSON文件");
+                        LogManager.logD(TAG, "将使用JsonDatasetProcessor处理JSON文件");
                         // 使用JsonDatasetProcessor处理JSON文件，但不在这里直接处理
                         // 只是记录日志，实际处理在splitTextIntoChunks中进行
                     } else {
-                        Log.d(TAG, "将按普通文本处理JSON文件");
+                        LogManager.logD(TAG, "将按普通文本处理JSON文件");
                     }
                 }
             }
             
             return cleanedText;
         } catch (Exception e) {
-            Log.e(TAG, "读取文件失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "读取文件失败: " + e.getMessage(), e);
             throw new IOException("读取文件失败: " + e.getMessage(), e);
         }
     }
@@ -127,7 +128,7 @@ public class TextProcessor {
         this.chunkSize = chunkSize;
         this.chunkOverlap = chunkOverlap;
         
-        Log.d(TAG, "分块参数：块大小=" + chunkSize + "，重叠大小=" + chunkOverlap + "，最小块大小=" + minChunkSize);
+        LogManager.logD(TAG, "分块参数：块大小=" + chunkSize + "，重叠大小=" + chunkOverlap + "，最小块大小=" + minChunkSize);
         
         // 规范化文本，使其更接近PC端的文本格式
         String originalText = text;
@@ -136,25 +137,25 @@ public class TextProcessor {
         // 检测是否为JSON内容
         if (JsonDatasetProcessor.isJsonContent(text)) {
             boolean jsonOptimizationEnabled = ConfigManager.isJsonDatasetSplittingEnabled(context);
-            Log.d(TAG, "检测到JSON内容，JSON优化配置状态: " + (jsonOptimizationEnabled ? "启用" : "禁用"));
+            LogManager.logD(TAG, "检测到JSON内容，JSON优化配置状态: " + (jsonOptimizationEnabled ? "启用" : "禁用"));
             
             if (jsonOptimizationEnabled) {
-                Log.d(TAG, "使用JsonDatasetProcessor处理JSON内容");
+                LogManager.logD(TAG, "使用JsonDatasetProcessor处理JSON内容");
                 // 使用静态方法处理JSON内容
                 chunks = JsonDatasetProcessor.processJsonDataset(context, text);
                 
-                Log.d(TAG, "JSON处理完成，生成了" + chunks.size() + "个文本块");
+                LogManager.logD(TAG, "JSON处理完成，生成了" + chunks.size() + "个文本块");
                 return chunks;
             }
         }
         
         // 使用LangChain4j进行文本分割
-        Log.d(TAG, "使用LangChainTextSplitter进行文本分割");
+        LogManager.logD(TAG, "使用LangChainTextSplitter进行文本分割");
         // 从ConfigManager获取最小分块大小，而不是使用硬编码值
         LangChainTextSplitter splitter = new LangChainTextSplitter(chunkSize, chunkOverlap, minChunkSize);
         chunks = splitter.splitText(text);
         
-        Log.d(TAG, "文本分割完成，生成了" + chunks.size() + "个文本块");
+        LogManager.logD(TAG, "文本分割完成，生成了" + chunks.size() + "个文本块");
         
         return chunks;
     }
@@ -194,7 +195,7 @@ public class TextProcessor {
         
         // 记录规范化前后的文本长度差异
         int normalizedLength = text.length();
-        Log.d(TAG, "文本规范化：原始长度=" + originalLength + "，规范化后长度=" + normalizedLength + 
+        LogManager.logD(TAG, "文本规范化：原始长度=" + originalLength + "，规范化后长度=" + normalizedLength + 
               "，差异=" + (normalizedLength - originalLength));
         
         return text;

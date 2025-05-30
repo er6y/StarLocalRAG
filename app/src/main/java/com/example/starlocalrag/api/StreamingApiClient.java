@@ -5,6 +5,8 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 
+import com.example.starlocalrag.LogManager;
+
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -61,7 +63,7 @@ public class StreamingApiClient {
      */
     public void streamRequest(String apiUrl, String apiKey, String model, String prompt, StreamingCallback callback) {
         try {
-            Log.d(TAG, "准备发送流式请求: " + apiUrl);
+            LogManager.logD(TAG, "准备发送流式请求: " + apiUrl);
             
             // 检查提示词中是否包含系统提示词
             String systemPrompt = "";
@@ -85,7 +87,7 @@ public class StreamingApiClient {
             // 添加系统提示词（如果存在）
             if (!systemPrompt.isEmpty()) {
                 messages.put(new JSONObject().put("role", "system").put("content", systemPrompt));
-                Log.d(TAG, "添加系统提示词，长度: " + systemPrompt.length());
+                LogManager.logD(TAG, "添加系统提示词，长度: " + systemPrompt.length());
             }
             
             // 添加用户提示词
@@ -107,7 +109,7 @@ public class StreamingApiClient {
             client.newCall(request).enqueue(new Callback() {
                 @Override
                 public void onFailure(Call call, IOException e) {
-                    Log.e(TAG, "请求失败: " + e.getMessage(), e);
+                    LogManager.logE(TAG, "请求失败: " + e.getMessage(), e);
                     new Handler(Looper.getMainLooper()).post(() -> {
                         callback.onError("请求失败: " + e.getMessage());
                     });
@@ -116,7 +118,7 @@ public class StreamingApiClient {
                 @Override
                 public void onResponse(Call call, Response response) throws IOException {
                     if (!response.isSuccessful()) {
-                        Log.e(TAG, "请求失败，状态码: " + response.code());
+                        LogManager.logE(TAG, "请求失败，状态码: " + response.code());
                         new Handler(Looper.getMainLooper()).post(() -> {
                             callback.onError("请求失败，状态码: " + response.code());
                         });
@@ -125,7 +127,7 @@ public class StreamingApiClient {
                     
                     ResponseBody body = response.body();
                     if (body == null) {
-                        Log.e(TAG, "响应体为空");
+                        LogManager.logE(TAG, "响应体为空");
                         new Handler(Looper.getMainLooper()).post(() -> {
                             callback.onError("响应体为空");
                         });
@@ -140,7 +142,7 @@ public class StreamingApiClient {
                             String line = source.readUtf8Line();
                             if (line == null) continue;
                             
-                            //Log.d(TAG, "收到数据: " + line);
+                            //LogManager.logD(TAG, "收到数据: " + line);
                             
                             if (line.startsWith("data: ") && !line.equals("data: [DONE]")) {
                                 String jsonStr = line.substring(6).trim();
@@ -160,7 +162,7 @@ public class StreamingApiClient {
                                         });
                                     }
                                 } catch (JSONException e) {
-                                    Log.e(TAG, "解析JSON失败: " + e.getMessage(), e);
+                                    LogManager.logE(TAG, "解析JSON失败: " + e.getMessage(), e);
                                 }
                             }
                         }
@@ -171,7 +173,7 @@ public class StreamingApiClient {
                         });
                         
                     } catch (IOException e) {
-                        Log.e(TAG, "读取响应失败: " + e.getMessage(), e);
+                        LogManager.logE(TAG, "读取响应失败: " + e.getMessage(), e);
                         new Handler(Looper.getMainLooper()).post(() -> {
                             callback.onError("读取响应失败: " + e.getMessage());
                         });
@@ -182,7 +184,7 @@ public class StreamingApiClient {
             });
             
         } catch (Exception e) {
-            Log.e(TAG, "创建请求失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "创建请求失败: " + e.getMessage(), e);
             callback.onError("创建请求失败: " + e.getMessage());
         }
     }
