@@ -23,12 +23,21 @@ android {
 
     buildTypes {
         release {
-            minifyEnabled false
+            // 启用代码收缩、资源收缩和混淆以优化性能
+            minifyEnabled true
+            shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            // Removed incorrect buildConfigField and javaCompileOptions for JDK image transform
+            
+            // 添加性能优化标志
+            buildConfigField "boolean", "ENABLE_GPU_ACCELERATION", "true"
+            buildConfigField "boolean", "ENABLE_NNAPI", "true"
+            buildConfigField "int", "THREAD_COUNT", "4"  // CPU线程数优化
         }
         debug {
-            // Removed incorrect buildConfigField and javaCompileOptions for JDK image transform
+            minifyEnabled false
+            buildConfigField "boolean", "ENABLE_GPU_ACCELERATION", "true"
+            buildConfigField "boolean", "ENABLE_NNAPI", "true"
+            buildConfigField "int", "THREAD_COUNT", "2"  // Debug模式使用较少线程
         }
     }
     compileOptions {
@@ -44,13 +53,26 @@ android {
     
     // 添加dex选项以增加编译时内存
     dexOptions {
-        javaMaxHeapSize "4g"
+        javaMaxHeapSize "6g"  // 增加到6GB以提升编译性能
         preDexLibraries = false
         additionalParameters = [
             "--multi-dex",
             "--set-max-idx-number=48000"
         ]
     }
+    
+    // 添加性能优化配置
+    packagingOptions {
+        // 启用资源压缩
+        doNotStrip "*/arm64-v8a/*.so"
+        doNotStrip "*/armeabi-v7a/*.so"
+        // 配置原生库提取
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+    
+
     // If using Kotlin
     // kotlinOptions {
     //     jvmTarget = '1.8'
@@ -124,8 +146,10 @@ dependencies {
     implementation 'org.pytorch:pytorch_android:1.13.1'
     implementation 'org.pytorch:pytorch_android_torchvision:1.13.1'
     
-    // ONNX Runtime - 更新到最新版本以获得更好的GPU支持
-    implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.21.0'
+    // ONNX Runtime - 使用当前可用的最新版本
+    implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.22.0'
+    // 添加ONNX Runtime扩展（使用可用的最新版本0.13.0）
+    implementation 'com.microsoft.onnxruntime:onnxruntime-extensions-android:0.13.0'
     
     // Tokenizers JNI
     implementation project(':libs:tokenizers-jni')

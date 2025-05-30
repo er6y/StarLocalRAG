@@ -52,7 +52,7 @@ public class SettingsFragment extends Fragment {
     private TextView textViewFontSizeValue; // 字体大小值显示
     
     // LLM 推理设置相关UI组件
-    private EditText editTextMaxNewTokens; // 最大生成token数
+    private EditText editTextMaxSequenceLength; // 最大序列长度
     private EditText editTextThreads; // 推理线程数
     // 思考模式开关已移动到RAG问答界面
     
@@ -107,7 +107,7 @@ public class SettingsFragment extends Fragment {
         switchJsonDatasetSplitting = view.findViewById(R.id.switchJsonDatasetSplitting); // JSON训练集分块优化开关
         
         // 初始化 LLM 推理设置相关UI组件
-        editTextMaxNewTokens = view.findViewById(R.id.editTextMaxNewTokens);
+        editTextMaxSequenceLength = view.findViewById(R.id.editTextMaxSequenceLength);
         editTextThreads = view.findViewById(R.id.editTextThreads);
         // switchNoThinking已移动到RAG问答界面
         seekBarFontSize = view.findViewById(R.id.seekBarFontSize); // 字体大小拖动条
@@ -220,7 +220,7 @@ public class SettingsFragment extends Fragment {
             float fontSize = ConfigManager.getGlobalTextSize(context);
             
             // 加载 LLM 推理设置
-            int maxNewTokens = ConfigManager.getMaxNewTokens(context);
+            int maxSequenceLength = ConfigManager.getMaxSequenceLength(context);
             int threads = ConfigManager.getThreads(context);
             boolean noThinking = ConfigManager.getNoThinking(context);
             
@@ -238,7 +238,7 @@ public class SettingsFragment extends Fragment {
             updateFontSizeText(Math.round(fontSize) - 10);
             
             // 设置 LLM 推理设置UI
-            editTextMaxNewTokens.setText(String.valueOf(maxNewTokens));
+            editTextMaxSequenceLength.setText(String.valueOf(maxSequenceLength));
             editTextThreads.setText(String.valueOf(threads));
             // switchNoThinking已移动到RAG问答界面
             
@@ -313,23 +313,23 @@ public class SettingsFragment extends Fragment {
             float fontSize = progress + 10;
             
             // 获取 LLM 推理设置
-            String maxNewTokensStr = editTextMaxNewTokens.getText().toString().trim();
+            String maxSequenceLengthStr = editTextMaxSequenceLength.getText().toString().trim();
             String threadsStr = editTextThreads.getText().toString().trim();
             // noThinking已移动到RAG问答界面
             
             // 验证 LLM 推理设置
-            if (maxNewTokensStr.isEmpty() || threadsStr.isEmpty()) {
+            if (maxSequenceLengthStr.isEmpty() || threadsStr.isEmpty()) {
                 Toast.makeText(context, "请填写所有 LLM 推理设置", Toast.LENGTH_SHORT).show();
                 return;
             }
             
             // 转换为整数
-            int maxNewTokens = Integer.parseInt(maxNewTokensStr);
+            int maxSequenceLength = Integer.parseInt(maxSequenceLengthStr);
             int threads = Integer.parseInt(threadsStr);
             
             // 验证值范围
-            if (maxNewTokens < 100 || maxNewTokens > 2000) {
-                Toast.makeText(context, "最大生成token数应在100-2000之间", Toast.LENGTH_SHORT).show();
+            if (maxSequenceLength < 100 || maxSequenceLength > 8192) {
+                Toast.makeText(context, "最大序列长度应在100-8192之间", Toast.LENGTH_SHORT).show();
                 return;
             }
             
@@ -351,7 +351,7 @@ public class SettingsFragment extends Fragment {
             ConfigManager.setGlobalTextSize(context, fontSize);
             
             // 保存 LLM 推理设置
-            ConfigManager.setMaxNewTokens(context, maxNewTokens);
+            ConfigManager.setMaxSequenceLength(context, maxSequenceLength);
             ConfigManager.setThreads(context, threads);
             // noThinking已移动到RAG问答界面
             
@@ -368,7 +368,7 @@ public class SettingsFragment extends Fragment {
             settingsSummary.put("jsonDatasetSplitting", jsonDatasetSplitting);
             
             // 添加 LLM 推理设置信息
-            settingsSummary.put("maxNewTokens", maxNewTokens);
+            settingsSummary.put("maxSequenceLength", maxSequenceLength);
             settingsSummary.put("threads", threads);
             // noThinking已移动到RAG问答界面
             

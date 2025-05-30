@@ -64,7 +64,7 @@ public class ConfigManager {
     public static final String KEY_USE_GPU = "use_gpu"; // GPU加速配置键
     
     // LLM 推理相关的键
-    public static final String KEY_MAX_NEW_TOKENS = "max_new_tokens"; // 最大生成token数
+    public static final String KEY_MAX_SEQUENCE_LENGTH = "maxSequenceLength"; // 最大序列长度
     public static final String KEY_NO_THINKING = "no_thinking"; // 是否禁用思考模式
     public static final String KEY_THREADS = "threads"; // ONNX推理线程数
     
@@ -89,7 +89,7 @@ public class ConfigManager {
     public static final float DEFAULT_TEXT_SIZE = 14f;
     
     // LLM 推理相关的默认值
-    public static final int DEFAULT_MAX_NEW_TOKENS = 400;
+    public static final int DEFAULT_MAX_SEQUENCE_LENGTH = 2048;
     public static final boolean DEFAULT_NO_THINKING = false;
     public static final int DEFAULT_THREADS = 4;
 
@@ -862,21 +862,21 @@ public class ConfigManager {
     }
     
     /**
-     * 获取最大生成token数
+     * 获取最大序列长度
      * @param context 上下文
-     * @return 最大生成token数
+     * @return 最大序列长度
      */
-    public static int getMaxNewTokens(Context context) {
-        return getInt(context, KEY_MAX_NEW_TOKENS, DEFAULT_MAX_NEW_TOKENS);
+    public static int getMaxSequenceLength(Context context) {
+        return getInt(context, KEY_MAX_SEQUENCE_LENGTH, DEFAULT_MAX_SEQUENCE_LENGTH);
     }
     
     /**
-     * 设置最大生成token数
+     * 设置最大序列长度
      * @param context 上下文
-     * @param maxNewTokens 最大生成token数
+     * @param maxSequenceLength 最大序列长度
      */
-    public static void setMaxNewTokens(Context context, int maxNewTokens) {
-        setInt(context, KEY_MAX_NEW_TOKENS, maxNewTokens);
+    public static void setMaxSequenceLength(Context context, int maxSequenceLength) {
+        setInt(context, KEY_MAX_SEQUENCE_LENGTH, maxSequenceLength);
     }
     
     /**

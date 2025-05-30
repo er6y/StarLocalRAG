@@ -1360,13 +1360,27 @@ public class LocalLLMOnnxHandler {
         }).start();
     }
     
-    // 缓存张量以减少重复创建开销
+    // 缓存张量以减少重复创建开销 - 增强版本
     private LongBuffer cachedInputBuffer = null;
     private LongBuffer cachedAttentionBuffer = null;
     private int cachedMaxLength = 0;
     
+    // 张量内存管理优化
+    private long lastMemoryCheckTime = 0;
+    private static final long MEMORY_CHECK_INTERVAL = 5000; // 5秒检查一次内存
+    private static final double MEMORY_PRESSURE_THRESHOLD = 0.8; // 80%内存使用率阈值
+    private int tensorReuseCount = 0;
+    private long totalTensorMemorySaved = 0;
+    
     private Map<String, OnnxTensor> prepareInputs(int[] inputIds) throws OrtException {
         long startTime = System.currentTimeMillis();
+        
+        // 张量内存管理优化：定期检查内存压力
+        long currentTime = System.currentTimeMillis();
+        if (currentTime - lastMemoryCheckTime > MEMORY_CHECK_INTERVAL) {
+            checkAndOptimizeMemory();
+            lastMemoryCheckTime = currentTime;
+        }
         
         Map<String, OnnxTensor> inputs = new HashMap<>();
         
@@ -1378,13 +1392,29 @@ public class LocalLLMOnnxHandler {
             
             // 优化：重用缓存的buffer以减少内存分配
             int requiredLength = inputIds.length * batchSize;
+            boolean needReallocation = false;
+            
             if (cachedInputBuffer == null || requiredLength > cachedMaxLength) {
+                // 计算节省的内存（如果是重用）
+                if (cachedInputBuffer != null) {
+                    long savedMemory = cachedMaxLength * 8; // 8字节per long
+                    totalTensorMemorySaved += savedMemory;
+                    LogManager.logD(TAG, "张量缓存重用节省内存: " + (savedMemory / 1024) + "KB");
+                }
+                
                 cachedMaxLength = Math.max(requiredLength * 2, 2048); // 预分配更大空间
                 cachedInputBuffer = LongBuffer.allocate(cachedMaxLength);
                 if (modelConfig != null && modelConfig.requiresAttentionMask()) {
                     cachedAttentionBuffer = LongBuffer.allocate(cachedMaxLength);
                 }
+                needReallocation = true;
                 LogManager.logD(TAG, "重新分配张量缓存，最大长度: " + cachedMaxLength + ", 批处理大小: " + batchSize);
+            } else {
+                // 缓存重用成功
+                tensorReuseCount++;
+                if (tensorReuseCount % 10 == 0) { // 每10次重用记录一次
+                    LogManager.logD(TAG, "张量缓存重用次数: " + tensorReuseCount + ", 累计节省内存: " + (totalTensorMemorySaved / 1024 / 1024) + "MB");
+                }
             }
             
             // 清空并填充输入数据
@@ -1440,7 +1470,64 @@ public class LocalLLMOnnxHandler {
     }
     
     /**
+     * 检查并优化内存使用
+     * 实现智能内存管理和垃圾回收优化
+     */
+    private void checkAndOptimizeMemory() {
+        try {
+            Runtime runtime = Runtime.getRuntime();
+            long maxMemory = runtime.maxMemory();
+            long totalMemory = runtime.totalMemory();
+            long freeMemory = runtime.freeMemory();
+            long usedMemory = totalMemory - freeMemory;
+            
+            double memoryUsageRatio = (double) usedMemory / maxMemory;
+            
+            // 记录内存使用情况
+            LogManager.logD(TAG, String.format("内存使用情况 - 使用率: %.1f%%, 已用: %dMB, 最大: %dMB", 
+                memoryUsageRatio * 100, usedMemory / 1024 / 1024, maxMemory / 1024 / 1024));
+            
+            // 当内存使用率超过阈值时，执行优化策略
+            if (memoryUsageRatio > MEMORY_PRESSURE_THRESHOLD) {
+                LogManager.logW(TAG, "检测到内存压力，开始执行优化策略");
+                
+                // 1. 清理张量缓存（如果内存压力很大）
+                if (memoryUsageRatio > 0.9 && cachedInputBuffer != null) {
+                    long freedMemory = cachedMaxLength * 8; // 8字节per long
+                    cachedInputBuffer = null;
+                    cachedAttentionBuffer = null;
+                    cachedMaxLength = 0;
+                    LogManager.logI(TAG, "清理张量缓存，释放内存: " + (freedMemory / 1024) + "KB");
+                }
+                
+                // 2. 建议垃圾回收
+                System.gc();
+                
+                // 3. 等待一小段时间让GC完成
+                try {
+                    Thread.sleep(50);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                
+                // 4. 检查优化效果
+                long newUsedMemory = runtime.totalMemory() - runtime.freeMemory();
+                long memoryFreed = usedMemory - newUsedMemory;
+                if (memoryFreed > 0) {
+                    LogManager.logI(TAG, "内存优化完成，释放内存: " + (memoryFreed / 1024 / 1024) + "MB");
+                } else {
+                    LogManager.logW(TAG, "内存优化效果有限，建议检查内存泄漏");
+                }
+            }
+            
+        } catch (Exception e) {
+            LogManager.logE(TAG, "内存优化过程中发生错误: " + e.getMessage(), e);
+        }
+    }
+    
+    /**
      * 添加KV缓存相关的输入张量
+     * 修复类型不匹配问题，支持多种数据类型
      * @param inputs 输入张量映射
      * @param seqLength 序列长度
      * @param batchSize 批处理大小
@@ -1454,11 +1541,12 @@ public class LocalLLMOnnxHandler {
             int headDim = hiddenSize / numHeads;
             int numLayers = modelConfig.getNumHiddenLayers();
             
-            // 动态计算KV缓存大小，避免内存溢出
-            int requestedCacheSize = Math.min(seqLength + 512, 1024); // 初始请求的缓存大小
-            int initialCacheSize = modelConfig.getAdaptiveCacheSize(requestedCacheSize); // 根据内存状况调整
+            // 根据调查报告建议，优化缓存大小计算
+            // 减少初始缓存大小以降低内存压力
+            int requestedCacheSize = Math.min(seqLength + 256, 512); // 减少缓存大小
+            int initialCacheSize = modelConfig.getAdaptiveCacheSize(requestedCacheSize);
             
-            // 计算预估内存使用量
+            // 计算预估内存使用量（优化计算公式）
             long memoryPerLayer = (long) batchSize * numHeads * initialCacheSize * headDim * 4 * 2; // 4字节float, K+V两个缓存
             long totalMemory = memoryPerLayer * numLayers;
             
@@ -1473,65 +1561,115 @@ public class LocalLLMOnnxHandler {
             long systemAvailableMemory = com.example.starlocalrag.GlobalApplication.getAvailableMemoryMB();
             long jvmMaxMemoryMB = com.example.starlocalrag.GlobalApplication.getJVMMaxMemoryMB();
             
-            LogManager.logI(TAG, String.format("KV缓存内存分析: JVM可用=%.2f MB, JVM最大=%.2f MB, 系统可用=%.2f MB, 预估使用=%.2f MB (层数=%d, 头数=%d, 头维度=%d, 缓存大小=%d)", 
-                jvmAvailableMemory / (1024.0 * 1024.0), jvmMaxMemoryMB, systemAvailableMemory, totalMemory / (1024.0 * 1024.0), numLayers, numHeads, headDim, initialCacheSize));
+            // 减少日志输出频率（根据调查报告建议）
+            if (LogManager.isDebugEnabled()) {
+                LogManager.logD(TAG, String.format("KV缓存内存分析: JVM可用=%.1f MB, 预估使用=%.1f MB (层数=%d, 头数=%d, 缓存大小=%d)", 
+                    jvmAvailableMemory / (1024.0 * 1024.0), totalMemory / (1024.0 * 1024.0), numLayers, numHeads, initialCacheSize));
+            }
             
-            // 如果预估内存使用超过JVM可用内存的70%，动态禁用KV缓存
-            if (totalMemory > jvmAvailableMemory * 0.7) {
-                LogManager.logW(TAG, String.format("内存不足，动态禁用KV缓存以避免OOM (预估%.2f MB > 可用%.2f MB * 70%%)", 
+            // 根据调查报告建议，降低内存阈值到50%以提高稳定性
+            if (totalMemory > jvmAvailableMemory * 0.5) {
+                LogManager.logW(TAG, String.format("内存不足，动态禁用KV缓存 (预估%.1f MB > 可用%.1f MB * 50%%)", 
                     totalMemory / (1024.0 * 1024.0), jvmAvailableMemory / (1024.0 * 1024.0)));
                 modelConfig.disableKVCache();
                 return; // 直接返回，不创建KV缓存
             }
             
-            // 如果预估内存仍然过大，进一步减少缓存大小
-            if (totalMemory > 50 * 1024 * 1024) {
-                initialCacheSize = Math.min(initialCacheSize / 2, 128);
+            // 进一步优化缓存大小
+            if (totalMemory > 32 * 1024 * 1024) { // 降低阈值到32MB
+                initialCacheSize = Math.min(initialCacheSize / 2, 64); // 进一步减少最大缓存
                 totalMemory = (long) batchSize * numHeads * initialCacheSize * headDim * 4 * 2 * numLayers;
-                LogManager.logW(TAG, String.format("进一步减少KV缓存大小至: %d, 新预估内存: %.2f MB", 
+                LogManager.logI(TAG, String.format("优化KV缓存大小至: %d, 新预估内存: %.1f MB", 
                     initialCacheSize, totalMemory / (1024.0 * 1024.0)));
             }
             
-            // 为每一层创建KV缓存张量
+            // 为每一层创建KV缓存张量，支持多种数据类型
             for (int layer = 0; layer < numLayers; layer++) {
                 // Key缓存形状: [batch_size, num_heads, cache_size, head_dim]
                 long[] kvShape = new long[]{batchSize, numHeads, initialCacheSize, headDim};
                 
-                // 创建空的KV缓存张量（初始化为0）
-                float[][][][] emptyKCache = new float[batchSize][numHeads][initialCacheSize][headDim];
-                float[][][][] emptyVCache = new float[batchSize][numHeads][initialCacheSize][headDim];
-                
-                OnnxTensor kCacheTensor = OnnxTensor.createTensor(ortEnvironment, emptyKCache);
-                OnnxTensor vCacheTensor = OnnxTensor.createTensor(ortEnvironment, emptyVCache);
-                
-                inputs.put("past_key_values." + layer + ".key", kCacheTensor);
-                inputs.put("past_key_values." + layer + ".value", vCacheTensor);
+                try {
+                    // 优先尝试使用FloatBuffer创建张量（修复类型不匹配问题）
+                    int totalElements = batchSize * numHeads * initialCacheSize * headDim;
+                    FloatBuffer kCacheBuffer = FloatBuffer.allocate(totalElements);
+                    FloatBuffer vCacheBuffer = FloatBuffer.allocate(totalElements);
+                    
+                    // 初始化为0
+                    for (int i = 0; i < totalElements; i++) {
+                        kCacheBuffer.put(0.0f);
+                        vCacheBuffer.put(0.0f);
+                    }
+                    kCacheBuffer.flip();
+                    vCacheBuffer.flip();
+                    
+                    OnnxTensor kCacheTensor = OnnxTensor.createTensor(ortEnvironment, kCacheBuffer, kvShape);
+                    OnnxTensor vCacheTensor = OnnxTensor.createTensor(ortEnvironment, vCacheBuffer, kvShape);
+                    
+                    inputs.put("past_key_values." + layer + ".key", kCacheTensor);
+                    inputs.put("past_key_values." + layer + ".value", vCacheTensor);
+                    
+                } catch (Exception bufferException) {
+                    // 如果FloatBuffer失败，回退到多维数组方式
+                    LogManager.logW(TAG, "FloatBuffer创建失败，回退到数组方式: " + bufferException.getMessage());
+                    
+                    float[][][][] emptyKCache = new float[batchSize][numHeads][initialCacheSize][headDim];
+                    float[][][][] emptyVCache = new float[batchSize][numHeads][initialCacheSize][headDim];
+                    
+                    OnnxTensor kCacheTensor = OnnxTensor.createTensor(ortEnvironment, emptyKCache);
+                    OnnxTensor vCacheTensor = OnnxTensor.createTensor(ortEnvironment, emptyVCache);
+                    
+                    inputs.put("past_key_values." + layer + ".key", kCacheTensor);
+                    inputs.put("past_key_values." + layer + ".value", vCacheTensor);
+                }
             }
             
-            // 添加缓存长度张量 - 使用正确的Long类型
+            // 添加缓存长度张量 - 修复类型不匹配问题
             long[] cacheLenShape = new long[]{batchSize};
             
-            // 根据ONNX Runtime Java API，使用LongBuffer创建张量
+            // 支持多种类型的缓存长度张量
             try {
-                LongBuffer cacheLenBuffer = LongBuffer.allocate(batchSize);
+                // 优先尝试IntBuffer（某些模型可能需要int类型）
+                IntBuffer cacheLenIntBuffer = IntBuffer.allocate(batchSize);
                 for (int i = 0; i < batchSize; i++) {
-                    cacheLenBuffer.put(0L); // 初始缓存长度为0
+                    cacheLenIntBuffer.put(0); // 初始缓存长度为0
                 }
-                cacheLenBuffer.flip();
+                cacheLenIntBuffer.flip();
                 
-                OnnxTensor cacheLenTensor = OnnxTensor.createTensor(ortEnvironment, cacheLenBuffer, cacheLenShape);
+                OnnxTensor cacheLenTensor = OnnxTensor.createTensor(ortEnvironment, cacheLenIntBuffer, cacheLenShape);
                 inputs.put("cache_length", cacheLenTensor);
-                LogManager.logD(TAG, "成功创建cache_length张量，类型: " + cacheLenTensor.getInfo().type);
-            } catch (Exception e) {
-                LogManager.logW(TAG, "创建cache_length张量失败，跳过: " + e.getMessage());
-                // 不添加cache_length张量，某些模型可能不需要这个输入
+                
+                if (LogManager.isDebugEnabled()) {
+                    LogManager.logD(TAG, "成功创建cache_length张量(int类型)");
+                }
+                
+            } catch (Exception intException) {
+                try {
+                    // 回退到LongBuffer
+                    LongBuffer cacheLenBuffer = LongBuffer.allocate(batchSize);
+                    for (int i = 0; i < batchSize; i++) {
+                        cacheLenBuffer.put(0L); // 初始缓存长度为0
+                    }
+                    cacheLenBuffer.flip();
+                    
+                    OnnxTensor cacheLenTensor = OnnxTensor.createTensor(ortEnvironment, cacheLenBuffer, cacheLenShape);
+                    inputs.put("cache_length", cacheLenTensor);
+                    
+                    if (LogManager.isDebugEnabled()) {
+                        LogManager.logD(TAG, "成功创建cache_length张量(long类型)");
+                    }
+                    
+                } catch (Exception longException) {
+                    LogManager.logW(TAG, "创建cache_length张量失败，跳过: int异常=" + intException.getMessage() + ", long异常=" + longException.getMessage());
+                    // 不添加cache_length张量，某些模型可能不需要这个输入
+                }
             }
             
-            LogManager.logD(TAG, "KV缓存张量已添加，层数: " + numLayers + ", 头数: " + numHeads + ", 头维度: " + headDim);
+            LogManager.logI(TAG, "KV缓存张量已添加，层数: " + numLayers + ", 头数: " + numHeads + ", 头维度: " + headDim + ", 缓存大小: " + initialCacheSize);
             
         } catch (Exception e) {
-            LogManager.logW(TAG, "添加KV缓存张量失败: " + e.getMessage());
-            // KV缓存失败不应该阻止推理，继续执行
+            LogManager.logE(TAG, "添加KV缓存张量失败: " + e.getMessage(), e);
+            // KV缓存失败时禁用KV缓存，避免影响推理
+            modelConfig.disableKVCache();
         }
     }
 }

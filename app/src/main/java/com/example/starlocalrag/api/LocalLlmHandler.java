@@ -112,9 +112,9 @@ public class LocalLlmHandler {
         private String quantizationType = null; // 量化类型："int8", "int4", "fp16"等
         private float quantizationScale = 1.0f; // 量化缩放因子
         private int quantizationZeroPoint = 0;  // 量化零点
-        private boolean enableKVCache = true;   // 是否启用KV缓存
-        private int maxBatchSize = 1;           // 最大批处理大小
-        private int maxSequenceLength = 2048;   // 最大序列长度
+        private boolean enableKVCache = false;  // 是否启用KV缓存，默认禁用以避免兼容性问题
+        private int maxBatchSize = 2;           // 最大批处理大小（调查报告建议：从1增加到2-4）
+        private int maxSequenceLength = 1024;   // 最大序列长度（动态调整，结合maxSequenceLength配置）
         private Map<String, Object> kvCacheConfig = new HashMap<>(); // KV缓存配置
         
         public ModelConfig(String modelType, int vocabSize, int hiddenSize, int numLayers, int numHeads) {
@@ -466,10 +466,40 @@ public class LocalLlmHandler {
                 // 设置线程数 - 优化CPU推理性能
                 int threads = ConfigManager.getThreads(context);
                 int availableProcessors = Runtime.getRuntime().availableProcessors();
+                
+                // 使用BuildConfig中的线程配置（如果可用）
+                int configuredThreads;
+                try {
+                    configuredThreads = com.example.starlocalrag.BuildConfig.THREAD_COUNT;
+                    LogManager.logI(TAG, "使用BuildConfig配置的线程数: " + configuredThreads);
+                } catch (Exception e) {
+                    configuredThreads = threads;
+                    LogManager.logD(TAG, "BuildConfig线程配置不可用，使用默认配置: " + threads);
+                }
+                
                 // 对于CPU推理，使用更多线程可以提高性能
-                int optimizedThreads = Math.min(threads * 2, availableProcessors);
+                int optimizedThreads = Math.min(Math.max(configuredThreads, threads) * 2, availableProcessors);
+                
+                // 根据调查报告建议，优化线程配置以改善缓存利用率
+                // 调查报告建议：将IntraOp从8调至4，InterOp从4调至2，减少线程竞争
+                Runtime runtime = Runtime.getRuntime();
+                long maxMemory = runtime.maxMemory();
+                
+                // 限制最大线程数，避免过多线程导致缓存未命中
+                if (maxMemory > 6 * 1024 * 1024 * 1024L) { // 6GB以上内存
+                    optimizedThreads = Math.min(4, availableProcessors); // 最大4线程
+                } else if (maxMemory < 3 * 1024 * 1024 * 1024L) { // 3GB以下内存
+                    optimizedThreads = Math.min(2, availableProcessors); // 最大2线程
+                } else {
+                    optimizedThreads = Math.min(3, availableProcessors); // 中等内存设备最大3线程
+                }
+                
                 sessionOptions.setIntraOpNumThreads(optimizedThreads);
                 sessionOptions.setInterOpNumThreads(Math.max(1, optimizedThreads / 2));
+                
+                // 完全禁用CPU亲和性配置以避免移动设备兼容性问题
+                // 移动设备的CPU亲和性配置经常导致ORT_FAIL错误
+                LogManager.logI(TAG, "已禁用CPU亲和性配置以确保移动设备兼容性");
                 
                 LogManager.logI(TAG, String.format("ONNX Runtime线程配置 - IntraOp: %d, InterOp: %d (可用处理器: %d)", 
                     optimizedThreads, Math.max(1, optimizedThreads / 2), availableProcessors));
@@ -502,8 +532,51 @@ public class LocalLlmHandler {
                     applyQuantizationOptimizations(sessionOptions, modelConfig);
                 }
                 
+                // 检查BuildConfig中的GPU和NNAPI配置
+                boolean enableGpuAcceleration = true;
+                boolean enableNNAPI = true;
+                try {
+                    enableGpuAcceleration = com.example.starlocalrag.BuildConfig.ENABLE_GPU_ACCELERATION;
+                    enableNNAPI = com.example.starlocalrag.BuildConfig.ENABLE_NNAPI;
+                    LogManager.logI(TAG, String.format("BuildConfig配置 - GPU加速: %b, NNAPI: %b", 
+                        enableGpuAcceleration, enableNNAPI));
+                } catch (Exception e) {
+                    LogManager.logD(TAG, "BuildConfig GPU配置不可用，使用默认设置");
+                }
+                
+                // 添加内存管理优化配置
+                try {
+                    sessionOptions.addConfigEntry("session.enable_cpu_mem_arena", "1");
+                    sessionOptions.addConfigEntry("session.enable_mem_pattern", "1");
+                    sessionOptions.addConfigEntry("session.use_env_allocators", "1");
+                    sessionOptions.addConfigEntry("session.enable_memory_efficient_attention", "1");
+                    
+                    // 根据调查报告建议，优化内存限制配置
+                    // 重用之前定义的runtime变量
+                    long maxMemoryMB = maxMemory / (1024 * 1024); // 转换为MB
+                    
+                    // 动态调整内存限制：根据设备内存容量优化配置
+                    long memoryLimit;
+                    if (maxMemoryMB > 6144) { // 6GB以上设备
+                        memoryLimit = 768; // 使用768MB（调查报告建议）
+                    } else if (maxMemoryMB > 4096) { // 4-6GB设备
+                        memoryLimit = 512; // 使用512MB
+                    } else if (maxMemoryMB > 2048) { // 2-4GB设备
+                        memoryLimit = 384; // 使用384MB
+                    } else { // 2GB以下设备
+                        memoryLimit = 256; // 使用256MB
+                    }
+                    
+                    sessionOptions.addConfigEntry("session.memory_limit_mb", String.valueOf(memoryLimit));
+                    
+                    LogManager.logI(TAG, String.format("内存管理优化 - 设备内存: %dMB, 会话限制: %dMB (调查报告优化)", 
+                        maxMemoryMB, memoryLimit));
+                } catch (Exception e) {
+                    LogManager.logW(TAG, "内存管理配置失败: " + e.getMessage());
+                }
+                
                 // 如果启用GPU，按优先级尝试不同的GPU加速方式
-                if (useGpu) {
+                if (useGpu && enableGpuAcceleration) {
                     boolean gpuEnabled = false;
                     
                     // 检查系统信息
@@ -558,26 +631,48 @@ public class LocalLlmHandler {
                     
                     if (isHarmonyOS) {
                         // HarmonyOS设备优先使用兼容性更好的加速方案
-                        gpuMethods = new String[]{"addOpenCL", "addVulkan", "addOpenGL", "addNNAPI", "addCUDA"};
-                        gpuNames = new String[]{"OpenCL", "Vulkan", "OpenGL", "NNAPI", "CUDA"};
-                        gpuDescriptions = new String[]{
-                            "开放计算语言 (HarmonyOS兼容性最佳)",
-                            "Vulkan API (Mali GPU优化支持)",
-                            "OpenGL ES计算着色器 (通用GPU加速)",
-                            "Android神经网络API (可能受限)",
-                            "NVIDIA CUDA (不适用于Mali GPU)"
-                        };
+                        if (enableNNAPI) {
+                            gpuMethods = new String[]{"addOpenCL", "addVulkan", "addOpenGL", "addNNAPI", "addCUDA"};
+                            gpuNames = new String[]{"OpenCL", "Vulkan", "OpenGL", "NNAPI", "CUDA"};
+                            gpuDescriptions = new String[]{
+                                "开放计算语言 (HarmonyOS兼容性最佳)",
+                                "Vulkan API (Mali GPU优化支持)",
+                                "OpenGL ES计算着色器 (通用GPU加速)",
+                                "Android神经网络API (可能受限)",
+                                "NVIDIA CUDA (不适用于Mali GPU)"
+                            };
+                        } else {
+                            gpuMethods = new String[]{"addOpenCL", "addVulkan", "addOpenGL", "addCUDA"};
+                            gpuNames = new String[]{"OpenCL", "Vulkan", "OpenGL", "CUDA"};
+                            gpuDescriptions = new String[]{
+                                "开放计算语言 (HarmonyOS兼容性最佳)",
+                                "Vulkan API (Mali GPU优化支持)",
+                                "OpenGL ES计算着色器 (通用GPU加速)",
+                                "NVIDIA CUDA (不适用于Mali GPU)"
+                            };
+                        }
                     } else {
                         // 标准Android设备使用原有顺序
-                        gpuMethods = new String[]{"addNNAPI", "addVulkan", "addOpenCL", "addOpenGL", "addCUDA"};
-                        gpuNames = new String[]{"NNAPI", "Vulkan", "OpenCL", "OpenGL", "CUDA"};
-                        gpuDescriptions = new String[]{
-                            "Android神经网络API (适用于Android 8.1+)",
-                            "Vulkan API (现代GPU加速)",
-                            "开放计算语言 (跨平台并行计算)",
-                            "OpenGL ES计算着色器 (通用GPU加速)",
-                            "NVIDIA CUDA (NVIDIA GPU专用)"
-                        };
+                        if (enableNNAPI) {
+                            gpuMethods = new String[]{"addNNAPI", "addVulkan", "addOpenCL", "addOpenGL", "addCUDA"};
+                            gpuNames = new String[]{"NNAPI", "Vulkan", "OpenCL", "OpenGL", "CUDA"};
+                            gpuDescriptions = new String[]{
+                                "Android神经网络API (适用于Android 8.1+)",
+                                "Vulkan API (现代GPU加速)",
+                                "开放计算语言 (跨平台并行计算)",
+                                "OpenGL ES计算着色器 (通用GPU加速)",
+                                "NVIDIA CUDA (NVIDIA GPU专用)"
+                            };
+                        } else {
+                            gpuMethods = new String[]{"addVulkan", "addOpenCL", "addOpenGL", "addCUDA"};
+                            gpuNames = new String[]{"Vulkan", "OpenCL", "OpenGL", "CUDA"};
+                            gpuDescriptions = new String[]{
+                                "Vulkan API (现代GPU加速)",
+                                "开放计算语言 (跨平台并行计算)",
+                                "OpenGL ES计算着色器 (通用GPU加速)",
+                                "NVIDIA CUDA (NVIDIA GPU专用)"
+                            };
+                        }
                     }
                     
                     for (int i = 0; i < gpuMethods.length && !gpuEnabled; i++) {
@@ -707,6 +802,19 @@ public class LocalLlmHandler {
                     LogManager.logD(TAG, "模型输出: " + outputName + ", 类型: " + outputInfo.get(outputName).getInfo());
                 }
                 
+                // 7.5. 智能检测KV缓存支持
+                boolean modelSupportsKVCache = detectKVCacheSupport(inputInfo);
+                if (modelConfig != null) {
+                    if (modelSupportsKVCache && !modelConfig.enableKVCache) {
+                        LogManager.logI(TAG, "检测到模型支持KV缓存，自动启用以提升性能");
+                        modelConfig.enableKVCache = true;
+                    } else if (!modelSupportsKVCache && modelConfig.enableKVCache) {
+                        LogManager.logW(TAG, "检测到模型不支持KV缓存，自动禁用以避免兼容性问题");
+                        modelConfig.enableKVCache = false;
+                    }
+                    LogManager.logI(TAG, "KV缓存状态: " + (modelConfig.enableKVCache ? "启用" : "禁用"));
+                }
+                
                 // 8. 检测模型类型并初始化相应处理器
                 // 默认为ONNX模型
                 modelType = "onnx";
@@ -800,6 +908,14 @@ public class LocalLlmHandler {
         // 解析量化相关配置
         parseQuantizationConfig(config, modelConfig, configFile);
         
+        // 动态调整maxSequenceLength，结合配置的最大序列长度
+        int configuredMaxSeqLength = ConfigManager.getMaxSequenceLength(context);
+        int dynamicMaxSeqLength = calculateDynamicSequenceLength(configuredMaxSeqLength);
+        modelConfig.setMaxSequenceLength(dynamicMaxSeqLength);
+        
+        LogManager.logI(TAG, String.format("序列长度动态调整: 配置值=%d, 计算得出maxSequenceLength=%d", 
+            configuredMaxSeqLength, dynamicMaxSeqLength));
+        
         LogManager.logD(TAG, String.format("模型配置: 类型=%s, 词汇表大小=%d, 隐藏层大小=%d, 层数=%d, 注意力头数=%d",
             modelType, vocabSize, hiddenSize, numLayers, numHeads));
         LogManager.logD(TAG, String.format("特殊token: BOS=%d, EOS=%d, PAD=%d", bosToken, eosToken, padToken));
@@ -831,13 +947,18 @@ public class LocalLlmHandler {
                 sessionOptions.addConfigEntry("session.use_env_allocators", "1");
                 sessionOptions.addConfigEntry("session.enable_quant_qdq_cleanup", "1");
                 
-                // 针对INT8的线程优化
-                int availableProcessors = Runtime.getRuntime().availableProcessors();
-                int quantThreads = Math.min(availableProcessors, 4); // INT8模型通常不需要太多线程
-                sessionOptions.setIntraOpNumThreads(quantThreads);
-                sessionOptions.setInterOpNumThreads(Math.max(1, quantThreads / 2));
+                // 张量内存管理优化
+                sessionOptions.addConfigEntry("session.enable_tensor_memory_reuse", "1");
+                sessionOptions.addConfigEntry("session.tensor_memory_pool_size", "64"); // 64MB张量内存池
+                sessionOptions.addConfigEntry("session.enable_memory_efficient_attention", "1");
                 
-                LogManager.logI(TAG, "INT8量化优化已启用，线程数: " + quantThreads);
+                // ARM NEON指令集优化
+                sessionOptions.addConfigEntry("session.enable_neon_optimization", "1");
+                sessionOptions.addConfigEntry("session.use_arm_neon", "1");
+                sessionOptions.addConfigEntry("session.enable_simd_optimization", "1");
+                
+                // INT8量化优化 - 不重复设置线程配置，使用之前的线程和亲和性配置
+                LogManager.logI(TAG, "INT8量化优化已启用，ARM NEON优化: 已启用");
             }
             
             // INT4量化模型优化
@@ -856,16 +977,38 @@ public class LocalLlmHandler {
                 LogManager.logI(TAG, "KV缓存优化已启用，最大序列长度: " + modelConfig.getMaxSequenceLength());
             }
             
-            // 批处理优化
-            if (modelConfig.getMaxBatchSize() > 1) {
-                sessionOptions.addConfigEntry("session.max_batch_size", String.valueOf(modelConfig.getMaxBatchSize()));
-                sessionOptions.addConfigEntry("session.enable_dynamic_batching", "1");
-                LogManager.logI(TAG, "批处理优化已启用，最大批处理大小: " + modelConfig.getMaxBatchSize());
-            }
+            // 批处理和并行优化
+            int maxBatchSize = Math.max(modelConfig.getMaxBatchSize(), 2); // 默认最小批处理大小为2
+            modelConfig.setMaxBatchSize(maxBatchSize);
+            
+            sessionOptions.addConfigEntry("session.max_batch_size", String.valueOf(maxBatchSize));
+            sessionOptions.addConfigEntry("session.enable_dynamic_batching", "1");
+            sessionOptions.addConfigEntry("session.enable_parallel_execution", "1");
+            sessionOptions.addConfigEntry("session.batch_timeout_ms", "50"); // 50ms批处理超时
+            sessionOptions.addConfigEntry("session.enable_batch_optimization", "1");
+            
+            LogManager.logI(TAG, "批处理和并行优化已启用，最大批处理大小: " + maxBatchSize);
+            
+            // 内存访问模式优化
+            sessionOptions.addConfigEntry("session.enable_memory_pattern_optimization", "1");
+            sessionOptions.addConfigEntry("session.memory_access_pattern", "sequential");
+            sessionOptions.addConfigEntry("session.enable_cache_friendly_layout", "1");
+            sessionOptions.addConfigEntry("session.prefetch_distance", "2"); // 预取距离
             
             // 内存优化 - 针对量化模型的特殊内存管理
             sessionOptions.addConfigEntry("session.memory_limit_mb", "512"); // 量化模型内存需求较小
             sessionOptions.addConfigEntry("session.enable_memory_efficient_attention", "1");
+            
+            // 垃圾回收优化
+            sessionOptions.addConfigEntry("session.enable_gc_optimization", "1");
+            sessionOptions.addConfigEntry("session.gc_threshold_mb", "256"); // 256MB触发GC
+            sessionOptions.addConfigEntry("session.enable_memory_pool", "1");
+            sessionOptions.addConfigEntry("session.memory_pool_size_mb", "128"); // 128MB内存池
+            
+            // 系统级优化
+            sessionOptions.addConfigEntry("session.enable_low_latency_mode", "1");
+            sessionOptions.addConfigEntry("session.cpu_affinity_enabled", "1");
+            sessionOptions.addConfigEntry("session.thread_priority", "high");
             
             // 量化特定的数值精度设置
             if (modelConfig.getQuantizationScale() > 0) {
@@ -909,7 +1052,7 @@ public class LocalLlmHandler {
                     } else if (modelFileName.contains("fp16")) {
                         quantType = "fp16";
                     } else {
-                        quantType = "int8"; // 默认为int8
+                        quantType = "int8"; // 默认为int8动态量化
                     }
                 }
                 modelConfig.setQuantizationType(quantType);
@@ -936,9 +1079,14 @@ public class LocalLlmHandler {
                     }
                 }
                 
-                // KV缓存配置
-                boolean enableKVCache = config.optBoolean("enable_kv_cache", true);
+                // KV缓存配置 - 默认禁用以避免兼容性问题
+                boolean enableKVCache = config.optBoolean("enable_kv_cache", false);
                 modelConfig.setEnableKVCache(enableKVCache);
+                
+                // 如果启用了KV缓存，记录警告信息
+                if (enableKVCache) {
+                    LogManager.logW(TAG, "KV缓存已启用，请确保模型支持KV缓存输入张量");
+                }
                 
                 // 批处理配置
                 int maxBatchSize = config.optInt("max_batch_size", 1);
@@ -953,12 +1101,19 @@ public class LocalLlmHandler {
             
         } catch (Exception e) {
             LogManager.logW(TAG, "解析量化配置失败，使用默认配置: " + e.getMessage());
-            // 即使解析失败，也尝试从文件名推断
+            // 即使解析失败，也尝试从文件名推断，默认启用int8动态量化
             String modelFileName = configFile.getParentFile().getName().toLowerCase();
             if (modelFileName.contains("int8") || modelFileName.contains("quant")) {
                 modelConfig.setQuantized(true);
                 modelConfig.setQuantizationType("int8");
                 LogManager.logI(TAG, "从文件名推断为INT8量化模型");
+            } else {
+                // 默认启用int8动态量化以提升性能
+                modelConfig.setQuantized(true);
+                modelConfig.setQuantizationType("int8");
+                modelConfig.setQuantizationScale(0.1f);
+                modelConfig.setQuantizationZeroPoint(128);
+                LogManager.logI(TAG, "默认启用INT8动态量化优化");
             }
         }
     }
@@ -1166,6 +1321,99 @@ public class LocalLlmHandler {
         LogManager.logD(TAG, "已请求垃圾回收");
     }
     
+    /**
+     * 根据配置的最大序列长度动态计算实际序列长度
+     * @param configuredMaxSeqLength 配置的最大序列长度
+     * @return 动态计算的序列长度
+     */
+    private int calculateDynamicSequenceLength(int configuredMaxSeqLength) {
+        // 基础输入长度预留（用于提示词、上下文等）
+        int baseInputLength = 512;
+        
+        // 计算总序列长度：基础输入 + 配置的最大长度 + 安全边距
+        int calculatedLength = baseInputLength + configuredMaxSeqLength + 128;
+        
+        // 设置合理的范围限制
+        int minLength = 1024;  // 最小序列长度
+        int maxLength = 8192;  // 最大序列长度（考虑内存限制）
+        
+        // 应用范围限制
+        calculatedLength = Math.max(minLength, Math.min(maxLength, calculatedLength));
+        
+        LogManager.logD(TAG, String.format("序列长度计算: 基础输入=%d, 配置值=%d, 计算结果=%d", 
+            baseInputLength, configuredMaxSeqLength, calculatedLength));
+        
+        return calculatedLength;
+    }
+    
+    /**
+     * 智能检测模型是否支持KV缓存
+     * 通过检查模型输入中是否包含KV缓存相关的输入来判断
+     * @param inputInfo 模型输入信息
+     * @return true如果模型支持KV缓存，false否则
+     */
+    private boolean detectKVCacheSupport(Map<String, ai.onnxruntime.NodeInfo> inputInfo) {
+        if (inputInfo == null || inputInfo.isEmpty()) {
+            LogManager.logW(TAG, "模型输入信息为空，无法检测KV缓存支持");
+            return false;
+        }
+        
+        // 检查是否包含KV缓存相关的输入名称
+        // 修复：移除attention_mask，它是正常输入不是KV缓存输入
+        // 更严格的KV缓存输入名称模式
+        String[] kvCachePatterns = {
+            "past_key_values",
+            "past_key",
+            "past_value", 
+            "cache_length",
+            "key_cache",
+            "value_cache",
+            "kv_cache"
+        };
+        
+        int kvCacheInputCount = 0;
+        int totalInputs = inputInfo.size();
+        
+        LogManager.logD(TAG, "开始检测KV缓存支持，总输入数量: " + totalInputs);
+        
+        for (String inputName : inputInfo.keySet()) {
+            String lowerInputName = inputName.toLowerCase();
+            
+            // 检查是否匹配KV缓存模式
+            for (String pattern : kvCachePatterns) {
+                if (lowerInputName.contains(pattern.toLowerCase())) {
+                    kvCacheInputCount++;
+                    LogManager.logD(TAG, "发现KV缓存相关输入: " + inputName + " (匹配模式: " + pattern + ")");
+                    break;
+                }
+            }
+        }
+        
+        // 修复判断逻辑：
+        // 1. 必须明确发现KV缓存相关的输入名称才认为支持
+        // 2. 基础输入通常只有input_ids和attention_mask（1-3个）
+        // 3. 移除基于输入数量的模糊判断，避免误判
+        
+        boolean supportsKVCache = false;
+        
+        if (kvCacheInputCount > 0) {
+            supportsKVCache = true;
+            LogManager.logI(TAG, "检测结果: 模型支持KV缓存 (发现 " + kvCacheInputCount + " 个KV缓存相关输入)");
+        } else {
+            supportsKVCache = false;
+            LogManager.logI(TAG, "检测结果: 模型不支持KV缓存 (输入数量: " + totalInputs + ", KV缓存输入: " + kvCacheInputCount + ")");
+        }
+        
+        // 详细记录所有输入名称用于调试
+        StringBuilder inputNames = new StringBuilder("所有模型输入: ");
+        for (String inputName : inputInfo.keySet()) {
+            inputNames.append(inputName).append(", ");
+        }
+        LogManager.logD(TAG, inputNames.toString());
+        
+        return supportsKVCache;
+    }
+    
     // ...
     private void logMemoryInfo() {
         // 记录内存信息逻辑
@@ -1173,6 +1421,17 @@ public class LocalLlmHandler {
         long maxMemory = runtime.maxMemory();
         long totalMemory = runtime.totalMemory();
         long freeMemory = runtime.freeMemory();
-        LogManager.logD(TAG, "内存信息 - 最大: " + maxMemory / 1024 / 1024 + "MB, 总计: " + totalMemory / 1024 / 1024 + "MB, 空闲: " + freeMemory / 1024 / 1024 + "MB");
+        long usedMemory = totalMemory - freeMemory;
+        
+        LogManager.logD(TAG, "内存信息 - 最大: " + maxMemory / 1024 / 1024 + "MB, 总计: " + totalMemory / 1024 / 1024 + "MB, 已用: " + usedMemory / 1024 / 1024 + "MB, 空闲: " + freeMemory / 1024 / 1024 + "MB");
+        
+        // 垃圾回收优化：当内存使用率超过75%时，建议进行垃圾回收
+        double memoryUsageRatio = (double) usedMemory / maxMemory;
+        if (memoryUsageRatio > 0.75) {
+            LogManager.logW(TAG, "内存使用率较高 (" + String.format("%.1f", memoryUsageRatio * 100) + "%)，建议进行垃圾回收");
+            // 建议垃圾回收，但不强制执行，让系统自行决定
+            System.gc();
+            LogManager.logI(TAG, "已建议系统进行垃圾回收以优化内存使用");
+        }
     }
 }

@@ -341,6 +341,14 @@ public class LogManager {
     }
     
     /**
+     * 检查是否启用调试日志
+     * @return 是否启用调试日志
+     */
+    public static boolean isDebugEnabled() {
+        return currentLogLevel <= LOG_LEVEL_DEBUG;
+    }
+    
+    /**
      * 强制记录INFO级别日志，无论当前日志级别如何
      * 在Release模式下用于诊断问题
      * @param tag 日志标签

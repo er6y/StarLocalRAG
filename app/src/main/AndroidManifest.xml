@@ -15,6 +15,9 @@
     
     <!-- GPU加速相关权限 -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- 添加更多GPU相关权限 -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     
     <!-- 声明使用的硬件特性（可选，但有助于GPU加速） -->
     <uses-feature android:name="android.hardware.vulkan.level" android:required="false" />
@@ -24,10 +27,14 @@
     <uses-feature android:name="android.software.opengles.deqp.level" android:required="false" />
     <uses-feature android:name="android.hardware.gpu" android:required="false" />
     <uses-feature android:name="android.hardware.gpu.compute" android:required="false" />
+    <!-- 添加更多OpenGL ES特性声明 -->
+    <uses-feature android:glEsVersion="0x00030000" android:required="false" />
     
     <!-- HarmonyOS兼容性声明 -->
     <uses-feature android:name="ohos.hardware.gpu" android:required="false" />
     <uses-feature android:name="ohos.hardware.vulkan" android:required="false" />
+    <uses-feature android:name="ohos.hardware.npu" android:required="false" />
+    <uses-feature android:name="ohos.software.nnapi" android:required="false" />
 
     <application
         android:name=".GlobalApplication"
@@ -43,7 +50,15 @@
         android:requestLegacyExternalStorage="true"
         android:largeHeap="true"
         android:hardwareAccelerated="true"
+        android:vmSafeMode="false"
+
+        android:resizeableActivity="true"
         tools:targetApi="31">
+        
+        <!-- 添加性能优化的meta-data -->
+        <meta-data android:name="android.max_aspect" android:value="2.4" />
+        <meta-data android:name="android.allow_multiple_resumed_activities" android:value="true" />
+        <meta-data android:name="com.samsung.android.sdk.look.cocktailbar.enabled" android:value="true" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

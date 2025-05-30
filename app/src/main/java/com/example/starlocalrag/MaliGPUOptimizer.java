@@ -20,9 +20,9 @@ public class MaliGPUOptimizer {
             sessionOptions.addConfigEntry("ep.opencl.enable_winograd_convolution", "1");
             sessionOptions.addConfigEntry("ep.opencl.enable_batched_gemm", "1");
             
-            // 针对Mali GPU的线程配置
-            sessionOptions.setIntraOpNumThreads(8); // Mali-G610有8个执行单元
-            sessionOptions.setInterOpNumThreads(2);
+            // Mali GPU优化 - 不覆盖已有的线程配置，避免与CPU亲和性配置冲突
+            // 注意：线程配置已在LocalLlmHandler中设置，此处不再重复设置以避免冲突
+            LogManager.logI(TAG, "Mali GPU优化已启用，使用LocalLlmHandler中的线程配置");
             
             // 内存带宽优化
             sessionOptions.addConfigEntry("ep.opencl.enable_memory_reuse", "1");
