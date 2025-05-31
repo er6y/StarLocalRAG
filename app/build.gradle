@@ -151,6 +151,8 @@ dependencies {
     // 添加ONNX Runtime扩展（使用可用的最新版本0.13.0）
     implementation 'com.microsoft.onnxruntime:onnxruntime-extensions-android:0.13.0'
     
+    // ONNX Runtime GenAI 0.8.1 (本地AAR文件)
+    implementation files('libs/onnxruntime-genai-android-0.8.1.aar')
     // Tokenizers JNI
     implementation project(':libs:tokenizers-jni')
     

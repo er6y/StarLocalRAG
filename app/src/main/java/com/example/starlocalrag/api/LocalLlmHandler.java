@@ -43,6 +43,11 @@ import com.example.starlocalrag.OpenGLESComputeAccelerator;
  * 本地LLM处理程序
  * 负责加载和管理本地模型，执行本地推理
  * 支持多种模型类型，包括ONNX等
+ * 
+ * 重构说明：
+ * 1. 统一接口规范，明确职责分离
+ * 2. 简化回调接口，提高可维护性
+ * 3. 为ONNX Runtime GenAI迁移做准备
  */
 public class LocalLlmHandler {
     private static final String TAG = "LocalLLMHandler";
@@ -70,6 +75,9 @@ public class LocalLlmHandler {
     
     // 推理停止标志
     private final AtomicBoolean shouldStopInference = new AtomicBoolean(false);
+    
+    // 推理引擎接口（支持多种实现）
+    private InferenceEngine inferenceEngine;
     
     // ONNX运行时环境
     private OrtEnvironment ortEnvironment;
@@ -383,6 +391,55 @@ public class LocalLlmHandler {
         // 初始化GPU设置
         this.useGpu = ConfigManager.getBoolean(context, ConfigManager.KEY_USE_GPU, false);
         LogManager.logD(TAG, "LocalLlmHandler初始化: GPU加速设置为 " + (this.useGpu ? "启用" : "禁用"));
+        
+        // 根据配置选择推理引擎
+        // 分词器策略：
+        // - ONNX Runtime GenAI：使用内置分词器，自动处理模型配置和分词
+        // - 传统ONNX Runtime：使用Hugging Face分词器，手动解析config.json
+        boolean useOnnxGenAI = ConfigManager.getBoolean(context, ConfigManager.KEY_USE_ONNX_GENAI, true);
+        if (useOnnxGenAI) {
+            this.inferenceEngine = new GenAIInferenceEngine();
+            LogManager.logI(TAG, "LocalLlmHandler初始化: 使用OnnxRuntimeGenAI引擎（内置分词器）");
+        } else {
+            this.inferenceEngine = new OnnxRuntimeInferenceEngine();
+            LogManager.logI(TAG, "LocalLlmHandler初始化: 使用传统OnnxRuntime引擎（Hugging Face分词器）");
+        }
+    }
+    
+    /**
+     * 设置推理引擎
+     * @param engine 推理引擎实例
+     */
+    public void setInferenceEngine(InferenceEngine engine) {
+        if (this.inferenceEngine != null) {
+            this.inferenceEngine.release();
+        }
+        this.inferenceEngine = engine;
+        LogManager.logI(TAG, "推理引擎已切换为: " + engine.getEngineType());
+    }
+    
+    /**
+     * 切换到ONNX Runtime GenAI引擎
+     */
+    public void switchToGenAIEngine() {
+        LogManager.logI(TAG, "切换到ONNX Runtime GenAI推理引擎");
+        setInferenceEngine(new GenAIInferenceEngine());
+    }
+    
+    /**
+     * 切换到传统ONNX Runtime引擎
+     */
+    public void switchToOnnxRuntimeEngine() {
+        LogManager.logI(TAG, "切换到传统ONNX Runtime推理引擎");
+        setInferenceEngine(new OnnxRuntimeInferenceEngine());
+    }
+    
+    /**
+     * 获取当前推理引擎类型
+     * @return 引擎类型名称
+     */
+    public String getCurrentEngineType() {
+        return inferenceEngine != null ? inferenceEngine.getEngineType() : "未知";
     }
     
     /**
@@ -393,10 +450,52 @@ public class LocalLlmHandler {
     }
     
     /**
-     * 加载本地模型
+     * 根据配置更新推理引擎
+     */
+    public void updateEngineFromConfig() {
+        boolean useOnnxGenAI = ConfigManager.getBoolean(context, ConfigManager.KEY_USE_ONNX_GENAI, true);
+        if (useOnnxGenAI && !(inferenceEngine instanceof GenAIInferenceEngine)) {
+            switchToGenAIEngine();
+        } else if (!useOnnxGenAI && !(inferenceEngine instanceof OnnxRuntimeInferenceEngine)) {
+            switchToOnnxRuntimeEngine();
+        }
+    }
+    
+    /**
+     * 加载本地模型（简化版接口）
      * @param modelName 模型名称（目录名）
      * @param callback 回调接口
      */
+    public void loadModel(String modelName, final StreamingCallback callback) {
+        loadModel(modelName, new LocalLlmCallback() {
+            @Override
+            public void onToken(String token) {
+                callback.onToken(token);
+            }
+            
+            @Override
+            public void onTokenGenerated(String token) {
+                callback.onToken(token);
+            }
+            
+            @Override
+            public void onComplete(String fullResponse) {
+                callback.onComplete(fullResponse);
+            }
+            
+            @Override
+            public void onError(String errorMessage) {
+                callback.onError(errorMessage);
+            }
+        });
+    }
+    
+    /**
+     * 加载本地模型（兼容旧接口）
+     * @param modelName 模型名称（目录名）
+     * @param callback 回调接口
+     */
+    @Deprecated
     public void loadModel(String modelName, final LocalLlmCallback callback) {
         // 如果已经加载了相同的模型，直接返回
         if (modelLoaded.get() && modelName.equals(currentModelName)) {
@@ -422,20 +521,13 @@ public class LocalLlmHandler {
         executorService.execute(() -> {
             try {
                 // 释放之前的资源
-                if (ortSession != null) {
-                    ortSession.close();
-                    ortSession = null;
-                }
-                
-                if (ortEnvironment != null) {
-                    ortEnvironment.close();
-                    ortEnvironment = null;
+                if (inferenceEngine != null) {
+                    inferenceEngine.release();
                 }
                 
                 modelLoaded.set(false);
                 
                 // 1. 确保模型文件存在
-                // 从ConfigManager获取模型路径
                 String modelPath = ConfigManager.getModelPath(context);
                 File modelDir = new File(modelPath, modelName);
                 
@@ -443,753 +535,96 @@ public class LocalLlmHandler {
                     throw new IOException("模型文件不存在: " + modelDir.getAbsolutePath());
                 }
                 
-                // 2. 加载模型配置
+                // 2. 加载模型配置 - 兼容config.json和genai_config.json
                 File configFile = new File(modelDir, "config.json");
                 if (!configFile.exists()) {
-                    throw new IOException("模型配置文件不存在: " + configFile.getPath());
-                }
-                loadModelConfig(configFile);
-                
-                // 3. 检查词汇表文件
-                File tokenizerFile = new File(modelDir, "tokenizer.json");
-                if (!tokenizerFile.exists()) {
-                    throw new IOException("词汇表文件不存在: " + tokenizerFile.getPath());
-                }
-                checkTokenizerFile(tokenizerFile);
-                
-                // 4. 初始化ONNX运行时环境
-                ortEnvironment = OrtEnvironment.getEnvironment();
-                
-                // 5. 配置会话选项
-                SessionOptions sessionOptions = new SessionOptions();
-                
-                // 设置线程数 - 优化CPU推理性能
-                int threads = ConfigManager.getThreads(context);
-                int availableProcessors = Runtime.getRuntime().availableProcessors();
-                
-                // 使用BuildConfig中的线程配置（如果可用）
-                int configuredThreads;
-                try {
-                    configuredThreads = com.example.starlocalrag.BuildConfig.THREAD_COUNT;
-                    LogManager.logI(TAG, "使用BuildConfig配置的线程数: " + configuredThreads);
-                } catch (Exception e) {
-                    configuredThreads = threads;
-                    LogManager.logD(TAG, "BuildConfig线程配置不可用，使用默认配置: " + threads);
-                }
-                
-                // 对于CPU推理，使用更多线程可以提高性能
-                int optimizedThreads = Math.min(Math.max(configuredThreads, threads) * 2, availableProcessors);
-                
-                // 根据调查报告建议，优化线程配置以改善缓存利用率
-                // 调查报告建议：将IntraOp从8调至4，InterOp从4调至2，减少线程竞争
-                Runtime runtime = Runtime.getRuntime();
-                long maxMemory = runtime.maxMemory();
-                
-                // 限制最大线程数，避免过多线程导致缓存未命中
-                if (maxMemory > 6 * 1024 * 1024 * 1024L) { // 6GB以上内存
-                    optimizedThreads = Math.min(4, availableProcessors); // 最大4线程
-                } else if (maxMemory < 3 * 1024 * 1024 * 1024L) { // 3GB以下内存
-                    optimizedThreads = Math.min(2, availableProcessors); // 最大2线程
+                    // 尝试使用genai_config.json (ONNX Runtime GenAI格式)
+                    configFile = new File(modelDir, "genai_config.json");
+                    if (!configFile.exists()) {
+                        throw new IOException("模型配置文件不存在: " + modelDir.getAbsolutePath() + "/config.json 或 " + modelDir.getAbsolutePath() + "/genai_config.json");
+                    }
+                    LogManager.logI(TAG, "使用ONNX Runtime GenAI配置文件: genai_config.json");
                 } else {
-                    optimizedThreads = Math.min(3, availableProcessors); // 中等内存设备最大3线程
+                    LogManager.logI(TAG, "使用标准配置文件: config.json");
                 }
+                ModelConfig modelConfig = loadModelConfig(configFile);
                 
-                sessionOptions.setIntraOpNumThreads(optimizedThreads);
-                sessionOptions.setInterOpNumThreads(Math.max(1, optimizedThreads / 2));
+                // 3. 初始化推理引擎
+                inferenceEngine.initialize(modelDir.getAbsolutePath(), modelConfig);
                 
-                // 完全禁用CPU亲和性配置以避免移动设备兼容性问题
-                // 移动设备的CPU亲和性配置经常导致ORT_FAIL错误
-                LogManager.logI(TAG, "已禁用CPU亲和性配置以确保移动设备兼容性");
-                
-                LogManager.logI(TAG, String.format("ONNX Runtime线程配置 - IntraOp: %d, InterOp: %d (可用处理器: %d)", 
-                    optimizedThreads, Math.max(1, optimizedThreads / 2), availableProcessors));
-                
-                // 启用性能优化
-                sessionOptions.setMemoryPatternOptimization(true);
-                sessionOptions.setExecutionMode(SessionOptions.ExecutionMode.PARALLEL); // 改为并行模式提高性能
-                
-                // 启用图优化
-                try {
-                    sessionOptions.setOptimizationLevel(SessionOptions.OptLevel.ALL_OPT);
-                    LogManager.logI(TAG, "已启用ONNX Runtime全部优化");
-                } catch (Exception e) {
-                    LogManager.logW(TAG, "无法设置优化级别: " + e.getMessage());
-                }
-                
-                // 启用CPU特定优化
-                try {
-                    // 移除空的affinity配置，避免"Affinity string must not be empty"错误
-                    // sessionOptions.addConfigEntry("session.intra_op_thread_affinities", "");
-                    // sessionOptions.addConfigEntry("session.inter_op_thread_affinities", "");
-                    sessionOptions.addConfigEntry("session.force_spinning_stop", "1");
-                    LogManager.logI(TAG, "已启用CPU特定优化配置");
-                } catch (Exception e) {
-                    LogManager.logW(TAG, "无法设置CPU优化配置: " + e.getMessage());
-                }
-                
-                // 应用量化模型专门配置
-                if (modelConfig != null && modelConfig.isQuantized()) {
-                    applyQuantizationOptimizations(sessionOptions, modelConfig);
-                }
-                
-                // 检查BuildConfig中的GPU和NNAPI配置
-                boolean enableGpuAcceleration = true;
-                boolean enableNNAPI = true;
-                try {
-                    enableGpuAcceleration = com.example.starlocalrag.BuildConfig.ENABLE_GPU_ACCELERATION;
-                    enableNNAPI = com.example.starlocalrag.BuildConfig.ENABLE_NNAPI;
-                    LogManager.logI(TAG, String.format("BuildConfig配置 - GPU加速: %b, NNAPI: %b", 
-                        enableGpuAcceleration, enableNNAPI));
-                } catch (Exception e) {
-                    LogManager.logD(TAG, "BuildConfig GPU配置不可用，使用默认设置");
-                }
-                
-                // 添加内存管理优化配置
-                try {
-                    sessionOptions.addConfigEntry("session.enable_cpu_mem_arena", "1");
-                    sessionOptions.addConfigEntry("session.enable_mem_pattern", "1");
-                    sessionOptions.addConfigEntry("session.use_env_allocators", "1");
-                    sessionOptions.addConfigEntry("session.enable_memory_efficient_attention", "1");
-                    
-                    // 根据调查报告建议，优化内存限制配置
-                    // 重用之前定义的runtime变量
-                    long maxMemoryMB = maxMemory / (1024 * 1024); // 转换为MB
-                    
-                    // 动态调整内存限制：根据设备内存容量优化配置
-                    long memoryLimit;
-                    if (maxMemoryMB > 6144) { // 6GB以上设备
-                        memoryLimit = 768; // 使用768MB（调查报告建议）
-                    } else if (maxMemoryMB > 4096) { // 4-6GB设备
-                        memoryLimit = 512; // 使用512MB
-                    } else if (maxMemoryMB > 2048) { // 2-4GB设备
-                        memoryLimit = 384; // 使用384MB
-                    } else { // 2GB以下设备
-                        memoryLimit = 256; // 使用256MB
-                    }
-                    
-                    sessionOptions.addConfigEntry("session.memory_limit_mb", String.valueOf(memoryLimit));
-                    
-                    LogManager.logI(TAG, String.format("内存管理优化 - 设备内存: %dMB, 会话限制: %dMB (调查报告优化)", 
-                        maxMemoryMB, memoryLimit));
-                } catch (Exception e) {
-                    LogManager.logW(TAG, "内存管理配置失败: " + e.getMessage());
-                }
-                
-                // 如果启用GPU，按优先级尝试不同的GPU加速方式
-                if (useGpu && enableGpuAcceleration) {
-                    boolean gpuEnabled = false;
-                    
-                    // 检查系统信息
-                    String osVersion = android.os.Build.VERSION.RELEASE;
-                    String deviceModel = android.os.Build.MODEL;
-                    String manufacturer = android.os.Build.MANUFACTURER;
-                    LogManager.logI(TAG, String.format("GPU加速环境检查 - 系统版本: %s, 设备型号: %s, 制造商: %s", 
-                        osVersion, deviceModel, manufacturer));
-                    
-                    // 检查是否为HarmonyOS
-                    boolean isHarmonyOS = manufacturer.toLowerCase().contains("huawei") || 
-                                         manufacturer.toLowerCase().contains("honor") ||
-                                         android.os.Build.DISPLAY.toLowerCase().contains("harmony");
-                    if (isHarmonyOS) {
-                        LogManager.logI(TAG, "检测到HarmonyOS系统，将尝试兼容性GPU加速方案");
-                        
-                        // 应用HarmonyOS特定优化
-                        try {
-                            HarmonyOSGPUAdapter.optimizeForHarmonyOS(sessionOptions);
-                            HarmonyOSGPUAdapter.checkHarmonyOSGPUPermissions(context);
-                            LogManager.logI(TAG, "HarmonyOS GPU优化配置已应用");
-                        } catch (Exception e) {
-                            LogManager.logW(TAG, "HarmonyOS GPU优化失败: " + e.getMessage());
-                        }
-                    }
-                    
-                    // 检测Mali GPU并应用特定优化
-                    try {
-                        String maliInfo = MaliGPUOptimizer.detectMaliArchitecture();
-                        if (maliInfo != null && maliInfo.toLowerCase().contains("mali")) {
-                            LogManager.logI(TAG, "检测到Mali GPU: " + maliInfo);
-                            MaliGPUOptimizer.optimizeForMaliG610(sessionOptions);
-                            LogManager.logI(TAG, "Mali GPU优化配置已应用");
-                        }
-                    } catch (Exception e) {
-                        LogManager.logW(TAG, "Mali GPU检测和优化失败: " + e.getMessage());
-                    }
-                    
-                    // 初始化OpenGL ES计算加速器（如果支持）
-                    try {
-                        OpenGLESComputeAccelerator glAccelerator = new OpenGLESComputeAccelerator();
-                        if (glAccelerator.isSupported()) {
-                            LogManager.logI(TAG, "OpenGL ES计算着色器支持已启用");
-                        }
-                    } catch (Exception e) {
-                        LogManager.logD(TAG, "OpenGL ES计算着色器初始化失败: " + e.getMessage());
-                    }
-                    
-                    // 使用反射机制尝试调用可能存在的GPU加速方法
-                    // 针对华为MIS-AL00设备(Mali-G610 GPU)优化加速方案顺序
-                    String[] gpuMethods, gpuNames, gpuDescriptions;
-                    
-                    if (isHarmonyOS) {
-                        // HarmonyOS设备优先使用兼容性更好的加速方案
-                        if (enableNNAPI) {
-                            gpuMethods = new String[]{"addOpenCL", "addVulkan", "addOpenGL", "addNNAPI", "addCUDA"};
-                            gpuNames = new String[]{"OpenCL", "Vulkan", "OpenGL", "NNAPI", "CUDA"};
-                            gpuDescriptions = new String[]{
-                                "开放计算语言 (HarmonyOS兼容性最佳)",
-                                "Vulkan API (Mali GPU优化支持)",
-                                "OpenGL ES计算着色器 (通用GPU加速)",
-                                "Android神经网络API (可能受限)",
-                                "NVIDIA CUDA (不适用于Mali GPU)"
-                            };
-                        } else {
-                            gpuMethods = new String[]{"addOpenCL", "addVulkan", "addOpenGL", "addCUDA"};
-                            gpuNames = new String[]{"OpenCL", "Vulkan", "OpenGL", "CUDA"};
-                            gpuDescriptions = new String[]{
-                                "开放计算语言 (HarmonyOS兼容性最佳)",
-                                "Vulkan API (Mali GPU优化支持)",
-                                "OpenGL ES计算着色器 (通用GPU加速)",
-                                "NVIDIA CUDA (不适用于Mali GPU)"
-                            };
-                        }
-                    } else {
-                        // 标准Android设备使用原有顺序
-                        if (enableNNAPI) {
-                            gpuMethods = new String[]{"addNNAPI", "addVulkan", "addOpenCL", "addOpenGL", "addCUDA"};
-                            gpuNames = new String[]{"NNAPI", "Vulkan", "OpenCL", "OpenGL", "CUDA"};
-                            gpuDescriptions = new String[]{
-                                "Android神经网络API (适用于Android 8.1+)",
-                                "Vulkan API (现代GPU加速)",
-                                "开放计算语言 (跨平台并行计算)",
-                                "OpenGL ES计算着色器 (通用GPU加速)",
-                                "NVIDIA CUDA (NVIDIA GPU专用)"
-                            };
-                        } else {
-                            gpuMethods = new String[]{"addVulkan", "addOpenCL", "addOpenGL", "addCUDA"};
-                            gpuNames = new String[]{"Vulkan", "OpenCL", "OpenGL", "CUDA"};
-                            gpuDescriptions = new String[]{
-                                "Vulkan API (现代GPU加速)",
-                                "开放计算语言 (跨平台并行计算)",
-                                "OpenGL ES计算着色器 (通用GPU加速)",
-                                "NVIDIA CUDA (NVIDIA GPU专用)"
-                            };
-                        }
-                    }
-                    
-                    for (int i = 0; i < gpuMethods.length && !gpuEnabled; i++) {
-                        try {
-                            LogManager.logD(TAG, String.format("尝试启用%s加速 - %s", gpuNames[i], gpuDescriptions[i]));
-                            
-                            // 尝试通过反射调用方法
-                            Method method = SessionOptions.class.getMethod(gpuMethods[i]);
-                            method.invoke(sessionOptions);
-                            
-                            LogManager.logI(TAG, String.format("✓ 成功启用%s加速", gpuNames[i]));
-                            gpuEnabled = true;
-                            
-                        } catch (NoSuchMethodException e) {
-                            // 方法不存在，跳过
-                            LogManager.logW(TAG, String.format("✗ %s加速方法不可用 - ONNX Runtime版本可能不支持此加速方式", gpuNames[i]));
-                            
-                        } catch (InvocationTargetException e) {
-                            // 方法调用失败，获取具体原因
-                            Throwable cause = e.getCause();
-                            String errorMsg = cause != null ? cause.getMessage() : e.getMessage();
-                            LogManager.logE(TAG, String.format("✗ %s加速启用失败: %s", gpuNames[i], errorMsg));
-                            
-                            // 针对不同错误提供具体建议
-                            if (errorMsg != null) {
-                                if (errorMsg.contains("NNAPI") && errorMsg.contains("not supported")) {
-                                    LogManager.logW(TAG, "建议: NNAPI可能在此设备上不受支持，这在某些华为/荣耀设备上较常见");
-                                } else if (errorMsg.contains("OpenCL") && errorMsg.contains("not found")) {
-                                    LogManager.logW(TAG, "建议: OpenCL驱动未找到，可能需要更新GPU驱动或系统版本");
-                                    if (isHarmonyOS) {
-                                        LogManager.logW(TAG, "HarmonyOS提示: 尝试使用Mali GPU的OpenCL优化配置");
-                                        try {
-                                            MaliGPUOptimizer.optimizeMaliMemory(sessionOptions);
-                                        } catch (Exception ex) {
-                                            LogManager.logD(TAG, "Mali OpenCL优化失败: " + ex.getMessage());
-                                        }
-                                    }
-                                } else if (errorMsg.contains("Vulkan")) {
-                                    LogManager.logW(TAG, "建议: Vulkan API不可用 - 检查设备是否支持Vulkan 1.0+，或更新GPU驱动");
-                                    if (isHarmonyOS) {
-                                        LogManager.logW(TAG, "HarmonyOS提示: 确保系统版本支持Vulkan API，某些华为设备需要特定系统版本");
-                                        try {
-                                            HarmonyOSGPUAdapter.configureVulkanAcceleration(sessionOptions);
-                                        } catch (Exception ex) {
-                                            LogManager.logD(TAG, "HarmonyOS Vulkan配置失败: " + ex.getMessage());
-                                        }
-                                    }
-                                } else if (errorMsg.contains("OpenGL")) {
-                                    LogManager.logW(TAG, "建议: OpenGL ES计算着色器不可用 - 检查设备是否支持OpenGL ES 3.1+");
-                                    if (isHarmonyOS) {
-                                        LogManager.logW(TAG, "HarmonyOS提示: 在开发者选项中启用'强制进行GPU渲染'可能有助于OpenGL加速");
-                                        try {
-                                            HarmonyOSGPUAdapter.optimizeSystemSettings();
-                                        } catch (Exception ex) {
-                                            LogManager.logD(TAG, "HarmonyOS系统设置优化失败: " + ex.getMessage());
-                                        }
-                                    }
-                                } else if (errorMsg.contains("CUDA")) {
-                                    LogManager.logW(TAG, "建议: CUDA仅支持NVIDIA GPU，当前设备可能使用其他GPU");
-                                }
-                            }
-                            
-                        } catch (Exception e) {
-                            // 其他未知错误
-                            LogManager.logE(TAG, String.format("✗ %s加速启用失败 (未知错误): %s", gpuNames[i], e.getClass().getSimpleName() + ": " + e.getMessage()));
-                        }
-                    }
-                    
-                    if (!gpuEnabled) {
-                        LogManager.logW(TAG, "所有GPU加速方式均失败，将使用CPU模式");
-                        
-                        // 执行GPU诊断
-                        try {
-                            String diagnosticReport = com.example.starlocalrag.GPUDiagnosticTool.performFullDiagnosis(context);
-                            LogManager.logI(TAG, "GPU诊断报告:\n" + diagnosticReport);
-                        } catch (Exception e) {
-                            LogManager.logE(TAG, "GPU诊断失败: " + e.getMessage(), e);
-                        }
-                        
-                        // 提供针对性建议
-                        if (isHarmonyOS) {
-                            LogManager.logI(TAG, "HarmonyOS建议: 1) 确保系统版本支持GPU加速 2) 检查开发者选项中的硬件加速设置 3) 尝试重启应用");
-                            
-                            // 尝试Mali GPU性能监控
-                            try {
-                                MaliGPUOptimizer.monitorMaliPerformance();
-                                MaliGPUOptimizer.optimizeFrequencyGovernor();
-                            } catch (Exception e) {
-                                LogManager.logD(TAG, "Mali GPU性能监控失败: " + e.getMessage());
-                            }
-                        } else {
-                            LogManager.logI(TAG, "通用建议: 1) 检查设备GPU驱动版本 2) 确认应用权限设置 3) 尝试在开发者选项中启用硬件加速");
-                        }
-                        
-                        LogManager.logI(TAG, "CPU模式性能提示: 虽然无法使用GPU加速，但CPU模式仍可正常运行，只是速度相对较慢");
-                        
-                        // 检查Mali GPU特性支持
-                        try {
-                            Map<String, Boolean> maliFeatures = MaliGPUOptimizer.checkMaliFeatureSupport(context);
-                            LogManager.logI(TAG, "Mali GPU特性支持: " + maliFeatures.toString());
-                        } catch (Exception e) {
-                            LogManager.logD(TAG, "Mali GPU特性检查失败: " + e.getMessage());
-                        }
-                    }
-                }
-                
-                // 6. 加载ONNX模型
-                File modelFile = new File(modelDir, "model.onnx");
-                if (!modelFile.exists()) {
-                    throw new IOException("模型文件不存在: " + modelFile.getPath());
-                }
-                
-                LogManager.logD(TAG, "开始加载ONNX模型: " + modelFile.getPath());
-                ortSession = ortEnvironment.createSession(modelFile.getPath(), sessionOptions);
-                
-                // 7. 打印模型信息
-                Map<String, NodeInfo> inputInfo = ortSession.getInputInfo();
-                Map<String, NodeInfo> outputInfo = ortSession.getOutputInfo();
-                
-                LogManager.logD(TAG, "模型输入数量: " + inputInfo.size());
-                for (String inputName : inputInfo.keySet()) {
-                    LogManager.logD(TAG, "模型输入: " + inputName + ", 类型: " + inputInfo.get(inputName).getInfo());
-                }
-                
-                LogManager.logD(TAG, "模型输出数量: " + outputInfo.size());
-                for (String outputName : outputInfo.keySet()) {
-                    LogManager.logD(TAG, "模型输出: " + outputName + ", 类型: " + outputInfo.get(outputName).getInfo());
-                }
-                
-                // 7.5. 智能检测KV缓存支持
-                boolean modelSupportsKVCache = detectKVCacheSupport(inputInfo);
-                if (modelConfig != null) {
-                    if (modelSupportsKVCache && !modelConfig.enableKVCache) {
-                        LogManager.logI(TAG, "检测到模型支持KV缓存，自动启用以提升性能");
-                        modelConfig.enableKVCache = true;
-                    } else if (!modelSupportsKVCache && modelConfig.enableKVCache) {
-                        LogManager.logW(TAG, "检测到模型不支持KV缓存，自动禁用以避免兼容性问题");
-                        modelConfig.enableKVCache = false;
-                    }
-                    LogManager.logI(TAG, "KV缓存状态: " + (modelConfig.enableKVCache ? "启用" : "禁用"));
-                }
-                
-                // 8. 检测模型类型并初始化相应处理器
-                // 默认为ONNX模型
-                modelType = "onnx";
-                
-                // 如果模型配置中指定了模型类型，则使用配置中的类型
-                if (modelConfig != null && modelConfig.modelType != null) {
-                    modelType = modelConfig.modelType.toLowerCase();
-                }
-                
-                // 根据模型类型初始化处理器
-                if ("onnx".equals(modelType)) {
-                    LogManager.logI(TAG, "初始化ONNX处理器");
-                    localLlmOnnxHandler = new LocalLLMOnnxHandler(context, ortEnvironment, ortSession, modelConfig);
-                } else {
-                    LogManager.logW(TAG, "未知模型类型: " + modelType + "，默认使用ONNX处理器");
-                    modelType = "onnx";
-                    localLlmOnnxHandler = new LocalLLMOnnxHandler(context, ortEnvironment, ortSession, modelConfig);
-                }
-                
-                // 9. 标记为已加载
+                // 4. 标记模型已加载
                 modelLoaded.set(true);
-                LogManager.logI(TAG, "模型加载完成: " + modelName + ", 类型: " + modelType);
-                logMemoryInfo();
+                modelLoading.set(false);
                 
-                // 回调成功
+                LogManager.logI(TAG, "✓ 模型加载成功: " + modelName + " (引擎: " + inferenceEngine.getEngineType() + ")");
+                
                 if (callback != null) {
-                    new Handler(Looper.getMainLooper()).post(() -> {
-                        callback.onComplete("模型加载成功: " + modelName);
-                    });
+                    callback.onComplete("模型加载成功: " + modelName);
                 }
                 
             } catch (Exception e) {
-                LogManager.logE(TAG, "加载模型失败: " + e.getMessage(), e);
-                currentModelName = null;
-                
-                // 回调错误
-                if (callback != null) {
-                    final String errorMessage = e.getMessage();
-                    new Handler(Looper.getMainLooper()).post(() -> {
-                        callback.onError("加载模型失败: " + errorMessage);
-                    });
-                }
-            } finally {
-                // 标记为不再加载中
+                modelLoaded.set(false);
                 modelLoading.set(false);
+                
+                String errorMsg = "模型加载失败: " + e.getMessage();
+                LogManager.logE(TAG, errorMsg, e);
+                
+                if (callback != null) {
+                    callback.onError(errorMsg);
+                }
             }
         });
     }
     
     /**
-     * 加载模型配置
-     * @param configFile 配置文件
-     * @throws Exception 异常
-     */
-    private void loadModelConfig(File configFile) throws Exception {
-        LogManager.logD(TAG, "加载模型配置: " + configFile.getPath());
-        
-        StringBuilder content = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(new FileReader(configFile))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                content.append(line);
-            }
-        }
-        
-        JSONObject config = new JSONObject(content.toString());
-        
-        String modelType = config.optString("model_type", "unknown");
-        int vocabSize = config.optInt("vocab_size", 32000);
-        int hiddenSize = config.optInt("hidden_size", 4096);
-        int numLayers = config.optInt("num_hidden_layers", 32);
-        int numHeads = config.optInt("num_attention_heads", 32);
-        
-        modelConfig = new ModelConfig(modelType, vocabSize, hiddenSize, numLayers, numHeads);
-        // 设置模型路径
-        modelConfig.setModelPath(configFile.getParentFile().getAbsolutePath());
-        
-        // 获取特殊token
-        if (config.has("bos_token_id")) {
-            bosToken = config.getInt("bos_token_id");
-            modelConfig.setBosToken(bosToken);
-        }
-        if (config.has("eos_token_id")) {
-            eosToken = config.getInt("eos_token_id");
-            modelConfig.setEosToken(eosToken);
-        }
-        if (config.has("pad_token_id")) {
-            padToken = config.getInt("pad_token_id");
-        }
-        
-        // 解析量化相关配置
-        parseQuantizationConfig(config, modelConfig, configFile);
-        
-        // 动态调整maxSequenceLength，结合配置的最大序列长度
-        int configuredMaxSeqLength = ConfigManager.getMaxSequenceLength(context);
-        int dynamicMaxSeqLength = calculateDynamicSequenceLength(configuredMaxSeqLength);
-        modelConfig.setMaxSequenceLength(dynamicMaxSeqLength);
-        
-        LogManager.logI(TAG, String.format("序列长度动态调整: 配置值=%d, 计算得出maxSequenceLength=%d", 
-            configuredMaxSeqLength, dynamicMaxSeqLength));
-        
-        LogManager.logD(TAG, String.format("模型配置: 类型=%s, 词汇表大小=%d, 隐藏层大小=%d, 层数=%d, 注意力头数=%d",
-            modelType, vocabSize, hiddenSize, numLayers, numHeads));
-        LogManager.logD(TAG, String.format("特殊token: BOS=%d, EOS=%d, PAD=%d", bosToken, eosToken, padToken));
-        
-        if (modelConfig.isQuantized()) {
-            LogManager.logI(TAG, String.format("量化模型配置: 类型=%s, 缩放因子=%.4f, 零点=%d", 
-                modelConfig.getQuantizationType(), modelConfig.getQuantizationScale(), modelConfig.getQuantizationZeroPoint()));
-        }
-    }
-    
-    /**
-     * 应用量化模型优化配置
-     * @param sessionOptions ONNX Runtime会话选项
-     * @param modelConfig 模型配置
-     */
-    private void applyQuantizationOptimizations(SessionOptions sessionOptions, ModelConfig modelConfig) {
-        try {
-            String quantType = modelConfig.getQuantizationType();
-            LogManager.logI(TAG, "应用量化模型优化配置，类型: " + quantType);
-            
-            // INT8量化模型专门优化
-            if ("int8".equals(quantType)) {
-                // 启用INT8优化
-                sessionOptions.addConfigEntry("session.disable_prepacking", "0");
-                sessionOptions.addConfigEntry("session.enable_cpu_mem_arena", "1");
-                sessionOptions.addConfigEntry("session.enable_mem_pattern", "1");
-                
-                // INT8特定的CPU优化
-                sessionOptions.addConfigEntry("session.use_env_allocators", "1");
-                sessionOptions.addConfigEntry("session.enable_quant_qdq_cleanup", "1");
-                
-                // 张量内存管理优化
-                sessionOptions.addConfigEntry("session.enable_tensor_memory_reuse", "1");
-                sessionOptions.addConfigEntry("session.tensor_memory_pool_size", "64"); // 64MB张量内存池
-                sessionOptions.addConfigEntry("session.enable_memory_efficient_attention", "1");
-                
-                // ARM NEON指令集优化
-                sessionOptions.addConfigEntry("session.enable_neon_optimization", "1");
-                sessionOptions.addConfigEntry("session.use_arm_neon", "1");
-                sessionOptions.addConfigEntry("session.enable_simd_optimization", "1");
-                
-                // INT8量化优化 - 不重复设置线程配置，使用之前的线程和亲和性配置
-                LogManager.logI(TAG, "INT8量化优化已启用，ARM NEON优化: 已启用");
-            }
-            
-            // INT4量化模型优化
-            else if ("int4".equals(quantType)) {
-                sessionOptions.addConfigEntry("session.enable_cpu_mem_arena", "1");
-                sessionOptions.addConfigEntry("session.enable_mem_pattern", "1");
-                sessionOptions.addConfigEntry("session.use_env_allocators", "1");
-                
-                LogManager.logI(TAG, "INT4量化优化已启用");
-            }
-            
-            // KV缓存优化
-            if (modelConfig.isEnableKVCache()) {
-                sessionOptions.addConfigEntry("session.enable_kv_cache", "1");
-                sessionOptions.addConfigEntry("session.kv_cache_max_size", String.valueOf(modelConfig.getMaxSequenceLength()));
-                LogManager.logI(TAG, "KV缓存优化已启用，最大序列长度: " + modelConfig.getMaxSequenceLength());
-            }
-            
-            // 批处理和并行优化
-            int maxBatchSize = Math.max(modelConfig.getMaxBatchSize(), 2); // 默认最小批处理大小为2
-            modelConfig.setMaxBatchSize(maxBatchSize);
-            
-            sessionOptions.addConfigEntry("session.max_batch_size", String.valueOf(maxBatchSize));
-            sessionOptions.addConfigEntry("session.enable_dynamic_batching", "1");
-            sessionOptions.addConfigEntry("session.enable_parallel_execution", "1");
-            sessionOptions.addConfigEntry("session.batch_timeout_ms", "50"); // 50ms批处理超时
-            sessionOptions.addConfigEntry("session.enable_batch_optimization", "1");
-            
-            LogManager.logI(TAG, "批处理和并行优化已启用，最大批处理大小: " + maxBatchSize);
-            
-            // 内存访问模式优化
-            sessionOptions.addConfigEntry("session.enable_memory_pattern_optimization", "1");
-            sessionOptions.addConfigEntry("session.memory_access_pattern", "sequential");
-            sessionOptions.addConfigEntry("session.enable_cache_friendly_layout", "1");
-            sessionOptions.addConfigEntry("session.prefetch_distance", "2"); // 预取距离
-            
-            // 内存优化 - 针对量化模型的特殊内存管理
-            sessionOptions.addConfigEntry("session.memory_limit_mb", "512"); // 量化模型内存需求较小
-            sessionOptions.addConfigEntry("session.enable_memory_efficient_attention", "1");
-            
-            // 垃圾回收优化
-            sessionOptions.addConfigEntry("session.enable_gc_optimization", "1");
-            sessionOptions.addConfigEntry("session.gc_threshold_mb", "256"); // 256MB触发GC
-            sessionOptions.addConfigEntry("session.enable_memory_pool", "1");
-            sessionOptions.addConfigEntry("session.memory_pool_size_mb", "128"); // 128MB内存池
-            
-            // 系统级优化
-            sessionOptions.addConfigEntry("session.enable_low_latency_mode", "1");
-            sessionOptions.addConfigEntry("session.cpu_affinity_enabled", "1");
-            sessionOptions.addConfigEntry("session.thread_priority", "high");
-            
-            // 量化特定的数值精度设置
-            if (modelConfig.getQuantizationScale() > 0) {
-                sessionOptions.addConfigEntry("session.quant_scale", String.valueOf(modelConfig.getQuantizationScale()));
-                sessionOptions.addConfigEntry("session.quant_zero_point", String.valueOf(modelConfig.getQuantizationZeroPoint()));
-            }
-            
-            LogManager.logI(TAG, "量化模型优化配置完成");
-            
-        } catch (Exception e) {
-            LogManager.logW(TAG, "应用量化优化失败: " + e.getMessage());
-        }
-    }
-    
-    /**
-     * 解析量化配置参数
-     * @param config JSON配置对象
-     * @param modelConfig 模型配置对象
-     * @param configFile 配置文件
-     */
-    private void parseQuantizationConfig(JSONObject config, ModelConfig modelConfig, File configFile) {
-        try {
-            // 检查模型文件名是否包含量化标识
-            String modelFileName = configFile.getParentFile().getName().toLowerCase();
-            boolean isQuantizedByName = modelFileName.contains("int8") || modelFileName.contains("int4") || 
-                                      modelFileName.contains("quant") || modelFileName.contains("quantized");
-            
-            // 从配置文件中读取量化信息
-            boolean isQuantized = config.optBoolean("quantized", isQuantizedByName);
-            modelConfig.setQuantized(isQuantized);
-            
-            if (isQuantized) {
-                // 确定量化类型
-                String quantType = config.optString("quantization_type", "");
-                if (quantType.isEmpty()) {
-                    // 从文件名推断量化类型
-                    if (modelFileName.contains("int8")) {
-                        quantType = "int8";
-                    } else if (modelFileName.contains("int4")) {
-                        quantType = "int4";
-                    } else if (modelFileName.contains("fp16")) {
-                        quantType = "fp16";
-                    } else {
-                        quantType = "int8"; // 默认为int8动态量化
-                    }
-                }
-                modelConfig.setQuantizationType(quantType);
-                
-                // 读取量化参数
-                if (config.has("quantization_config")) {
-                    JSONObject quantConfig = config.getJSONObject("quantization_config");
-                    
-                    // 量化缩放因子
-                    float scale = (float) quantConfig.optDouble("scale", 1.0);
-                    modelConfig.setQuantizationScale(scale);
-                    
-                    // 量化零点
-                    int zeroPoint = quantConfig.optInt("zero_point", 0);
-                    modelConfig.setQuantizationZeroPoint(zeroPoint);
-                } else {
-                    // 使用默认量化参数
-                    if ("int8".equals(quantType)) {
-                        modelConfig.setQuantizationScale(0.1f); // INT8典型缩放因子
-                        modelConfig.setQuantizationZeroPoint(128); // INT8典型零点
-                    } else if ("int4".equals(quantType)) {
-                        modelConfig.setQuantizationScale(0.2f); // INT4典型缩放因子
-                        modelConfig.setQuantizationZeroPoint(8); // INT4典型零点
-                    }
-                }
-                
-                // KV缓存配置 - 默认禁用以避免兼容性问题
-                boolean enableKVCache = config.optBoolean("enable_kv_cache", false);
-                modelConfig.setEnableKVCache(enableKVCache);
-                
-                // 如果启用了KV缓存，记录警告信息
-                if (enableKVCache) {
-                    LogManager.logW(TAG, "KV缓存已启用，请确保模型支持KV缓存输入张量");
-                }
-                
-                // 批处理配置
-                int maxBatchSize = config.optInt("max_batch_size", 1);
-                modelConfig.setMaxBatchSize(maxBatchSize);
-                
-                // 序列长度配置
-                int maxSeqLen = config.optInt("max_sequence_length", 2048);
-                modelConfig.setMaxSequenceLength(maxSeqLen);
-                
-                LogManager.logI(TAG, "检测到量化模型，类型: " + quantType + ", 启用优化配置");
-            }
-            
-        } catch (Exception e) {
-            LogManager.logW(TAG, "解析量化配置失败，使用默认配置: " + e.getMessage());
-            // 即使解析失败，也尝试从文件名推断，默认启用int8动态量化
-            String modelFileName = configFile.getParentFile().getName().toLowerCase();
-            if (modelFileName.contains("int8") || modelFileName.contains("quant")) {
-                modelConfig.setQuantized(true);
-                modelConfig.setQuantizationType("int8");
-                LogManager.logI(TAG, "从文件名推断为INT8量化模型");
-            } else {
-                // 默认启用int8动态量化以提升性能
-                modelConfig.setQuantized(true);
-                modelConfig.setQuantizationType("int8");
-                modelConfig.setQuantizationScale(0.1f);
-                modelConfig.setQuantizationZeroPoint(128);
-                LogManager.logI(TAG, "默认启用INT8动态量化优化");
-            }
-        }
-    }
-    
-    /**
-     * 检查词汇表文件
-     * @param tokenizerFile 词汇表文件
-     * @throws Exception 异常
-     */
-    private void checkTokenizerFile(File tokenizerFile) throws Exception {
-        LogManager.logD(TAG, "检查词汇表文件: " + tokenizerFile.getPath());
-        
-        // 直接检查文件是否存在，不需要读取内容
-        // Rust tokenizer 会处理词汇表和特殊 token
-        if (!tokenizerFile.exists()) {
-            throw new IOException("词汇表文件不存在: " + tokenizerFile.getPath());
-        }
-        
-        LogManager.logD(TAG, "词汇表文件检查完成，将由 Rust tokenizer 处理");
-    }
-    
-    /**
-     * 推理接口
+     * 执行推理（简化版接口）
      * @param prompt 输入提示词
-     * @param callback 回调接口
+     * @param callback 流式回调
      */
-    public void inference(String prompt, LocalLlmCallback callback) {
+    public void inference(String prompt, StreamingCallback callback) {
+        InferenceParams params = new InferenceParams();
+        // 从配置中获取参数
+        params.setThinkingMode(!ConfigManager.getNoThinking(context));
+        
+        inference(prompt, params, callback);
+    }
+    
+    /**
+     * 执行推理（完整参数版本）
+     * @param prompt 输入提示词
+     * @param params 推理参数
+     * @param callback 流式回调
+     */
+    public void inference(String prompt, InferenceParams params, StreamingCallback callback) {
+        if (!modelLoaded.get()) {
+            callback.onError("模型未加载，请先加载模型");
+            return;
+        }
+        
+        if (inferenceEngine == null) {
+            callback.onError("推理引擎未初始化");
+            return;
+        }
+        
         // 重置停止标志
         resetStopFlag();
         
-        // 实现推理逻辑
-        try {
-            // 配置管理
-            int maxTokenLength = 512; // 默认最大token长度
-            // 从配置中获取思考模式设置
-            boolean thinkingMode = !ConfigManager.getNoThinking(context); // 注意：no_thinking=true表示禁用思考模式
-            float temperature = 0.7f; // 温度采样参数
-            int topK = 5; // top-k 采样参数
-            
-            LogManager.logD(TAG, "思考模式设置: " + (thinkingMode ? "启用" : "禁用"));
-
-            LogManager.logD(TAG, "开始调用本地LLM流式推理，提示词长度: " + prompt.length());
-
-            // 使用流式推理接口
-            localLlmOnnxHandler.inferenceStream(prompt, maxTokenLength, thinkingMode, temperature, topK, 
-                new LocalLLMOnnxHandler.StreamingCallback() {
-                    @Override
-                    public void onToken(String token) {
-                        // 检查是否应该停止推理
-                        if (shouldStopInference()) {
-                            LogManager.logD(TAG, "推理被用户停止");
-                            callback.onError("推理被用户停止");
-                            return;
-                        }
-                        LogManager.logD(TAG, "收到流式token: " + (token.length() > 20 ? token.substring(0, 20) + "..." : token));
-                        callback.onToken(token);
-                    }
-
-                    @Override
-                    public void onComplete(String fullResponse) {
-                        LogManager.logD(TAG, "流式生成完成，总长度: " + fullResponse.length());
-                        callback.onComplete(fullResponse);
-                    }
-
-                    @Override
-                    public void onError(String errorMessage) {
-                        LogManager.logE(TAG, "流式生成错误: " + errorMessage);
-                        callback.onError(errorMessage);
-                    }
-                }, this); // 传递LocalLlmHandler实例
-        } catch (Exception e) {
-            LogManager.logE(TAG, "调用本地LLM流式推理异常", e);
-            callback.onError(e.getMessage());
-        }
+        LogManager.logD(TAG, "开始推理，引擎: " + inferenceEngine.getEngineType() + ", 提示词长度: " + prompt.length());
+        
+        // 执行推理
+        inferenceEngine.inference(prompt, params, callback);
     }
     
+    /**
+     * 执行推理（兼容旧接口）
+     * @param prompt 输入提示词
+     * @param callback 回调接口
+     */
+    @Deprecated
+    public void inference(String prompt, LocalLlmCallback callback) {
+        inference(prompt, (StreamingCallback) callback);
+    }
+
     /**
      * 批处理推理 - 支持多序列并行推理
      * @param inputTexts 输入文本数组
@@ -1433,5 +868,412 @@ public class LocalLlmHandler {
             System.gc();
             LogManager.logI(TAG, "已建议系统进行垃圾回收以优化内存使用");
         }
+    }
+
+    /**
+     * ONNX Runtime GenAI推理引擎实现
+     * 使用新的ONNX Runtime GenAI API
+     */
+    private class GenAIInferenceEngine implements InferenceEngine {
+        private LocalLLMOnnxRuntimeGenAIHandler genaiHandler;
+        
+        @Override
+        public void initialize(String modelPath, ModelConfig config) throws Exception {
+            LogManager.logI(TAG, "初始化ONNX Runtime GenAI推理引擎: " + modelPath);
+            
+            // 创建GenAI处理器
+            genaiHandler = new LocalLLMOnnxRuntimeGenAIHandler(context);
+            
+            // 初始化处理器
+            genaiHandler.initialize(modelPath, config);
+            
+            LogManager.logI(TAG, "✓ ONNX Runtime GenAI引擎初始化完成");
+        }
+        
+        @Override
+        public void inference(String prompt, InferenceParams params, StreamingCallback callback) {
+            if (genaiHandler == null || !genaiHandler.isInitialized()) {
+                callback.onError("ONNX Runtime GenAI引擎未初始化");
+                return;
+            }
+            
+            // 直接调用GenAI处理器的推理方法
+            genaiHandler.inference(prompt, params, callback);
+        }
+        
+        @Override
+        public void stopInference() {
+            if (genaiHandler != null) {
+                genaiHandler.stopInference();
+            }
+            shouldStopInference.set(true);
+        }
+        
+        @Override
+        public void release() {
+            if (genaiHandler != null) {
+                genaiHandler.release();
+                genaiHandler = null;
+            }
+        }
+        
+        @Override
+        public String getEngineType() {
+            return "ONNX Runtime GenAI";
+        }
+        
+        /**
+         * 获取GenAI处理器实例（用于高级操作）
+         * @return GenAI处理器实例
+         */
+        public LocalLLMOnnxRuntimeGenAIHandler getGenAIHandler() {
+            return genaiHandler;
+        }
+    }
+
+    /**
+     * ONNX Runtime推理引擎实现
+     * 封装现有的LocalLLMOnnxHandler
+     */
+    private class OnnxRuntimeInferenceEngine implements InferenceEngine {
+        private LocalLLMOnnxHandler onnxHandler;
+        
+        @Override
+        public void initialize(String modelPath, ModelConfig config) throws Exception {
+            // 这里需要初始化ONNX Runtime环境和会话
+            // 暂时保持原有逻辑，后续会被GenAI引擎替代
+            LogManager.logI(TAG, "初始化ONNX Runtime推理引擎: " + modelPath);
+            
+            // TODO: 实现完整的ONNX Runtime初始化逻辑
+            // 这里应该包含原有的ortEnvironment和ortSession初始化代码
+            
+            // 创建LocalLLMOnnxHandler实例
+            // onnxHandler = new LocalLLMOnnxHandler(context, ortEnvironment, ortSession, config);
+        }
+        
+        @Override
+        public void inference(String prompt, InferenceParams params, StreamingCallback callback) {
+            if (onnxHandler == null) {
+                callback.onError("ONNX Runtime引擎未初始化");
+                return;
+            }
+            
+            // 转换参数并调用原有的推理方法
+            onnxHandler.inferenceStream(prompt, 
+                params.getMaxTokenLength(), 
+                params.isThinkingMode(), 
+                params.getTemperature(), 
+                params.getTopK(), 
+                new LocalLLMOnnxHandler.StreamingCallback() {
+                    @Override
+                    public void onToken(String token) {
+                        if (shouldStopInference()) {
+                            callback.onError("推理被用户停止");
+                            return;
+                        }
+                        callback.onToken(token);
+                    }
+                    
+                    @Override
+                    public void onComplete(String fullResponse) {
+                        callback.onComplete(fullResponse);
+                    }
+                    
+                    @Override
+                    public void onError(String errorMessage) {
+                        callback.onError(errorMessage);
+                    }
+                }, LocalLlmHandler.this);
+        }
+        
+        @Override
+        public void stopInference() {
+            // 设置停止标志
+            shouldStopInference.set(true);
+        }
+        
+        @Override
+        public void release() {
+            if (onnxHandler != null) {
+                // TODO: 释放ONNX Runtime资源
+                // 需要释放ortSession和ortEnvironment
+                onnxHandler = null;
+            }
+        }
+        
+        @Override
+        public String getEngineType() {
+            return "ONNX Runtime";
+        }
+    }
+
+    /**
+     * 加载模型配置
+     * @param configFile 配置文件
+     * @return 模型配置对象
+     * @throws Exception 异常
+     */
+    private ModelConfig loadModelConfig(File configFile) throws Exception {
+        LogManager.logD(TAG, "加载模型配置: " + configFile.getPath());
+        
+        StringBuilder content = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(new FileReader(configFile))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                content.append(line);
+            }
+        }
+        
+        // 检查文件内容是否为空
+        String configContent = content.toString().trim();
+        if (configContent.isEmpty()) {
+            throw new Exception("配置文件为空: " + configFile.getPath());
+        }
+        
+        LogManager.logD(TAG, "配置文件内容长度: " + configContent.length() + " 字符");
+        LogManager.logD(TAG, "配置文件前100字符: " + configContent.substring(0, Math.min(100, configContent.length())));
+        
+        JSONObject config = new JSONObject(configContent);
+        
+        // 检查是否为ONNX Runtime GenAI格式 (genai_config.json)
+        boolean isGenAIConfig = configFile.getName().equals("genai_config.json") || config.has("model");
+        
+        String modelType;
+        int vocabSize;
+        int hiddenSize;
+        int numLayers;
+        int numHeads;
+        
+        if (isGenAIConfig) {
+            // ONNX Runtime GenAI格式 - 使用库内置解析，仅设置基本信息
+            LogManager.logI(TAG, "检测到ONNX Runtime GenAI配置格式，使用库内置解析");
+            
+            // 对于GenAI格式，只需要设置基本信息，具体配置由ONNX Runtime GenAI库自动处理
+            modelType = "genai";
+            vocabSize = 32000;  // 默认值，实际值由库从配置中读取
+            hiddenSize = 4096;  // 默认值，实际值由库从配置中读取
+            numLayers = 32;     // 默认值，实际值由库从配置中读取
+            numHeads = 32;      // 默认值，实际值由库从配置中读取
+        } else {
+            // 传统HuggingFace格式解析
+            LogManager.logI(TAG, "解析传统HuggingFace配置格式");
+            modelType = config.optString("model_type", "unknown");
+            vocabSize = config.optInt("vocab_size", 32000);
+            hiddenSize = config.optInt("hidden_size", 4096);
+            numLayers = config.optInt("num_hidden_layers", 32);
+            numHeads = config.optInt("num_attention_heads", 32);
+        }
+        
+        ModelConfig modelConfig = new ModelConfig(modelType, vocabSize, hiddenSize, numLayers, numHeads);
+        // 设置模型路径
+        modelConfig.setModelPath(configFile.getParentFile().getAbsolutePath());
+        
+        // 获取特殊token
+        if (isGenAIConfig) {
+            // ONNX Runtime GenAI格式 - 特殊token由库自动处理，无需手动解析
+            LogManager.logI(TAG, "特殊token将由ONNX Runtime GenAI库自动处理");
+        } else {
+            // 传统格式的token配置
+            if (config.has("bos_token_id")) {
+                int bosToken = config.getInt("bos_token_id");
+                modelConfig.setBosToken(bosToken);
+                LogManager.logD(TAG, "设置BOS token: " + bosToken);
+            }
+            if (config.has("eos_token_id")) {
+                int eosToken = config.getInt("eos_token_id");
+                modelConfig.setEosToken(eosToken);
+                LogManager.logD(TAG, "设置EOS token: " + eosToken);
+            }
+        }
+        
+        // 解析量化相关配置
+        parseQuantizationConfig(config, modelConfig, configFile);
+        
+        // 动态调整maxSequenceLength
+        int configuredMaxSeqLength = ConfigManager.getMaxSequenceLength(context);
+        modelConfig.setMaxSequenceLength(configuredMaxSeqLength);
+        
+        LogManager.logD(TAG, String.format("模型配置: 类型=%s, 词汇表大小=%d, 隐藏层大小=%d, 层数=%d, 注意力头数=%d",
+            modelType, vocabSize, hiddenSize, numLayers, numHeads));
+        
+        return modelConfig;
+    }
+    
+    /**
+     * 解析量化配置参数
+     * @param config JSON配置对象
+     * @param modelConfig 模型配置对象
+     * @param configFile 配置文件
+     */
+    private void parseQuantizationConfig(JSONObject config, ModelConfig modelConfig, File configFile) {
+        try {
+            // 检查模型文件名是否包含量化标识
+            String modelFileName = configFile.getParentFile().getName().toLowerCase();
+            boolean isQuantizedByName = modelFileName.contains("int8") || modelFileName.contains("int4") || 
+                                      modelFileName.contains("quant") || modelFileName.contains("quantized");
+            
+            // 从配置文件中读取量化信息
+            boolean isQuantized = config.optBoolean("quantized", isQuantizedByName);
+            modelConfig.setQuantized(isQuantized);
+            
+            if (isQuantized) {
+                // 确定量化类型
+                String quantType = config.optString("quantization_type", "");
+                if (quantType.isEmpty()) {
+                    // 从文件名推断量化类型
+                    if (modelFileName.contains("int8")) {
+                        quantType = "int8";
+                    } else if (modelFileName.contains("int4")) {
+                        quantType = "int4";
+                    } else if (modelFileName.contains("fp16")) {
+                        quantType = "fp16";
+                    } else {
+                        quantType = "int8"; // 默认为int8动态量化
+                    }
+                }
+                modelConfig.setQuantizationType(quantType);
+                
+                // 读取量化参数
+                if (config.has("quantization_config")) {
+                    JSONObject quantConfig = config.getJSONObject("quantization_config");
+                    
+                    // 量化缩放因子
+                    float scale = (float) quantConfig.optDouble("scale", 1.0);
+                    modelConfig.setQuantizationScale(scale);
+                    
+                    // 量化零点
+                    int zeroPoint = quantConfig.optInt("zero_point", 0);
+                    modelConfig.setQuantizationZeroPoint(zeroPoint);
+                } else {
+                    // 使用默认量化参数
+                    if ("int8".equals(quantType)) {
+                        modelConfig.setQuantizationScale(0.1f);
+                        modelConfig.setQuantizationZeroPoint(128);
+                    } else if ("int4".equals(quantType)) {
+                        modelConfig.setQuantizationScale(0.2f);
+                        modelConfig.setQuantizationZeroPoint(8);
+                    }
+                }
+                
+                // KV缓存配置
+                boolean enableKVCache = config.optBoolean("enable_kv_cache", false);
+                modelConfig.setEnableKVCache(enableKVCache);
+                
+                // 批处理配置
+                int maxBatchSize = config.optInt("max_batch_size", 1);
+                modelConfig.setMaxBatchSize(maxBatchSize);
+                
+                LogManager.logI(TAG, "检测到量化模型，类型: " + quantType + ", 启用优化配置");
+            }
+            
+        } catch (Exception e) {
+            LogManager.logW(TAG, "解析量化配置失败，使用默认配置: " + e.getMessage());
+            // 默认启用int8动态量化
+            modelConfig.setQuantized(true);
+            modelConfig.setQuantizationType("int8");
+            modelConfig.setQuantizationScale(0.1f);
+            modelConfig.setQuantizationZeroPoint(128);
+        }
+    }
+
+
+    /**
+     * 推理引擎接口
+     * 统一不同推理后端的调用方式
+     */
+    public interface InferenceEngine {
+        /**
+         * 初始化推理引擎
+         * @param modelPath 模型路径
+         * @param config 模型配置
+         * @throws Exception 初始化异常
+         */
+        void initialize(String modelPath, ModelConfig config) throws Exception;
+        
+        /**
+         * 执行推理
+         * @param prompt 输入提示词
+         * @param params 推理参数
+         * @param callback 流式回调
+         */
+        void inference(String prompt, InferenceParams params, StreamingCallback callback);
+        
+        /**
+         * 停止推理
+         */
+        void stopInference();
+        
+        /**
+         * 释放资源
+         */
+        void release();
+        
+        /**
+         * 获取引擎类型
+         * @return 引擎类型名称
+         */
+        String getEngineType();
+    }
+    
+    /**
+     * 推理参数类
+     * 集中管理推理相关参数
+     */
+    public static class InferenceParams {
+        private int maxTokens = 512;
+        private float temperature = 0.7f;
+        private int topK = 40;
+        private float topP = 0.9f;
+        private boolean thinkingMode = true;
+        private float repetitionPenalty = 1.1f;
+        private int seed = -1; // -1表示随机种子
+        
+        // Getter和Setter方法
+        public int getMaxTokens() { return maxTokens; }
+        public void setMaxTokens(int maxTokens) { this.maxTokens = maxTokens; }
+        
+        public int getMaxTokenLength() { return maxTokens; } // 兼容方法
+        
+        public float getTemperature() { return temperature; }
+        public void setTemperature(float temperature) { this.temperature = temperature; }
+        
+        public int getTopK() { return topK; }
+        public void setTopK(int topK) { this.topK = topK; }
+        
+        public float getTopP() { return topP; }
+        public void setTopP(float topP) { this.topP = topP; }
+        
+        public boolean isThinkingMode() { return thinkingMode; }
+        public void setThinkingMode(boolean thinkingMode) { this.thinkingMode = thinkingMode; }
+        
+        public float getRepetitionPenalty() { return repetitionPenalty; }
+        public void setRepetitionPenalty(float repetitionPenalty) { this.repetitionPenalty = repetitionPenalty; }
+        
+        public int getSeed() { return seed; }
+        public void setSeed(int seed) { this.seed = seed; }
+    }
+    
+    /**
+     * 流式回调接口（简化版）
+     * 统一回调接口，简化使用
+     */
+    public interface StreamingCallback {
+        /**
+         * 生成新token时调用
+         * @param token 生成的token
+         */
+        void onToken(String token);
+        
+        /**
+         * 推理完成时调用
+         * @param fullResponse 完整响应
+         */
+        void onComplete(String fullResponse);
+        
+        /**
+         * 发生错误时调用
+         * @param errorMessage 错误信息
+         */
+        void onError(String errorMessage);
     }
 }

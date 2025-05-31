@@ -258,15 +258,8 @@ public class SQLiteVectorDatabaseHandler {
             databaseDir.mkdirs();
         }
         
-        // 打开或创建数据库
-        openDatabase();
-        
-        // 加载或创建元数据
-        if (!loadMetadata()) {
-            this.metadata = new DatabaseMetadata(embeddingModel);
-            this.metadata.setCollection(databaseDir.getName());
-            saveMetadata();
-        }
+        // 延迟初始化数据库以避免this-escape警告
+        initializeDatabase(embeddingModel, 0);
     }
     
     /**
@@ -284,20 +277,8 @@ public class SQLiteVectorDatabaseHandler {
             databaseDir.mkdirs();
         }
         
-        // 打开或创建数据库
-        openDatabase();
-        
-        // 加载或创建元数据
-        if (!loadMetadata()) {
-            this.metadata = new DatabaseMetadata(embeddingModel);
-            this.metadata.setCollection(databaseDir.getName());
-            this.metadata.setEmbeddingDimension(embeddingDimension);
-            saveMetadata();
-        } else if (this.metadata.getEmbeddingDimension() == 0) {
-            // 如果已有元数据但维度为0，更新维度
-            this.metadata.setEmbeddingDimension(embeddingDimension);
-            saveMetadata();
-        }
+        // 延迟初始化数据库以避免this-escape警告
+        initializeDatabase(embeddingModel, embeddingDimension);
         
         LogManager.logD(TAG, "初始化向量数据库，模型: " + embeddingModel + ", 向量维度: " + embeddingDimension);
     }
@@ -310,6 +291,30 @@ public class SQLiteVectorDatabaseHandler {
         this.context = context;
         this.databaseDir = null;
         this.metadata = null;
+    }
+    
+    /**
+     * 初始化数据库（避免this-escape警告）
+     * @param embeddingModel 嵌入模型名称
+     * @param embeddingDimension 嵌入向量维度（0表示不指定）
+     */
+    private void initializeDatabase(String embeddingModel, int embeddingDimension) {
+        // 打开或创建数据库
+        openDatabase();
+        
+        // 加载或创建元数据
+        if (!loadMetadata()) {
+            this.metadata = new DatabaseMetadata(embeddingModel);
+            this.metadata.setCollection(databaseDir.getName());
+            if (embeddingDimension > 0) {
+                this.metadata.setEmbeddingDimension(embeddingDimension);
+            }
+            saveMetadata();
+        } else if (embeddingDimension > 0 && this.metadata.getEmbeddingDimension() == 0) {
+            // 如果已有元数据但维度为0，更新维度
+            this.metadata.setEmbeddingDimension(embeddingDimension);
+            saveMetadata();
+        }
     }
     
     /**

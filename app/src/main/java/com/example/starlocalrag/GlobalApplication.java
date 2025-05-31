@@ -58,6 +58,14 @@ public class GlobalApplication extends Application {
                 Log.w(TAG, "⚠ largeHeap未生效，当前内存限制: " + memoryClass + " MB");
             }
             
+            // 检查是否满足推荐的2GB内存要求
+            long jvmMaxMemoryMB = maxMemory / (1024 * 1024);
+            if (jvmMaxMemoryMB >= 2048) {
+                Log.i(TAG, "✓ 内存配置满足2GB推荐要求，当前JVM最大内存: " + jvmMaxMemoryMB + " MB");
+            } else {
+                Log.w(TAG, "⚠ 内存配置不足2GB推荐要求，当前JVM最大内存: " + jvmMaxMemoryMB + " MB，建议优化内存配置");
+            }
+            
         } catch (Exception e) {
             Log.e(TAG, "内存监控初始化失败: " + e.getMessage(), e);
         }

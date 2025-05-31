@@ -27,7 +27,9 @@ import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.content.FileProvider;
+import androidx.core.view.MenuProvider;
 import androidx.fragment.app.Fragment;
+import androidx.lifecycle.Lifecycle;
 import androidx.navigation.Navigation;
 
 import java.io.File;
@@ -56,7 +58,6 @@ public class LogViewFragment extends Fragment {
     @Override
     public void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setHasOptionsMenu(true); // 启用选项菜单
     }
 
     @Nullable
@@ -334,14 +335,30 @@ public class LogViewFragment extends Fragment {
         return Math.round(dp * density);
     }
 
-    @Override
-    public void onCreateOptionsMenu(@NonNull Menu menu, @NonNull MenuInflater inflater) {
-        inflater.inflate(R.menu.log_view_menu, menu);
-        super.onCreateOptionsMenu(menu, inflater);
-    }
+
     
     @Override
-    public boolean onOptionsItemSelected(@NonNull MenuItem item) {
+    public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
+        super.onViewCreated(view, savedInstanceState);
+        
+        // 添加菜单提供者
+        requireActivity().addMenuProvider(new MenuProvider() {
+            @Override
+            public void onCreateMenu(@NonNull Menu menu, @NonNull MenuInflater menuInflater) {
+                menuInflater.inflate(R.menu.log_view_menu, menu);
+            }
+
+            @Override
+            public boolean onMenuItemSelected(@NonNull MenuItem menuItem) {
+                return handleMenuItemSelected(menuItem);
+            }
+        }, getViewLifecycleOwner(), Lifecycle.State.RESUMED);
+    }
+    
+    /**
+     * 处理菜单项选择
+     */
+    private boolean handleMenuItemSelected(@NonNull MenuItem item) {
         int id = item.getItemId();
         
         if (id == R.id.action_refresh) {
@@ -375,14 +392,14 @@ public class LogViewFragment extends Fragment {
             shareLog();
             return true;
         } else if (id == R.id.action_close) {
-            // 关闭页面 - 使用更安全的方式
+            // 关闭页面 - 使用Navigation组件
             if (getActivity() != null) {
-                getActivity().onBackPressed();
+                requireActivity().getOnBackPressedDispatcher().onBackPressed();
             }
             return true;
         }
         
-        return super.onOptionsItemSelected(item);
+        return false;
     }
     
     /**

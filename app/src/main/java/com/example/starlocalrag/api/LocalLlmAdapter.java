@@ -57,22 +57,16 @@ public class LocalLlmAdapter {
         LogManager.logD(TAG, "加载模型: " + modelName);
         
         // 加载模型
-        localLlmHandler.loadModel(modelName, new LocalLlmHandler.LocalLlmCallback() {
+        localLlmHandler.loadModel(modelName, new LocalLlmHandler.StreamingCallback() {
             @Override
             public void onToken(String token) {
                 // 加载过程中不会有token回调
             }
             
             @Override
-            public void onTokenGenerated(String token) {
-                // 加载过程中不会有token回调
-            }
-            
-            @Override
             public void onComplete(String fullResponse) {
-                LogManager.logD(TAG, "模型加载完成，开始推理");
-                // 模型加载完成后，执行推理
-                executeInference(prompt, callback);
+                LogManager.logD(TAG, "模型加载完成: " + fullResponse);
+                callback.onSuccess("模型加载成功: " + modelName);
             }
             
             @Override
@@ -95,7 +89,7 @@ public class LocalLlmAdapter {
         // 避免多次显示“模型回答”标题
         LogManager.logD(TAG, "不再发送模型回答标题，由调用者负责");
         
-        localLlmHandler.inference(prompt, new LocalLlmHandler.LocalLlmCallback() {
+        localLlmHandler.inference(prompt, new LocalLlmHandler.StreamingCallback() {
             @Override
             public void onToken(String token) {
                 // 打印详细日志，包括收到的token内容
@@ -110,30 +104,14 @@ public class LocalLlmAdapter {
             }
             
             @Override
-            public void onTokenGenerated(String token) {
-                // 兼容方法，调用onToken
-                onToken(token);
-            }
-            
-            @Override
             public void onComplete(String fullResponse) {
-                LogManager.logD(TAG, "本地LLM推理完成，总长度: " + fullResponse.length());
-                
-                // 打印完整响应的前100个字符，便于调试
-                String previewText = fullResponse.length() > 100 ? 
-                    fullResponse.substring(0, 100) + "..." : fullResponse;
-                LogManager.logD(TAG, "完整响应预览: " + previewText);
-                
-                // 将完整响应发送给UI
+                LogManager.logD(TAG, "本地LLM推理完成，完整响应长度: " + fullResponse.length());
                 callback.onSuccess(fullResponse);
-                
-                // 打印调试信息，确认完整响应已发送
-                LogManager.logD(TAG, "完整响应已发送到UI");
             }
             
             @Override
             public void onError(String errorMessage) {
-                LogManager.logE(TAG, "本地LLM推理错误: " + errorMessage);
+                LogManager.logE(TAG, "本地LLM推理失败: " + errorMessage);
                 callback.onError(errorMessage);
             }
         });

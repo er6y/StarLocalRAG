@@ -317,6 +317,27 @@
                 android:hint="1-16" />
         </LinearLayout>
         
+        <!-- OnnxRuntimeGenAI引擎开关 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="8dp">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="使用OnnxRuntimeGenAI引擎"
+                android:textSize="16sp" />
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/switchUseOnnxGenAI"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
+        
         <!-- 思考模式开关已移动到RAG问答界面 -->
 
         <!-- JSON训练集分块优化开关 -->

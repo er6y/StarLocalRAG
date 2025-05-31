@@ -67,6 +67,7 @@ public class ConfigManager {
     public static final String KEY_MAX_SEQUENCE_LENGTH = "maxSequenceLength"; // 最大序列长度
     public static final String KEY_NO_THINKING = "no_thinking"; // 是否禁用思考模式
     public static final String KEY_THREADS = "threads"; // ONNX推理线程数
+    public static final String KEY_USE_ONNX_GENAI = "use_onnx_genai"; // 是否使用OnnxRuntimeGenAI引擎
     
     // 文本大小相关的键
     public static final String KEY_GLOBAL_TEXT_SIZE = "global_text_size";
@@ -1418,6 +1419,7 @@ public class ConfigManager {
             // 调试设置
             config.put(KEY_DEBUG_MODE, false); // 默认关闭调试模式
             config.put(KEY_USE_GPU, false); // 默认不使用GPU加速
+            config.put(KEY_USE_ONNX_GENAI, true); // 默认使用OnnxRuntimeGenAI引擎
             
             // API设置
             config.put(KEY_API_URL, "https://api.deepseek.com");

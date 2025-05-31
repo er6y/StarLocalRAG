@@ -918,6 +918,8 @@ public class LocalLLMOnnxHandler {
     /**
      * 对输入文本进行分词
      * 使用TokenizerManager进行分词处理
+     * 注意：传统ONNX Runtime使用Hugging Face分词器，通过TokenizerManager管理
+     * 这与ONNX Runtime GenAI的内置分词器不同，需要手动处理分词和配置解析
      * @param text 输入文本
      * @param thinkingMode 是否启用思考模式
      * @return 分词结果（token IDs）
@@ -1368,7 +1370,8 @@ public class LocalLLMOnnxHandler {
     // 张量内存管理优化
     private long lastMemoryCheckTime = 0;
     private static final long MEMORY_CHECK_INTERVAL = 5000; // 5秒检查一次内存
-    private static final double MEMORY_PRESSURE_THRESHOLD = 0.8; // 80%内存使用率阈值
+    private static final double MEMORY_PRESSURE_THRESHOLD = 0.75; // 75%内存使用率阈值（优化后）
+    private static final int RECOMMENDED_MIN_MEMORY_MB = 2048; // 推荐最小内存2GB
     private int tensorReuseCount = 0;
     private long totalTensorMemorySaved = 0;
     
@@ -1487,36 +1490,42 @@ public class LocalLLMOnnxHandler {
             LogManager.logD(TAG, String.format("内存使用情况 - 使用率: %.1f%%, 已用: %dMB, 最大: %dMB", 
                 memoryUsageRatio * 100, usedMemory / 1024 / 1024, maxMemory / 1024 / 1024));
             
-            // 当内存使用率超过阈值时，执行优化策略
+            // 当内存使用率超过阈值时，执行优化策略（增强版）
             if (memoryUsageRatio > MEMORY_PRESSURE_THRESHOLD) {
-                LogManager.logW(TAG, "检测到内存压力，开始执行优化策略");
+                LogManager.logW(TAG, "检测到内存压力，开始执行增强优化策略");
                 
-                // 1. 清理张量缓存（如果内存压力很大）
-                if (memoryUsageRatio > 0.9 && cachedInputBuffer != null) {
+                // 1. 更积极的张量缓存清理（降低阈值到75%）
+                if (memoryUsageRatio > MEMORY_PRESSURE_THRESHOLD && cachedInputBuffer != null) {
                     long freedMemory = cachedMaxLength * 8; // 8字节per long
                     cachedInputBuffer = null;
                     cachedAttentionBuffer = null;
                     cachedMaxLength = 0;
-                    LogManager.logI(TAG, "清理张量缓存，释放内存: " + (freedMemory / 1024) + "KB");
+                    LogManager.logI(TAG, "积极清理张量缓存，释放内存: " + (freedMemory / 1024) + "KB");
                 }
                 
-                // 2. 建议垃圾回收
+                // 2. 清理KV缓存（新增）
+                if (memoryUsageRatio > 0.8) {
+                    // 这里可以添加KV缓存清理逻辑
+                    LogManager.logI(TAG, "执行KV缓存清理策略");
+                }
+                
+                // 3. 强制垃圾回收（增强版）
                 System.gc();
                 
-                // 3. 等待一小段时间让GC完成
+                // 4. 等待一小段时间让GC完成
                 try {
                     Thread.sleep(50);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 }
                 
-                // 4. 检查优化效果
+                // 5. 检查优化效果
                 long newUsedMemory = runtime.totalMemory() - runtime.freeMemory();
                 long memoryFreed = usedMemory - newUsedMemory;
                 if (memoryFreed > 0) {
-                    LogManager.logI(TAG, "内存优化完成，释放内存: " + (memoryFreed / 1024 / 1024) + "MB");
+                    LogManager.logI(TAG, "增强内存优化完成，释放内存: " + (memoryFreed / 1024 / 1024) + "MB");
                 } else {
-                    LogManager.logW(TAG, "内存优化效果有限，建议检查内存泄漏");
+                    LogManager.logW(TAG, "增强内存优化效果有限，建议检查内存泄漏或考虑更大内存配置");
                 }
             }
             

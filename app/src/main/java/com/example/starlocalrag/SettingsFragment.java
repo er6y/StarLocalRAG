@@ -8,6 +8,7 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.util.Log;
 import com.example.starlocalrag.LogManager;
+import com.example.starlocalrag.api.LocalLlmHandler;
 import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuInflater;
@@ -20,11 +21,15 @@ import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.widget.SwitchCompat;
+import androidx.core.view.MenuProvider;
 import androidx.documentfile.provider.DocumentFile;
 import androidx.fragment.app.Fragment;
+import androidx.lifecycle.Lifecycle;
 import androidx.navigation.Navigation;
 
 import org.json.JSONObject;
@@ -47,6 +52,7 @@ public class SettingsFragment extends Fragment {
     private Button buttonSaveSettings;
     private SwitchCompat switchDebugMode;
     private SwitchCompat switchUseGpu;
+    private SwitchCompat switchUseOnnxGenAI; // OnnxRuntimeGenAI引擎开关
     private SwitchCompat switchJsonDatasetSplitting; // JSON训练集分块优化开关
     private SeekBar seekBarFontSize; // 字体大小拖动条
     private TextView textViewFontSizeValue; // 字体大小值显示
@@ -54,6 +60,11 @@ public class SettingsFragment extends Fragment {
     // LLM 推理设置相关UI组件
     private EditText editTextMaxSequenceLength; // 最大序列长度
     private EditText editTextThreads; // 推理线程数
+    
+    // Activity Result Launchers
+    private ActivityResultLauncher<Intent> modelPathLauncher;
+    private ActivityResultLauncher<Intent> embeddingModelPathLauncher;
+    private ActivityResultLauncher<Intent> knowledgeBasePathLauncher;
     // 思考模式开关已移动到RAG问答界面
     
     // 设置变更监听器
@@ -82,8 +93,34 @@ public class SettingsFragment extends Fragment {
     @Override
     public void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        // 启用选项菜单
-        setHasOptionsMenu(true);
+        
+        // 初始化Activity Result Launchers
+        modelPathLauncher = registerForActivityResult(
+            new ActivityResultContracts.StartActivityForResult(),
+            result -> {
+                if (result.getResultCode() == Activity.RESULT_OK && result.getData() != null) {
+                    handleDirectorySelection(result.getData().getData(), editTextModelPath);
+                }
+            }
+        );
+        
+        embeddingModelPathLauncher = registerForActivityResult(
+            new ActivityResultContracts.StartActivityForResult(),
+            result -> {
+                if (result.getResultCode() == Activity.RESULT_OK && result.getData() != null) {
+                    handleDirectorySelection(result.getData().getData(), editTextEmbeddingModelPath);
+                }
+            }
+        );
+        
+        knowledgeBasePathLauncher = registerForActivityResult(
+            new ActivityResultContracts.StartActivityForResult(),
+            result -> {
+                if (result.getResultCode() == Activity.RESULT_OK && result.getData() != null) {
+                    handleDirectorySelection(result.getData().getData(), editTextKnowledgeBasePath);
+                }
+            }
+        );
     }
     
     @Nullable
@@ -104,6 +141,7 @@ public class SettingsFragment extends Fragment {
         buttonSaveSettings = view.findViewById(R.id.buttonSaveSettings);
         switchDebugMode = view.findViewById(R.id.switchDebugMode);
         switchUseGpu = view.findViewById(R.id.switchUseGpu);
+        switchUseOnnxGenAI = view.findViewById(R.id.switchUseOnnxGenAI); // OnnxRuntimeGenAI引擎开关
         switchJsonDatasetSplitting = view.findViewById(R.id.switchJsonDatasetSplitting); // JSON训练集分块优化开关
         
         // 初始化 LLM 推理设置相关UI组件
@@ -125,23 +163,49 @@ public class SettingsFragment extends Fragment {
         return view;
     }
     
+    @Override
+    public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
+        super.onViewCreated(view, savedInstanceState);
+        
+        // 添加MenuProvider来处理菜单
+        requireActivity().addMenuProvider(new MenuProvider() {
+            @Override
+            public void onCreateMenu(@NonNull Menu menu, @NonNull MenuInflater menuInflater) {
+                menuInflater.inflate(R.menu.settings_menu, menu);
+            }
+            
+            @Override
+            public boolean onMenuItemSelected(@NonNull MenuItem menuItem) {
+                int id = menuItem.getItemId();
+                
+                if (id == R.id.action_close_settings) {
+                    // 关闭设置页面 - 使用Navigation组件的返回操作
+                    requireActivity().getOnBackPressedDispatcher().onBackPressed();
+                    return true;
+                }
+                
+                return false;
+            }
+        }, getViewLifecycleOwner(), Lifecycle.State.RESUMED);
+    }
+    
     private void setupListeners() {
         // 选择模型目录
         buttonSelectModelPath.setOnClickListener(v -> {
             Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
-            startActivityForResult(intent, REQUEST_CODE_MODEL_PATH);
+            modelPathLauncher.launch(intent);
         });
         
         // 选择嵌入模型目录
         buttonSelectEmbeddingModelPath.setOnClickListener(v -> {
             Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
-            startActivityForResult(intent, REQUEST_CODE_EMBEDDING_MODEL_PATH);
+            embeddingModelPathLauncher.launch(intent);
         });
         
         // 选择知识库目录
         buttonSelectKnowledgeBasePath.setOnClickListener(v -> {
             Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
-            startActivityForResult(intent, REQUEST_CODE_KNOWLEDGE_BASE_PATH);
+            knowledgeBasePathLauncher.launch(intent);
         });
         
         // 保存设置
@@ -213,6 +277,9 @@ public class SettingsFragment extends Fragment {
             // 加载GPU加速设置
             boolean useGpu = ConfigManager.getBoolean(context, ConfigManager.KEY_USE_GPU, false);
             
+            // 加载OnnxRuntimeGenAI引擎设置
+            boolean useOnnxGenAI = ConfigManager.getBoolean(context, ConfigManager.KEY_USE_ONNX_GENAI, true);
+            
             // 加载JSON训练集分块优化开关
             boolean jsonDatasetSplitting = ConfigManager.isJsonDatasetSplittingEnabled(context);
             
@@ -233,6 +300,7 @@ public class SettingsFragment extends Fragment {
             editTextKnowledgeBasePath.setText(knowledgeBasePath);
             switchDebugMode.setChecked(debugMode);
             switchUseGpu.setChecked(useGpu);
+            switchUseOnnxGenAI.setChecked(useOnnxGenAI);
             switchJsonDatasetSplitting.setChecked(jsonDatasetSplitting);
             seekBarFontSize.setProgress(Math.round(fontSize) - 10);
             updateFontSizeText(Math.round(fontSize) - 10);
@@ -305,6 +373,9 @@ public class SettingsFragment extends Fragment {
             // 获取GPU加速设置
             boolean useGpu = switchUseGpu.isChecked();
             
+            // 获取OnnxRuntimeGenAI引擎设置
+            boolean useOnnxGenAI = switchUseOnnxGenAI.isChecked();
+            
             // 获取JSON训练集分块优化开关
             boolean jsonDatasetSplitting = switchJsonDatasetSplitting.isChecked();
             
@@ -347,6 +418,7 @@ public class SettingsFragment extends Fragment {
             ConfigManager.setString(context, ConfigManager.KEY_KNOWLEDGE_BASE_PATH, knowledgeBasePath);
             ConfigManager.setBoolean(context, ConfigManager.KEY_DEBUG_MODE, debugMode);
             ConfigManager.setBoolean(context, ConfigManager.KEY_USE_GPU, useGpu);
+            ConfigManager.setBoolean(context, ConfigManager.KEY_USE_ONNX_GENAI, useOnnxGenAI);
             ConfigManager.setJsonDatasetSplittingEnabled(context, jsonDatasetSplitting);
             ConfigManager.setGlobalTextSize(context, fontSize);
             
@@ -365,6 +437,7 @@ public class SettingsFragment extends Fragment {
             settingsSummary.put("knowledgeBasePath", knowledgeBasePath);
             settingsSummary.put("debugMode", debugMode);
             settingsSummary.put("useGpu", useGpu);
+            settingsSummary.put("useOnnxGenAI", useOnnxGenAI);
             settingsSummary.put("jsonDatasetSplitting", jsonDatasetSplitting);
             
             // 添加 LLM 推理设置信息
@@ -376,6 +449,15 @@ public class SettingsFragment extends Fragment {
             
             // 显示成功消息
             Toast.makeText(context, "设置已保存", Toast.LENGTH_SHORT).show();
+            
+            // 更新LocalLlmHandler的推理引擎配置
+            try {
+                LocalLlmHandler localLlmHandler = LocalLlmHandler.getInstance(context);
+                localLlmHandler.updateEngineFromConfig();
+                LogManager.logI(TAG, "推理引擎配置已更新");
+            } catch (Exception e) {
+                LogManager.logE(TAG, "更新推理引擎配置失败: " + e.getMessage(), e);
+            }
             
             // 通知监听器
             if (settingsChangeListener != null) {
@@ -390,35 +472,18 @@ public class SettingsFragment extends Fragment {
         }
     }
     
-    @Override
-    public void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        
-        if (resultCode == Activity.RESULT_OK && data != null) {
-            Uri uri = data.getData();
-            
-            if (uri != null) {
-                try {
-                    // 将 URI 转换为实际可用的文件路径
-                    String realPath = getPathFromUri(uri);
-                    LogManager.logD(TAG, "选择的路径 URI: " + uri);
-                    LogManager.logD(TAG, "转换后的实际路径: " + realPath);
-                    
-                    switch (requestCode) {
-                        case REQUEST_CODE_MODEL_PATH:
-                            editTextModelPath.setText(realPath);
-                            break;
-                        case REQUEST_CODE_EMBEDDING_MODEL_PATH:
-                            editTextEmbeddingModelPath.setText(realPath);
-                            break;
-                        case REQUEST_CODE_KNOWLEDGE_BASE_PATH:
-                            editTextKnowledgeBasePath.setText(realPath);
-                            break;
-                    }
-                } catch (Exception e) {
-                    LogManager.logE(TAG, "转换路径失败: " + e.getMessage(), e);
-                    Toast.makeText(requireContext(), "无法获取选择的路径", Toast.LENGTH_SHORT).show();
-                }
+    private void handleDirectorySelection(Uri uri, EditText targetEditText) {
+        if (uri != null) {
+            try {
+                // 将 URI 转换为实际可用的文件路径
+                String realPath = getPathFromUri(uri);
+                LogManager.logD(TAG, "选择的路径 URI: " + uri);
+                LogManager.logD(TAG, "转换后的实际路径: " + realPath);
+                
+                targetEditText.setText(realPath);
+            } catch (Exception e) {
+                LogManager.logE(TAG, "转换路径失败: " + e.getMessage(), e);
+                Toast.makeText(requireContext(), "无法获取选择的路径", Toast.LENGTH_SHORT).show();
             }
         }
     }
@@ -456,26 +521,7 @@ public class SettingsFragment extends Fragment {
         return path;
     }
     
-    @Override
-    public void onCreateOptionsMenu(@NonNull Menu menu, @NonNull MenuInflater inflater) {
-        inflater.inflate(R.menu.settings_menu, menu);
-        super.onCreateOptionsMenu(menu, inflater);
-    }
-    
-    @Override
-    public boolean onOptionsItemSelected(@NonNull MenuItem item) {
-        int id = item.getItemId();
-        
-        if (id == R.id.action_close_settings) {
-            // 关闭设置页面 - 使用更安全的方式
-            if (getActivity() != null) {
-                getActivity().onBackPressed();
-            }
-            return true;
-        }
-        
-        return super.onOptionsItemSelected(item);
-    }
+
     
     // 静态方法，用于获取设置值
     public static int getChunkSize(Context context) {

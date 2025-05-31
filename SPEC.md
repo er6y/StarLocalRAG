@@ -494,19 +494,39 @@ SQLiteVectorDatabaseHandler 存储向量到数据库
    - 自动检测模型量化类型和外部数据格式，优化推理性能
    - 根据模型特性自动调整内存使用和线程配置
 
-2. **本地模型适配器**：
+2. **推理引擎架构**：
+   - 实现`InferenceEngine`接口，支持多种推理引擎实现
+   - `GenAIInferenceEngine`：基于ONNX Runtime GenAI的高级推理引擎
+     * 使用ONNX Runtime GenAI的高级API，简化模型推理流程
+     * 自动管理模型生命周期和内存资源
+     * 支持流式文本生成和实时响应
+     * 提供更好的性能和稳定性
+   - `OnnxRuntimeInferenceEngine`：基于传统ONNX Runtime的推理引擎
+     * 保持与现有代码的兼容性
+     * 支持低级别的模型控制和优化
+   - 根据配置动态选择推理引擎，支持运行时切换
+   - 提供统一的推理接口，确保不同引擎间的无缝切换
+
+3. **推理引擎配置管理**：
+   - 在`ConfigManager`中添加`KEY_USE_ONNX_GENAI`配置键
+   - 默认启用ONNX Runtime GenAI引擎（`true`）
+   - 在设置界面提供推理引擎切换开关
+   - 支持实时更新推理引擎配置，无需重启应用
+   - 通过`LocalLlmHandler.updateEngineFromConfig()`方法动态切换引擎
+
+4. **本地模型适配器**：
    - 实现`LocalLlmAdapter`类，符合现有API适配器接口
    - 提供与在线模型一致的调用方式，确保无缝集成
    - 支持流式响应，提供实时反馈
    - 实现单例模式，确保模型资源的高效利用
 
-3. **模型工厂扩展**：
+5. **模型工厂扩展**：
    - 在`LlmModelFactory`中添加`LOCAL`类型支持
    - 扩展API类型检测逻辑，支持本地模型识别
    - 实现本地模型调用逻辑，包括同步和异步调用
    - 与现有模型工厂方法无缝集成
 
-4. **GPU加速支持**：
+6. **GPU加速支持**：
    - **EmbeddingModel GPU加速**：
      * 在`EmbeddingModelHandler`中实现GPU加速支持
      * 支持NNAPI、OpenCL、CUDA等多种GPU加速方式
