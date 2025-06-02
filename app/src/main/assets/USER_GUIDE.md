@@ -7,25 +7,25 @@ RAG（检索增强生成）是一种结合了检索系统和生成式AI的技术
 ### RAG 工作流程
 
 ```text
-知识向量数据库构建流程：
+Knowledge Vector Database Construction:
 ┌------------------┐     ┌-------------------┐     ┌-------------------┐
-│                  │     │                   │     │   文本向量化      │
-│  用户知识文档    │ --> │      分块         │ --> │tokenize &         │
-│                  │     │(分块大小/重叠大小)│     │词嵌入向量化&归一化│
+│                  │     │                   │     │  Text Vectorize   │
+│  User Documents  │ --> │   Text Chunking   │ --> │  Tokenize &       │
+│                  │     │ (Size/Overlap)    │     │  Embed & Normalize│
 └------------------┘     └-------------------┘     └-------------------┘
                                                             │           
-RAG问答流程：                                               v           
+RAG Q&A Process:                                            v           
 ┌------------------┐     ┌-------------------┐     ┌-------------------┐
-│                  │     │   文本向量化      │     │                   │
-│    用户提问      │ --> │tokenize &         │ --> │ 知识向量数据库    │
-│                  │     │词嵌入向量化&归一化│     │     检索          │
+│                  │     │  Text Vectorize   │     │                   │
+│  User Question   │ --> │  Tokenize &       │ --> │ Vector Database   │
+│                  │     │  Embed & Normalize│     │    Retrieval      │
 └------------------┘     └-------------------┘     └-------------------┘
                                                             │           
                                                             v           
 ┌------------------┐     ┌-------------------┐     ┌-------------------┐
 │                  │     │                   │     │                   │
-│    生成回答      │ <-- │   大语言模型      │ <-- │   构建上下文      │
-│                  │     │     (LLM)         │     │                   │
+│ Generate Answer  │ <-- │ Large Language    │ <-- │ Build Context     │
+│                  │     │ Model (LLM)       │     │                   │
 └------------------┘     └-------------------┘     └-------------------┘                     
 ```
 
@@ -72,12 +72,12 @@ RAG问答流程：                                               v
   - 需保持原始语义的准确性
 
 #### 3. 推荐分块策略
-| 策略 | 适用场景 | 示例参数 | 优点 |
-|------|---------|---------|------|
-| 固定长度分块 | 技术文档/代码 | 500字符，100重叠 | 简单高效 |
-| 语义分块 | 叙述性内容 | 按段落/章节 | 保持语义完整 |
-| 层次分块 | 结构化文档 | 标题+内容组合 | 保留上下文 |
-| 动态分块 | 混合内容 | 基于内容分析 | 自适应最佳 |
+| Strategy         | Use Case          | Example Params    | Advantages       |
+|------------------|-------------------|-------------------|------------------|
+| Fixed Length     | Tech Docs/Code    | 500 chars, 100   | Simple & Fast    |
+| Semantic Chunk   | Narrative Content | By Paragraph      | Keep Semantic    |
+| Hierarchical     | Structured Docs   | Title+Content     | Keep Context     |
+| Dynamic Chunk    | Mixed Content     | Content Analysis  | Adaptive Best    |
 
 **最佳实践建议**：
 1. 技术文档：500-1000字符分块，20%重叠

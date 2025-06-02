@@ -48,7 +48,8 @@ public class TextViewZoomHelper {
         this.textView = textView;
         
         // 获取当前字体大小（单位：sp）
-        currentTextSize = textView.getTextSize() / context.getResources().getDisplayMetrics().scaledDensity;
+        // 使用TypedValue替代已弃用的scaledDensity
+        currentTextSize = textView.getTextSize() / context.getResources().getDisplayMetrics().density;
         lastNotifiedTextSize = currentTextSize;
         
         // 创建缩放手势检测器

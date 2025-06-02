@@ -1031,38 +1031,15 @@ public class LocalLLMOnnxHandler {
             long inferenceEndTime = 0;
             int totalGeneratedTokens = 0;
             
-            // 改进的内存监控：同时监控JVM和系统内存
-            long initialJvmMemory = getUsedMemory();
-            long initialSystemMemory = getProcessMemoryUsage();
-            final long[] peakJvmMemory = {initialJvmMemory};
-            final long[] peakSystemMemory = {initialSystemMemory};
-            final long[] currentJvmMemory = {initialJvmMemory};
-            final long[] currentSystemMemory = {initialSystemMemory};
+            // 统一的内存监控机制：使用与OnnxRuntimeGenAI相同的方法
+            startMemoryMonitoring();
             
-            LogManager.logI(TAG, String.format("内存监控开始 - JVM初始: %.2f MB, 系统初始: %.2f MB", 
-                initialJvmMemory / 1024.0 / 1024.0, initialSystemMemory / 1024.0 / 1024.0));
-            
-            // 创建高频内存监控线程（500ms一次，更精确）
+            // 创建内存监控线程（1秒一次）
             Thread memoryMonitorThread = new Thread(() -> {
                 try {
                     while (!Thread.interrupted()) {
-                        long jvmMemory = getUsedMemory();
-                        long systemMemory = getProcessMemoryUsage();
-                        
-                        currentJvmMemory[0] = jvmMemory;
-                        currentSystemMemory[0] = systemMemory;
-                        
-                        if (jvmMemory > peakJvmMemory[0]) {
-                            peakJvmMemory[0] = jvmMemory;
-                            LogManager.logD(TAG, String.format("JVM内存峰值更新: %.2f MB", jvmMemory / 1024.0 / 1024.0));
-                        }
-                        
-                        if (systemMemory > peakSystemMemory[0]) {
-                            peakSystemMemory[0] = systemMemory;
-                            LogManager.logD(TAG, String.format("系统内存峰值更新: %.2f MB", systemMemory / 1024.0 / 1024.0));
-                        }
-                        
-                        Thread.sleep(500); // 每500ms监控一次，更精确
+                        updateMemoryMonitoring();
+                        Thread.sleep(1000); // 每1秒监控一次内存
                     }
                 } catch (InterruptedException e) {
                     // 线程被中断，正常退出
@@ -1299,22 +1276,20 @@ public class LocalLLMOnnxHandler {
                     // 停止内存监控线程
                     memoryMonitorThread.interrupt();
                     
-                    // 计算详细的内存使用情况
-                    long jvmMemoryUsage = peakJvmMemory[0] - initialJvmMemory;
-                    long systemMemoryUsage = peakSystemMemory[0] - initialSystemMemory;
+                    // 使用统一的内存差值估算LLM推理消耗
+                    long llmInferenceMemory = memoryMaxDuringInference - memoryBeforeInference;
                     
-                    LogManager.logI(TAG, String.format("内存监控结束 - JVM峰值: %.2f MB (+%.2f MB), 系统峰值: %.2f MB (+%.2f MB)", 
-                        peakJvmMemory[0] / 1024.0 / 1024.0, jvmMemoryUsage / 1024.0 / 1024.0,
-                        peakSystemMemory[0] / 1024.0 / 1024.0, systemMemoryUsage / 1024.0 / 1024.0));
+                    LogManager.logI(TAG, String.format("内存监控结束 - 推理前: %.2f MB, 推理期间最大: %.2f MB, LLM推理消耗: %.2f MB", 
+                        memoryBeforeInference / 1024.0 / 1024.0, 
+                        memoryMaxDuringInference / 1024.0 / 1024.0,
+                        Math.max(0, llmInferenceMemory) / 1024.0 / 1024.0));
                     
-                    // 构建详细的统计信息字符串
+                    // 构建统一格式的统计信息字符串
                      String statsInfo = String.format(
-                         "\n\n---\n推理统计：时间：%.2f秒; JVM内存：%.2f MB (峰值: %.2f MB); 系统内存：%.2f MB (峰值: %.2f MB); 生成速度：%.2f token/s; 生成token数：%d", 
+                         "\n\n---\n推理统计：时间：%.2f秒; LLM推理消耗：%.2f MB; 应用最大内存：%.2f MB; 生成速度：%.2f token/s; 生成token数：%d", 
                          inferenceTime / 1000.0, 
-                         jvmMemoryUsage / (1024.0 * 1024.0),
-                         peakJvmMemory[0] / (1024.0 * 1024.0),
-                         systemMemoryUsage / (1024.0 * 1024.0),
-                         peakSystemMemory[0] / (1024.0 * 1024.0),
+                         Math.max(0, llmInferenceMemory) / (1024.0 * 1024.0),
+                         memoryMaxDuringInference / (1024.0 * 1024.0),
                          tokenPerSecond,
                          totalGeneratedTokens
                      );
@@ -1326,8 +1301,11 @@ public class LocalLLMOnnxHandler {
                     LogManager.logD(TAG, "推理统计信息:\n" + 
                           "- 总生成token数: " + totalGeneratedTokens + "; " +
                           "- 推理时间: " + (inferenceTime / 1000.0) + "秒; " +
-                          "- 内存占用: " + (jvmMemoryUsage / (1024.0 * 1024.0)) + " MB; " +
+                          "- LLM推理消耗: " + Math.max(0, llmInferenceMemory / (1024.0 * 1024.0)) + " MB; " +
                           "- 生成速度: " + tokenPerSecond + " token/s");
+                    
+                    // 打印详细的内存统计信息
+                    LogManager.logI(TAG, getMemoryStats());
                     
                     // 通过回调接口返回完整结果（包含统计信息）
                     callback.onComplete(fullResponse.toString());
@@ -1361,6 +1339,11 @@ public class LocalLLMOnnxHandler {
             }
         }).start();
     }
+    
+    // 内存监控变量（统一与OnnxRuntimeGenAI的实现）
+    private long memoryBeforeInference = 0;
+    private long memoryMaxDuringInference = 0;
+    private static int memoryUpdateCount = 0; // 内存监控更新计数器
     
     // 缓存张量以减少重复创建开销 - 增强版本
     private LongBuffer cachedInputBuffer = null;
@@ -1470,6 +1453,72 @@ public class LocalLLMOnnxHandler {
         }
         
         return inputs;
+    }
+    
+    /**
+     * 开始内存监控 (统一实现)
+     */
+    private void startMemoryMonitoring() {
+        // 强制垃圾回收，确保获得准确的基线内存
+        System.gc();
+        try {
+            Thread.sleep(100); // 等待GC完成
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        
+        Runtime runtime = Runtime.getRuntime();
+        // 记录推理开始前的内存状态
+        memoryBeforeInference = runtime.totalMemory() - runtime.freeMemory();
+        memoryMaxDuringInference = memoryBeforeInference;
+        
+        // 重置计数器
+        memoryUpdateCount = 0;
+        
+        LogManager.logI(TAG, String.format("内存监控开始 - 应用内存: %.2f MB, JVM总内存: %.2f MB, JVM空闲内存: %.2f MB", 
+            memoryBeforeInference / (1024.0 * 1024.0),
+            runtime.totalMemory() / (1024.0 * 1024.0),
+            runtime.freeMemory() / (1024.0 * 1024.0)));
+    }
+    
+    /**
+     * 更新内存监控数据 (统一实现)
+     */
+    private void updateMemoryMonitoring() {
+        Runtime runtime = Runtime.getRuntime();
+        long currentMemory = runtime.totalMemory() - runtime.freeMemory();
+        
+        if (currentMemory > memoryMaxDuringInference) {
+            long oldMax = memoryMaxDuringInference;
+            memoryMaxDuringInference = currentMemory;
+            // 只在内存显著增加时记录日志（避免日志过多）
+            if (currentMemory - oldMax > 5 * 1024 * 1024) { // 增加超过5MB时记录
+                LogManager.logD(TAG, String.format("内存峰值更新: %.2f MB -> %.2f MB", 
+                    oldMax / (1024.0 * 1024.0), currentMemory / (1024.0 * 1024.0)));
+            }
+        }
+        
+        // 定期记录当前内存状态（每10次更新记录一次，约10秒）
+        memoryUpdateCount++;
+        if (memoryUpdateCount % 10 == 0) {
+            LogManager.logD(TAG, String.format("内存监控: 当前 %.2f MB, 峰值 %.2f MB", 
+                currentMemory / (1024.0 * 1024.0), memoryMaxDuringInference / (1024.0 * 1024.0)));
+        }
+    }
+    
+    /**
+     * 获取内存统计信息 (统一实现)
+     */
+    private String getMemoryStats() {
+        long memoryIncrease = memoryMaxDuringInference - memoryBeforeInference;
+        
+        return String.format("\n内存统计:\n" +
+            "- 应用推理前: %d MB\n" +
+            "- 应用最大占用: %d MB\n" +
+            "- LLM推理消耗: %d MB",
+            memoryBeforeInference / (1024 * 1024),
+            memoryMaxDuringInference / (1024 * 1024),
+            Math.max(0, memoryIncrease / (1024 * 1024)));
     }
     
     /**

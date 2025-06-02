@@ -88,3 +88,80 @@
 # Keep specific classes and members if using reflection
 # -keep public class my.package.MyClass
 # -keepclassmembers class my.package.MyClass { public <fields>; public <methods>; }
+
+# ===== 第三方库依赖处理 =====
+
+# OkHttp相关
+-keep class okhttp3.** { *; }
+-keep interface okhttp3.** { *; }
+-dontwarn okhttp3.**
+-dontwarn okio.**
+-dontwarn org.conscrypt.**
+-dontwarn org.bouncycastle.**
+-dontwarn org.codehaus.mojo.animal_sniffer.**
+
+# Apache POI相关 - 忽略AWT和图像处理相关的可选依赖
+-dontwarn java.awt.**
+-dontwarn javax.imageio.**
+-dontwarn org.apache.batik.**
+-dontwarn com.caverock.androidsvg.**
+
+# Saxon XML处理器 - 可选依赖
+-dontwarn net.sf.saxon.**
+
+# 其他可选依赖
+-dontwarn aQute.bnd.annotation.spi.**
+-dontwarn reactor.blockhound.**
+-dontwarn org.codehaus.stax2.**
+
+# javax.annotation相关 - JSR 305注解
+-dontwarn javax.annotation.**
+-dontwarn javax.annotation.concurrent.**
+
+# OSGi框架相关 - 可选依赖
+-dontwarn org.osgi.framework.**
+
+# Retrofit2相关
+-keep class retrofit2.** { *; }
+-keep interface retrofit2.** { *; }
+-dontwarn retrofit2.**
+
+# Apache HTTP Client相关 - Android已弃用
+-dontwarn org.apache.http.**
+-dontwarn android.net.http.**
+
+# Log4j相关 - 可选依赖
+-dontwarn org.apache.logging.log4j.**
+
+# OpenNLP相关 - 可选依赖
+-dontwarn opennlp.tools.**
+
+# ONNX Runtime相关
+-keep class ai.onnxruntime.** { *; }
+-keep class com.microsoft.onnxruntime.** { *; }
+-dontwarn ai.onnxruntime.**
+-dontwarn com.microsoft.onnxruntime.**
+
+# Markwon相关
+-keep class io.noties.markwon.** { *; }
+-dontwarn io.noties.markwon.**
+
+# 保持本地LLM相关类
+-keep class com.example.starlocalrag.api.** { *; }
+-keep class com.example.starlocalrag.LocalLlmHandler { *; }
+-keep class com.example.starlocalrag.LocalLlmHandler$** { *; }
+
+# 保持JNI相关
+-keepclasseswithmembernames class * {
+    native <methods>;
+}
+
+# 保持序列化相关
+-keepclassmembers class * implements java.io.Serializable {
+    static final long serialVersionUID;
+    private static final java.io.ObjectStreamField[] serialPersistentFields;
+    private void writeObject(java.io.ObjectOutputStream);
+    private void readObject(java.io.ObjectInputStream);
+    java.lang.Object writeReplace();
+    java.lang.Object readResolve();
+}

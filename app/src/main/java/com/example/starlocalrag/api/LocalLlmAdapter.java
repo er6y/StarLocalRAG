@@ -52,8 +52,13 @@ public class LocalLlmAdapter {
     public void callLocalModel(String modelName, String prompt, LlmApiAdapter.ApiCallback callback) {
         LogManager.logD(TAG, "调用本地模型: " + modelName);
         
-        // 简化处理，直接加载模型
-        // 在完整实现中，应该检查模型是否已加载以及是否是当前请求的模型
+        // 检查模型是否已加载
+        if (localLlmHandler.isModelLoaded() && modelName.equals(localLlmHandler.getCurrentModelName())) {
+            LogManager.logD(TAG, "模型已加载，直接执行推理: " + modelName);
+            executeInference(prompt, callback);
+            return;
+        }
+        
         LogManager.logD(TAG, "加载模型: " + modelName);
         
         // 加载模型
@@ -66,7 +71,9 @@ public class LocalLlmAdapter {
             @Override
             public void onComplete(String fullResponse) {
                 LogManager.logD(TAG, "模型加载完成: " + fullResponse);
-                callback.onSuccess("模型加载成功: " + modelName);
+                // 模型加载完成后，执行推理
+                LogManager.logI(TAG, "模型加载成功，开始执行推理");
+                executeInference(prompt, callback);
             }
             
             @Override
@@ -89,6 +96,7 @@ public class LocalLlmAdapter {
         // 避免多次显示“模型回答”标题
         LogManager.logD(TAG, "不再发送模型回答标题，由调用者负责");
         
+        LogManager.logI(TAG, "[调试追踪] LocalLlmAdapter即将调用localLlmHandler.inference");
         localLlmHandler.inference(prompt, new LocalLlmHandler.StreamingCallback() {
             @Override
             public void onToken(String token) {
@@ -100,12 +108,13 @@ public class LocalLlmAdapter {
                 callback.onStreamingData(token);
                 
                 // 打印调试信息，确认token已发送
-                LogManager.logD(TAG, "流式token已发送到UI");
+                //LogManager.logD(TAG, "流式token已发送到UI");
             }
             
             @Override
             public void onComplete(String fullResponse) {
                 LogManager.logD(TAG, "本地LLM推理完成，完整响应长度: " + fullResponse.length());
+                LogManager.logI(TAG, "[调试追踪] LocalLlmAdapter收到onComplete回调，响应内容: " + (fullResponse.length() > 50 ? fullResponse.substring(0, 50) + "..." : fullResponse));
                 callback.onSuccess(fullResponse);
             }
             

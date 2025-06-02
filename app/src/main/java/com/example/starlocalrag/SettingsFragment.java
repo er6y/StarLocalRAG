@@ -60,6 +60,7 @@ public class SettingsFragment extends Fragment {
     // LLM 推理设置相关UI组件
     private EditText editTextMaxSequenceLength; // 最大序列长度
     private EditText editTextThreads; // 推理线程数
+    private EditText editTextKvCacheSize; // KV缓存大小
     
     // Activity Result Launchers
     private ActivityResultLauncher<Intent> modelPathLauncher;
@@ -147,6 +148,7 @@ public class SettingsFragment extends Fragment {
         // 初始化 LLM 推理设置相关UI组件
         editTextMaxSequenceLength = view.findViewById(R.id.editTextMaxSequenceLength);
         editTextThreads = view.findViewById(R.id.editTextThreads);
+        editTextKvCacheSize = view.findViewById(R.id.editTextKvCacheSize);
         // switchNoThinking已移动到RAG问答界面
         seekBarFontSize = view.findViewById(R.id.seekBarFontSize); // 字体大小拖动条
         textViewFontSizeValue = view.findViewById(R.id.textViewFontSizeValue); // 字体大小值显示
@@ -289,6 +291,7 @@ public class SettingsFragment extends Fragment {
             // 加载 LLM 推理设置
             int maxSequenceLength = ConfigManager.getMaxSequenceLength(context);
             int threads = ConfigManager.getThreads(context);
+            int kvCacheSize = ConfigManager.getKvCacheSize(context);
             boolean noThinking = ConfigManager.getNoThinking(context);
             
             // 设置UI
@@ -308,6 +311,7 @@ public class SettingsFragment extends Fragment {
             // 设置 LLM 推理设置UI
             editTextMaxSequenceLength.setText(String.valueOf(maxSequenceLength));
             editTextThreads.setText(String.valueOf(threads));
+            editTextKvCacheSize.setText(String.valueOf(kvCacheSize));
             // switchNoThinking已移动到RAG问答界面
             
             LogManager.logD(TAG, "设置加载完成");
@@ -386,10 +390,11 @@ public class SettingsFragment extends Fragment {
             // 获取 LLM 推理设置
             String maxSequenceLengthStr = editTextMaxSequenceLength.getText().toString().trim();
             String threadsStr = editTextThreads.getText().toString().trim();
+            String kvCacheSizeStr = editTextKvCacheSize.getText().toString().trim();
             // noThinking已移动到RAG问答界面
             
             // 验证 LLM 推理设置
-            if (maxSequenceLengthStr.isEmpty() || threadsStr.isEmpty()) {
+            if (maxSequenceLengthStr.isEmpty() || threadsStr.isEmpty() || kvCacheSizeStr.isEmpty()) {
                 Toast.makeText(context, "请填写所有 LLM 推理设置", Toast.LENGTH_SHORT).show();
                 return;
             }
@@ -397,6 +402,7 @@ public class SettingsFragment extends Fragment {
             // 转换为整数
             int maxSequenceLength = Integer.parseInt(maxSequenceLengthStr);
             int threads = Integer.parseInt(threadsStr);
+            int kvCacheSize = Integer.parseInt(kvCacheSizeStr);
             
             // 验证值范围
             if (maxSequenceLength < 100 || maxSequenceLength > 8192) {
@@ -406,6 +412,11 @@ public class SettingsFragment extends Fragment {
             
             if (threads < 1 || threads > 16) {
                 Toast.makeText(context, "推理线程数应在1-16之间", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            
+            if (kvCacheSize < 512 || kvCacheSize > 4096) {
+                Toast.makeText(context, "KV缓存大小应在512-4096之间", Toast.LENGTH_SHORT).show();
                 return;
             }
             
@@ -425,6 +436,7 @@ public class SettingsFragment extends Fragment {
             // 保存 LLM 推理设置
             ConfigManager.setMaxSequenceLength(context, maxSequenceLength);
             ConfigManager.setThreads(context, threads);
+            ConfigManager.setKvCacheSize(context, kvCacheSize);
             // noThinking已移动到RAG问答界面
             
             // 创建JSON格式的设置摘要

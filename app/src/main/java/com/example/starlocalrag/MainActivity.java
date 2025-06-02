@@ -597,23 +597,37 @@ public class MainActivity extends AppCompatActivity implements SettingsFragment.
      * 执行GPU配置检查
      */
     private void performGPUConfigCheck() {
-        try {
-            // 检查GPU配置是否有效
-            boolean isConfigValid = GPUConfigChecker.isGPUConfigValid(this);
-            
-            if (isConfigValid) {
-                LogManager.logI(TAG, "GPU配置检查: 配置有效，支持GPU加速");
-            } else {
-                LogManager.logW(TAG, "GPU配置检查: 配置可能存在问题，建议查看详细报告");
-                
-                // 生成详细的配置检查报告
-                String configReport = GPUConfigChecker.performConfigCheck(this);
-                LogManager.logI(TAG, "GPU配置详细报告:\n" + configReport);
-            }
-            
-        } catch (Exception e) {
-            LogManager.logE(TAG, "GPU配置检查失败: " + e.getMessage(), e);
+        // 检测是否为华为设备
+        boolean isHuawei = Build.MANUFACTURER.toLowerCase().contains("huawei") || 
+                           Build.BRAND.toLowerCase().contains("huawei") ||
+                           Build.BRAND.toLowerCase().contains("honor");
+        
+        if (isHuawei) {
+            // 华为设备跳过GPU检查，避免启动卡顿
+            LogManager.logI(TAG, "检测到华为设备，跳过GPU配置检查以避免启动卡顿");
+            return;
         }
+        
+        // 在后台线程执行GPU配置检查，避免阻塞主线程
+        new Thread(() -> {
+            try {
+                // 检查GPU配置是否有效
+                boolean isConfigValid = GPUConfigChecker.isGPUConfigValid(this);
+                
+                if (isConfigValid) {
+                    LogManager.logI(TAG, "GPU配置检查: 配置有效，支持GPU加速");
+                } else {
+                    LogManager.logW(TAG, "GPU配置检查: 配置可能存在问题，建议查看详细报告");
+                    
+                    // 生成详细的配置检查报告
+                    String configReport = GPUConfigChecker.performConfigCheck(this);
+                    LogManager.logI(TAG, "GPU配置详细报告:\n" + configReport);
+                }
+                
+            } catch (Exception e) {
+                LogManager.logE(TAG, "GPU配置检查失败: " + e.getMessage(), e);
+            }
+        }).start();
     }
     
     /**

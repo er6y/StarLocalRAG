@@ -67,6 +67,7 @@ public class ConfigManager {
     public static final String KEY_MAX_SEQUENCE_LENGTH = "maxSequenceLength"; // 最大序列长度
     public static final String KEY_NO_THINKING = "no_thinking"; // 是否禁用思考模式
     public static final String KEY_THREADS = "threads"; // ONNX推理线程数
+    public static final String KEY_KV_CACHE_SIZE = "kv_cache_size"; // KV缓存大小(Tokens)
     public static final String KEY_USE_ONNX_GENAI = "use_onnx_genai"; // 是否使用OnnxRuntimeGenAI引擎
     
     // 文本大小相关的键
@@ -93,6 +94,7 @@ public class ConfigManager {
     public static final int DEFAULT_MAX_SEQUENCE_LENGTH = 2048;
     public static final boolean DEFAULT_NO_THINKING = false;
     public static final int DEFAULT_THREADS = 4;
+    public static final int DEFAULT_KV_CACHE_SIZE = 1024; // KV缓存默认大小
 
     private static JSONObject configCache = null;
 
@@ -158,7 +160,8 @@ public class ConfigManager {
             String[] requiredKeys = {
                 KEY_MODEL_PATH, KEY_EMBEDDING_MODEL_PATH, KEY_KNOWLEDGE_BASE_PATH,
                 KEY_CHUNK_SIZE, KEY_OVERLAP_SIZE, KEY_SEARCH_DEPTH,
-                KEY_API_URL, KEY_MODEL_NAME, KEY_KNOWLEDGE_BASE
+                KEY_API_URL, KEY_MODEL_NAME, KEY_KNOWLEDGE_BASE,
+                KEY_USE_ONNX_GENAI // 添加推理引擎配置项
             };
             
             // 创建一个默认配置，仅在需要时使用
@@ -172,9 +175,9 @@ public class ConfigManager {
                             defaultConfig = createDefaultConfig();
                         }
                         config.put(key, defaultConfig.get(key));
-                        LogManager.logD(TAG, "配置文件缺少必要项: " + key + "，添加默认值");
+                        Log.d(TAG, "配置文件缺少必要项: " + key + "，添加默认值");
                     } catch (JSONException ex) {
-                        LogManager.logE(TAG, "添加默认配置项失败: " + key, ex);
+                        Log.e(TAG, "添加默认配置项失败: " + key, ex);
                         needReset = true;
                         break;
                     }
@@ -328,7 +331,7 @@ public class ConfigManager {
                 return config.getBoolean(key);
             }
         } catch (JSONException e) {
-            LogManager.logE(TAG, "获取布尔值配置失败: " + key, e);
+            Log.e(TAG, "获取布尔值配置失败: " + key, e);
         }
         return defaultValue;
     }
@@ -917,6 +920,24 @@ public class ConfigManager {
     }
 
     /**
+     * 获取KV缓存大小
+     * @param context 上下文
+     * @return KV缓存大小(Tokens)
+     */
+    public static int getKvCacheSize(Context context) {
+        return getInt(context, KEY_KV_CACHE_SIZE, DEFAULT_KV_CACHE_SIZE);
+    }
+
+    /**
+     * 设置KV缓存大小
+     * @param context 上下文
+     * @param kvCacheSize KV缓存大小(Tokens)
+     */
+    public static void setKvCacheSize(Context context, int kvCacheSize) {
+        setInt(context, KEY_KV_CACHE_SIZE, kvCacheSize);
+    }
+
+    /**
      * 设置整数配置
      * @param context 上下文
      * @param key 配置键
@@ -1065,7 +1086,8 @@ public class ConfigManager {
             String[] requiredKeys = {
                 KEY_MODEL_PATH, KEY_EMBEDDING_MODEL_PATH, KEY_KNOWLEDGE_BASE_PATH,
                 KEY_CHUNK_SIZE, KEY_OVERLAP_SIZE, KEY_SEARCH_DEPTH,
-                KEY_API_URL, KEY_MODEL_NAME, KEY_KNOWLEDGE_BASE
+                KEY_API_URL, KEY_MODEL_NAME, KEY_KNOWLEDGE_BASE,
+                KEY_USE_ONNX_GENAI // 添加推理引擎配置项
             };
             
             for (String key : requiredKeys) {
@@ -1448,10 +1470,10 @@ public class ConfigManager {
             config.put(KEY_NOTE_CONTENT_TEXT_SIZE, DEFAULT_TEXT_SIZE);
             config.put(KEY_LOG_CONTENT_TEXT_SIZE, DEFAULT_TEXT_SIZE);
             
-            LogManager.logD(TAG, "创建默认配置: " + config.toString(2));
+            Log.d(TAG, "创建默认配置: " + config.toString(2));
             return config;
         } catch (JSONException e) {
-            LogManager.logE(TAG, "创建默认配置失败", e);
+            Log.e(TAG, "创建默认配置失败", e);
             return new JSONObject();
         }
     }

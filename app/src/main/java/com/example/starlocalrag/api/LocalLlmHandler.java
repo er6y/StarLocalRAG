@@ -610,9 +610,11 @@ public class LocalLlmHandler {
         resetStopFlag();
         
         LogManager.logD(TAG, "开始推理，引擎: " + inferenceEngine.getEngineType() + ", 提示词长度: " + prompt.length());
+        LogManager.logI(TAG, "[调试追踪] 即将调用推理引擎的inference方法: " + inferenceEngine.getClass().getSimpleName());
         
         // 执行推理
         inferenceEngine.inference(prompt, params, callback);
+        LogManager.logI(TAG, "[调试追踪] 推理引擎的inference方法调用完成");
     }
     
     /**
@@ -739,6 +741,22 @@ public class LocalLlmHandler {
      */
     public void resetStopFlag() {
         shouldStopInference.set(false);
+    }
+    
+    /**
+     * 检查模型是否已加载
+     * @return true如果模型已加载，false否则
+     */
+    public boolean isModelLoaded() {
+        return modelLoaded.get();
+    }
+    
+    /**
+     * 获取当前加载的模型名称
+     * @return 当前模型名称，如果没有加载模型则返回null
+     */
+    public String getCurrentModelName() {
+        return currentModelName;
     }
     
     /**
@@ -898,7 +916,9 @@ public class LocalLlmHandler {
             }
             
             // 直接调用GenAI处理器的推理方法
+            LogManager.logI(TAG, "[调试追踪] GenAIInferenceEngine即将调用genaiHandler.inference");
             genaiHandler.inference(prompt, params, callback);
+            LogManager.logI(TAG, "[调试追踪] GenAIInferenceEngine调用genaiHandler.inference完成");
         }
         
         @Override

@@ -10,6 +10,7 @@ import android.content.SharedPreferences;
 import android.content.res.Configuration;
 import android.graphics.Color;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -1472,6 +1473,13 @@ public class RagQaFragment extends Fragment {
                 private final boolean[] modelTitleAdded = {false};
                 // 上次显示的响应内容
                 private final String[] lastDisplayedResponse = {""};
+                // 检测是否为华为设备
+                private static boolean isHuaweiDevice() {
+                    return Build.MANUFACTURER.toLowerCase().contains("huawei") || 
+                           Build.BRAND.toLowerCase().contains("huawei") ||
+                           Build.BRAND.toLowerCase().contains("honor");
+                }
+                
                 // 字符变化阈值，小于这个值的变化不触发UI更新
                 private static final int MIN_CHAR_CHANGE = 5;
                 // 上次更新UI的时间

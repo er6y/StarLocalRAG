@@ -1358,9 +1358,29 @@ implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.21.0'
       - **统一的模板处理**：将模板处理逻辑统一放在JNI层，避免在Java层重复实现，减少代码冗余
 
 20. **本地LLM推理统计功能实现**：
-    - 添加了推理性能统计功能，在模型输出完成后自动追加统计信息：
-      - 推理时间：记录从开始推理到结束的总时间（秒）
-      - 内存最大占用：监控推理过程中的内存峰值使用情况（MB）
+    - **增强的推理性能统计报告**：在模型输出完成后自动追加详细的性能统计信息
+      - **Token生成统计**：
+        - 本次生成token数量：记录当前推理会话生成的token总数
+        - 累计生成token数量：记录应用启动以来的总token生成数
+        - 推理耗时：精确记录从开始推理到结束的总时间（秒）
+        - 生成速率：计算每秒生成的token数量（tokens/秒）
+      - **内存使用统计**：
+        - JVM最大可用内存：显示Java虚拟机的最大内存限制
+        - JVM当前使用内存：显示当前应用实际使用的内存
+        - 推理前应用内存：记录推理开始前的内存基线
+        - 推理期间最大内存：监控推理过程中的内存峰值
+        - LLM推理消耗内存：计算推理过程中的额外内存占用
+      - **系统资源统计**：
+        - 系统总内存：显示设备的总内存容量
+        - 系统可用内存：显示当前系统可用内存
+        - 内存使用率：计算系统整体内存使用百分比
+      - **推理配置信息**：
+        - 引擎类型：显示使用的推理引擎（ONNX Runtime GenAI）
+        - API模式：显示使用的API类型（高级API/低级API）
+        - GPU加速状态：显示是否启用GPU加速
+        - 设备类型：显示当前设备类型
+        - KV缓存大小：显示配置的KV缓存token数量
+        - 推理线程数：显示CPU推理时使用的线程数
 
 21. **GPU加速优化与HarmonyOS适配**：
     - **HarmonyOS GPU适配最佳实践**：
@@ -1390,11 +1410,13 @@ implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.21.0'
       - 提供GPU故障排除指南，包含常见问题FAQ和修复方案
       - 支持HarmonyOS和标准Android设备的差异化GPU配置策略
       - 生成速度：计算每秒生成的token数量（token/s）
-    - 实现了内存监控机制：
-      - 添加了`getUsedMemory()`方法，利用Java Runtime API获取当前内存使用情况
-      - 创建专门的内存监控线程，每秒检查一次内存使用情况
-      - 记录推理过程中的最大内存占用
-      - 使用守护线程实现，确保不会影响应用正常退出
+    - 实现了Android兼容的内存监控机制：
+      - **Android兼容性改进**：移除了JVM特定的`java.lang.management`包依赖，改用Android原生API
+      - 使用`Runtime.getRuntime()`获取应用内存使用情况，兼容Android环境
+      - 集成`ActivityManager`和`MemoryInfo`获取系统级内存信息
+      - 实现`startMemoryMonitoring()`、`updateMemoryMonitoring()`和`getMemoryStats()`方法
+      - 在推理过程中实时更新内存峰值，记录推理前后的内存变化
+      - 提供详细的内存统计报告，包括应用内存和系统内存状态
     - 优化了统计数据的收集和计算：
       - 精确记录推理开始和结束时间
       - 统计生成的总token数量
@@ -1405,8 +1427,35 @@ implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.21.0'
       - 采用清晰的格式化布局，便于用户阅读
       - 统计信息包括：推理时间、内存占用和生成速度
       - 自动添加到输出结果尾部，无需用户额外操作
+    - **统一内存监控机制**：
+      - 统一了`LocalLLMOnnxHandler`和`LocalLLMOnnxRuntimeGenAIHandler`的内存监控实现
+      - 使用统一的内存差值估算方法：`memoryMaxDuringInference - memoryBeforeInference`
+      - 实现了`startMemoryMonitoring()`、`updateMemoryMonitoring()`和`getMemoryStats()`方法
+      - 提供一致的LLM推理内存消耗统计和回调打印
+      - 在推理过程中实时监控内存使用峰值，准确估算LLM推理消耗
+    - **OnnxRuntimeGenAI模型保持机制**：
+      - 实现模型加载后的持久化保持，避免不必要的重复加载
+      - 添加`keepModelLoaded`标志和`currentModelPath`跟踪当前加载的模型
+      - 支持模型重用：相同模型路径时直接重用已加载的模型实例
+      - 提供`forceRelease()`方法用于强制释放资源（模型切换或应用退出时）
+      - 实现应用生命周期事件处理：`onLifecycleEvent()`方法
+      - 支持检测模型是否被系统回收：`isModelRecycled()`方法
+      - 模型保持条件：a) 用户未切换模型 b) 模型未被OS优化回收（如熄屏后）
+    - **华为设备启动优化**：
+      - 修复华为手机启动无响应问题：在`MainActivity.performGPUConfigCheck()`中检测华为设备并跳过GPU配置检查
+      - 优化`GPUErrorHandler.handleHuaweiSpecificIssues()`：移除可能导致启动卡顿的反射调用，只保留轻量级系统属性设置
+      - 在`RagQaFragment`中为华为设备提供更保守的UI更新参数：`MIN_CHAR_CHANGE=30`，`UPDATE_INTERVAL=300ms`
+      - 将GPU配置检查移至后台线程执行，避免阻塞主线程导致启动无响应
+      - 华为设备检测范围：华为(huawei)、荣耀(honor)品牌设备
+    - **性能统计报告优化**：
+      - 简化统计报告输出格式：将复杂的多行emoji装饰格式改为简洁的单行格式
+      - 统一格式：`tokens计数: XX • 耗时: XXXs • 速率: XXX token/s • JVM内存最大消耗: XXXMB • LLM内存最大消耗: XXXXMB • 系统最大内存消耗: XXXXMB`
+      - 修复内存监控问题：提高监控频率从500ms到200ms，增强内存峰值捕获精度
+      - 优化内存基线测量：推理前强制垃圾回收，确保准确的内存基线
+      - 增加详细的内存监控调试信息，便于诊断内存统计异常问题
     - 这些功能为用户和开发者提供了重要的性能指标：
       - 帮助用户了解模型在其设备上的实际性能
       - 便于开发者进行性能调优和问题诊断
       - 提供了比较不同模型性能的客观数据
       - 有助于识别性能瓶颈和优化方向
+      - 通过模型保持机制显著提升多轮对话的响应速度

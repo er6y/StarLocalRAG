@@ -257,6 +257,27 @@
                 android:layout_height="wrap_content" />
         </LinearLayout>
         
+        <!-- JSON训练集分块优化开关 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="16dp">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="JSON训练集分块优化"
+                android:textSize="16sp" />
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/switchJsonDatasetSplitting"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
+        
         <!-- LLM 推理设置 -->
         <TextView
             android:layout_width="match_parent"
@@ -317,6 +338,31 @@
                 android:hint="1-16" />
         </LinearLayout>
         
+        <!-- KV缓存大小设置 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="8dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="KV缓存(Tokens):"
+                android:textSize="16sp" />
+
+            <EditText
+                android:id="@+id/editTextKvCacheSize"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:layout_marginEnd="8dp"
+                android:inputType="number"
+                android:hint="512-4096" />
+        </LinearLayout>
+        
         <!-- OnnxRuntimeGenAI引擎开关 -->
         <LinearLayout
             android:layout_width="match_parent"
@@ -339,27 +385,6 @@
         </LinearLayout>
         
         <!-- 思考模式开关已移动到RAG问答界面 -->
-
-        <!-- JSON训练集分块优化开关 -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginTop="16dp">
-
-            <TextView
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="JSON训练集分块优化"
-                android:textSize="16sp" />
-
-            <androidx.appcompat.widget.SwitchCompat
-                android:id="@+id/switchJsonDatasetSplitting"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content" />
-        </LinearLayout>
 
         <!-- 字体大小调整 -->
         <LinearLayout

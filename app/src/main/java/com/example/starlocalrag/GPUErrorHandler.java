@@ -108,29 +108,24 @@ public class GPUErrorHandler {
             // 检测是否是华为设备
             boolean isHuawei = Build.MANUFACTURER.toLowerCase().contains("huawei") || 
                                Build.BRAND.toLowerCase().contains("huawei") ||
+                               Build.BRAND.toLowerCase().contains("honor") ||
                                Build.MODEL.toLowerCase().contains("huawei");
             
             if (isHuawei) {
-                LogManager.logD(TAG, "检测到华为设备，应用特定修复");
+                LogManager.logD(TAG, "检测到华为设备，应用轻量级修复");
                 
-                // 尝试禁用HwEditorHelperImpl
-                try {
-                    Class<?> hwEditorHelperClass = Class.forName("com.huawei.android.hweditor.HwEditorHelperImpl");
-                    Method disableMethod = hwEditorHelperClass.getDeclaredMethod("disable");
-                    disableMethod.setAccessible(true);
-                    disableMethod.invoke(null);
-                    LogManager.logD(TAG, "成功禁用HwEditorHelperImpl");
-                } catch (Exception e) {
-                    // 大多数情况下会失败，因为这是华为私有API
-                    LogManager.logW(TAG, "无法禁用HwEditorHelperImpl: " + e.getMessage());
-                }
-                
-                // 设置系统属性
+                // 只设置系统属性，避免反射调用可能导致的启动卡顿
                 try {
                     System.setProperty("hw_editor_disable", "true");
+                    System.setProperty("hw_gpu_check_disable", "true");
+                    LogManager.logD(TAG, "已设置华为设备优化属性");
                 } catch (Exception e) {
-                    LogManager.logW(TAG, "无法设置hw_editor_disable属性: " + e.getMessage());
+                    LogManager.logW(TAG, "无法设置华为优化属性: " + e.getMessage());
                 }
+                
+                // 移除可能导致启动卡顿的反射调用
+                // 注释掉原有的HwEditorHelperImpl禁用代码，因为可能导致启动无响应
+                LogManager.logD(TAG, "华为设备启动优化完成");
             }
         } catch (Exception e) {
             LogManager.logE(TAG, "处理华为特定问题失败: " + e.getMessage(), e);
