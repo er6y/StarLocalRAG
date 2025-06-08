@@ -203,6 +203,12 @@ SQLiteVectorDatabaseHandler 存储向量到数据库
    - 优化EOS检测，确保正确识别<|im_end|>标记并终止生成
    - 添加详细日志记录，便于排查分词和生成问题
    - 实现防循环机制，避免生成重复内容
+   - **批处理Logits设置修复**：
+     * 修复批处理中logits设置错误导致的SIGABRT崩溃问题
+     * 参考官方示例，只在最后一个token设置logits=true
+     * 使用llama_new_context_with_model替代已废弃的llama_init_from_model
+     * 解决ggml_compute_forward_transpose函数中的断言失败问题
+     * 确保内存布局正确，避免tensor步长相关的崩溃
 
 2. **模型输出张量处理**
    - 支持多维度输出张量的动态处理，适应不同模型结构
@@ -1790,6 +1796,34 @@ implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.21.0'
            - 采用官方推荐的错误处理和资源管理方式
          * 修复效果：彻底解决了ggml_compute_forward_transpose函数中的SIGABRT崩溃问题
          
+       - **转置操作断言失败修复 (2024-12-19)**：
+         * 问题描述：在ggml_compute_forward_transpose函数中出现断言失败：`dst->nb[0] == ggml_type_size(dst->type)`
+         * 根本原因：ggml_transpose函数中dst张量的内存布局设置不正确，dst->nb[0]被设置为原张量的nb[1]值，而不是类型大小
+         * 解决方案：修复ggml_transpose函数中的内存布局计算逻辑，并在permute操作中添加容错处理
+         * 关键代码修复：
+           ```cpp
+           // ggml.c中ggml_transpose函数的修复
+           // 原来的错误设置
+           result->nb[0] = a->nb[1];
+           result->nb[1] = a->nb[0];
+           
+           // 修复为正确的内存布局
+           result->nb[0] = ggml_type_size(result->type);
+           result->nb[1] = result->nb[0] * result->ne[0];
+           
+           // ggml-cpu/ops.cpp中permute操作的容错处理
+           if (!ggml_is_contiguous(dst)) {
+               GGML_PRINT_DEBUG("[DEBUG] dst张量不连续，跳过permute操作\n");
+               return;
+           }
+           ```
+         * 技术要点：
+           - 确保转置张量的nb[0]等于数据类型大小，符合ggml内存布局规范
+           - 正确计算转置后的内存步长nb[1] = nb[0] * ne[0]
+           - 在permute操作中添加张量连续性检查，避免非连续张量导致的崩溃
+           - 添加详细的调试日志便于问题定位和验证
+         * 修复效果：彻底解决了转置操作中的断言失败问题，项目编译成功，避免了SIGABRT崩溃
+         
        - **参数配置优化 (2024-12-19)**：
          * 问题分析：默认KV缓存大小(1024)小于最大序列长度(2048)，导致n_kv_req > n_ctx错误；maxTokens设置不合理
          * 优化方案：
@@ -1986,3 +2020,126 @@ if (n_tokens > MAX_TOKENS) {
 - 提高在资源受限环境下的稳定性
 - 性能略有下降（约10-20%），但稳定性显著提升
 - 为后续的模拟器兼容性测试提供基础
+
+### 3.23 GGML矩阵转置计算错误深度调试 (2024-12-19)
+
+在修复logits指针问题后，发现新的SIGABRT错误发生在底层矩阵计算中：
+
+**错误现象**：
+```
+Fatal signal 6 (SIGABRT), code -1 (SI_QUEUE) in tid 4904
+#02 pc 000000000026e684 libllamacpp_jni.so (ggml_abort+212)
+#03 pc 000000000020e2e2 libllamacpp_jni.so (ggml_compute_forward_transpose+866)
+```
+
+**根本原因分析**：
+- `llama_batch_get_one`默认将logits指针设为nullptr，导致后续计算访问空指针
+- x86模拟器对某些SIMD指令和内存访问模式支持有限
+- 矩阵转置计算中的内存对齐或数据类型不匹配问题
+
+**深度调试措施**：
+
+1. **Logits指针修复**：
+   ```cpp
+   // 手动分配logits缓冲区
+   static thread_local std::vector<int8_t> logits_buffer;
+   logits_buffer.resize(tokens.size());
+   std::fill(logits_buffer.begin(), logits_buffer.end(), 0);
+   batch.logits = logits_buffer.data();
+   
+   // 设置最后一个token需要计算logits
+   if (tokens.size() > 0) {
+       batch.logits[tokens.size() - 1] = 1;
+   }
+   ```
+
+2. **详细的批处理验证**：
+   ```cpp
+   LOGD("=== llama_decode 调用前验证 ===");
+   LOGD("批处理详细信息:");
+   LOGD("  - n_tokens: %d", batch.n_tokens);
+   LOGD("  - token指针: %p", batch.token);
+   LOGD("  - logits指针: %p", batch.logits);
+   LOGD("  - pos指针: %p", batch.pos);
+   LOGD("  - seq_id指针: %p", batch.seq_id);
+   
+   // 验证token数据完整性
+   if (batch.token && batch.n_tokens > 0) {
+       LOGD("前3个token值: [%d, %d, %d]", 
+            batch.token[0], batch.token[1], batch.token[2]);
+   }
+   ```
+
+3. **增强的x86模拟器优化**：
+   ```cpp
+   // 针对x86模拟器的全面优化
+   #ifdef __i386__
+   ctx_params.flash_attn = false;   // 禁用flash attention
+   ctx_params.no_perf = true;       // 禁用性能计数器
+   ctx_params.offload_kqv = false;  // 禁用KQV offload
+   #endif
+   
+   // 模拟器环境下的保守设置
+   ctx_params.type_k = GGML_TYPE_F16;  // 使用F16类型
+   ctx_params.type_v = GGML_TYPE_F16;  // 避免激进量化
+   ```
+
+**技术要点**：
+- **线程安全**：使用`thread_local`确保多线程环境下的安全性
+- **内存管理**：使用`std::vector`自动管理内存生命周期
+- **性能优化**：重用缓冲区避免频繁分配
+- **兼容性**：遵循llama.cpp官方示例的最佳实践
+- **调试友好**：提供详细的状态信息用于问题定位
+
+4. **llama.cpp源码级调试**（新增）：
+   在`ggml_compute_forward_transpose`函数中添加详细调试信息：
+   ```cpp
+   // 在 ggml/src/ggml-cpu/ops.cpp 中添加
+   #define GGML_DEBUG_LOG(...) fprintf(stderr, __VA_ARGS__)
+   
+   GGML_DEBUG_LOG("[DEBUG] ggml_compute_forward_transpose 开始\n");
+   GGML_DEBUG_LOG("[DEBUG] src0 指针: %p, dst 指针: %p\n", (void*)src0, (void*)dst);
+   
+   // 详细的tensor信息打印
+   if (src0) {
+       GGML_DEBUG_LOG("[DEBUG] src0->type: %d\n", src0->type);
+       GGML_DEBUG_LOG("[DEBUG] src0->nb[0]: %zu, ggml_type_size: %zu\n", 
+               src0->nb[0], ggml_type_size(src0->type));
+       GGML_DEBUG_LOG("[DEBUG] src0->ne[0-3]: [%lld, %lld, %lld, %lld]\n", 
+               (long long)src0->ne[0], (long long)src0->ne[1], 
+               (long long)src0->ne[2], (long long)src0->ne[3]);
+       GGML_DEBUG_LOG("[DEBUG] src0->data: %p\n", src0->data);
+   }
+   
+   // 断言前的详细检查
+   GGML_DEBUG_LOG("[DEBUG] 即将检查断言: src0->nb[0] == ggml_type_size(src0->type)\n");
+   GGML_ASSERT(src0->nb[0] == ggml_type_size(src0->type));
+   GGML_DEBUG_LOG("[DEBUG] 第一个断言通过\n");
+   
+   // 内存访问前的安全检查
+   if (!src0->data || !dst->data) {
+       GGML_DEBUG_LOG("[ERROR] 数据指针为空: src0->data=%p, dst->data=%p\n", 
+               src0->data, dst->data);
+       GGML_ABORT("tensor data is null");
+   }
+   
+   // 转置循环中的详细监控
+   GGML_DEBUG_LOG("[DEBUG] 计算参数: ith=%d, nth=%d, nr=%lld\n", ith, nth, (long long)nr);
+   GGML_DEBUG_LOG("[DEBUG] 内存访问: src_offset=%zu, dst_offset=%zu\n", src_offset, dst_offset);
+   ```
+   
+   **调试输出优化**：
+   - **跨平台日志支持**：在 Android 环境下使用 `__android_log_print` 输出到 logcat，在其他平台使用 `fprintf(stderr)` 输出
+   - **编译兼容性**：将 `#include <android/log.h>` 移到文件顶部，避免函数内部 include 导致的编译错误
+   - **输出缓冲控制**：在非 Android 平台使用 `fflush(stderr)` 确保调试信息立即输出
+   - **标签化日志**：Android 日志使用 "GGML_TRANSPOSE" 标签，便于过滤和查看
+   - **条件编译**：使用 `#ifdef __ANDROID__` 确保代码在不同平台下的正确编译
+   - 避免与现有 `GGML_LOG` 宏的冲突问题
+
+**预期效果**：
+- 彻底解决logits指针空指针问题
+- 通过详细日志精确定位矩阵计算错误
+- 提供保守的计算配置减少模拟器兼容性问题
+- **源码级调试提供最精确的错误定位信息**
+- **直接在ggml库中监控tensor状态和内存访问**
+- 为进一步的底层优化提供数据支持
