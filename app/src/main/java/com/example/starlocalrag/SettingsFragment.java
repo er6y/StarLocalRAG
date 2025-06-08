@@ -60,7 +60,7 @@ public class SettingsFragment extends Fragment {
     // LLM 推理设置相关UI组件
     private EditText editTextMaxSequenceLength; // 最大序列长度
     private EditText editTextThreads; // 推理线程数
-    private EditText editTextKvCacheSize; // KV缓存大小
+    private EditText editTextKvCacheSize; // 最大输出token数
     
     // Activity Result Launchers
     private ActivityResultLauncher<Intent> modelPathLauncher;
@@ -416,7 +416,15 @@ public class SettingsFragment extends Fragment {
             }
             
             if (kvCacheSize < 512 || kvCacheSize > 4096) {
-                Toast.makeText(context, "KV缓存大小应在512-4096之间", Toast.LENGTH_SHORT).show();
+                Toast.makeText(context, "最大输出token数应在512-4096之间", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            
+            // 验证最大序列长度与最大输出token数的关系
+            // maxSequenceLength是总的上下文长度，kvCacheSize是最大输出token数
+            // 输入token数 = maxSequenceLength - kvCacheSize，需要预留一定缓冲区
+            if (maxSequenceLength <= kvCacheSize + 256) {
+                Toast.makeText(context, "最大序列长度必须大于最大输出token数加上256 (当前需要大于" + (kvCacheSize + 256) + ")", Toast.LENGTH_LONG).show();
                 return;
             }
             

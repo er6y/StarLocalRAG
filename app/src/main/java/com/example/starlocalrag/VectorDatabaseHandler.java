@@ -70,7 +70,7 @@ public class VectorDatabaseHandler {
         private String embeddingModel;
         private int embeddingDimension;
         private int chunkCount;
-        private List<String> sources;
+        private transient List<String> sources;
         private long creationTimestamp;
         private long lastModifiedTimestamp;
         
@@ -240,7 +240,7 @@ public class VectorDatabaseHandler {
      * @return 是否加载成功
      */
     @SuppressWarnings("unchecked")
-    public boolean loadDatabase() {
+    public final boolean loadDatabase() {
         if (databaseDir == null) {
             LogManager.logE(TAG, "数据库目录为null，无法加载数据库");
             return false;

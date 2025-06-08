@@ -8,6 +8,8 @@ import android.util.Log;
 
 import com.example.starlocalrag.ConfigManager;
 import com.example.starlocalrag.LogManager;
+import com.starlocalrag.llamacpp.LlamaCppInference;
+import com.starlocalrag.llamacpp.NativeLibraryLoader;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -392,18 +394,13 @@ public class LocalLlmHandler {
         this.useGpu = ConfigManager.getBoolean(context, ConfigManager.KEY_USE_GPU, false);
         LogManager.logD(TAG, "LocalLlmHandler初始化: GPU加速设置为 " + (this.useGpu ? "启用" : "禁用"));
         
-        // 根据配置选择推理引擎
-        // 分词器策略：
-        // - ONNX Runtime GenAI：使用内置分词器，自动处理模型配置和分词
-        // - 传统ONNX Runtime：使用Hugging Face分词器，手动解析config.json
-        boolean useOnnxGenAI = ConfigManager.getBoolean(context, ConfigManager.KEY_USE_ONNX_GENAI, true);
-        if (useOnnxGenAI) {
-            this.inferenceEngine = new GenAIInferenceEngine();
-            LogManager.logI(TAG, "LocalLlmHandler初始化: 使用OnnxRuntimeGenAI引擎（内置分词器）");
-        } else {
-            this.inferenceEngine = new OnnxRuntimeInferenceEngine();
-            LogManager.logI(TAG, "LocalLlmHandler初始化: 使用传统OnnxRuntime引擎（Hugging Face分词器）");
-        }
+        // 推理引擎将在loadModel时根据模型类型自动选择
+        // 支持的引擎类型：
+        // - LlamaCpp：用于GGUF格式模型
+        // - ONNX Runtime GenAI：用于ONNX格式模型（内置分词器）
+        // - 传统ONNX Runtime：用于ONNX格式模型（Hugging Face分词器）
+        this.inferenceEngine = null;
+        LogManager.logI(TAG, "LocalLlmHandler初始化: 推理引擎将根据模型类型自动选择");
     }
     
     /**
@@ -535,21 +532,39 @@ public class LocalLlmHandler {
                     throw new IOException("模型文件不存在: " + modelDir.getAbsolutePath());
                 }
                 
-                // 2. 加载模型配置 - 兼容config.json和genai_config.json
-                File configFile = new File(modelDir, "config.json");
-                if (!configFile.exists()) {
-                    // 尝试使用genai_config.json (ONNX Runtime GenAI格式)
-                    configFile = new File(modelDir, "genai_config.json");
-                    if (!configFile.exists()) {
-                        throw new IOException("模型配置文件不存在: " + modelDir.getAbsolutePath() + "/config.json 或 " + modelDir.getAbsolutePath() + "/genai_config.json");
-                    }
-                    LogManager.logI(TAG, "使用ONNX Runtime GenAI配置文件: genai_config.json");
-                } else {
-                    LogManager.logI(TAG, "使用标准配置文件: config.json");
+                // 2. 检测模型类型并选择推理引擎
+                InferenceEngine selectedEngine = selectInferenceEngine(modelDir);
+                if (selectedEngine == null) {
+                    throw new IOException("无法确定模型类型或不支持的模型格式: " + modelDir.getAbsolutePath());
                 }
-                ModelConfig modelConfig = loadModelConfig(configFile);
                 
-                // 3. 初始化推理引擎
+                // 如果推理引擎发生变化，释放旧引擎
+                if (inferenceEngine != null && !inferenceEngine.getEngineType().equals(selectedEngine.getEngineType())) {
+                    inferenceEngine.release();
+                }
+                inferenceEngine = selectedEngine;
+                
+                // 3. 加载模型配置（仅对ONNX模型需要）
+                ModelConfig modelConfig = null;
+                if (inferenceEngine instanceof GenAIInferenceEngine || inferenceEngine instanceof OnnxRuntimeInferenceEngine) {
+                    File configFile = new File(modelDir, "config.json");
+                    if (!configFile.exists()) {
+                        // 尝试使用genai_config.json (ONNX Runtime GenAI格式)
+                        configFile = new File(modelDir, "genai_config.json");
+                        if (!configFile.exists()) {
+                            throw new IOException("ONNX模型配置文件不存在: " + modelDir.getAbsolutePath() + "/config.json 或 " + modelDir.getAbsolutePath() + "/genai_config.json");
+                        }
+                        LogManager.logI(TAG, "使用ONNX Runtime GenAI配置文件: genai_config.json");
+                    } else {
+                        LogManager.logI(TAG, "使用标准配置文件: config.json");
+                    }
+                    modelConfig = loadModelConfig(configFile);
+                } else {
+                    // 对于LlamaCpp，创建基本配置
+                    modelConfig = createBasicModelConfig(modelDir.getAbsolutePath());
+                }
+                
+                // 4. 初始化推理引擎
                 inferenceEngine.initialize(modelDir.getAbsolutePath(), modelConfig);
                 
                 // 4. 标记模型已加载
@@ -1117,6 +1132,90 @@ public class LocalLlmHandler {
             modelType, vocabSize, hiddenSize, numLayers, numHeads));
         
         return modelConfig;
+    }
+    
+    /**
+     * 检查是否为GGUF模型
+     * @param modelDir 模型目录
+     * @return 是否为GGUF模型
+     */
+    private boolean isGgufModel(File modelDir) {
+        if (!modelDir.exists() || !modelDir.isDirectory()) {
+            return false;
+        }
+        
+        // 检查目录中是否有.gguf文件
+        File[] files = modelDir.listFiles();
+        if (files != null) {
+            for (File file : files) {
+                if (file.isFile() && file.getName().toLowerCase().endsWith(".gguf")) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+    
+    /**
+     * 根据模型目录内容选择合适的推理引擎
+     * @param modelDir 模型目录
+     * @return 推理引擎实例
+     */
+    private InferenceEngine selectInferenceEngine(File modelDir) {
+        LogManager.logI(TAG, "检测模型类型: " + modelDir.getAbsolutePath());
+        
+        // 检查是否为GGUF模型
+        if (isGgufModel(modelDir)) {
+            LogManager.logI(TAG, "检测到GGUF模型，选择LlamaCpp推理引擎");
+            return new LocalLLMLlamaCppHandler(context);
+        }
+        
+        // 检查是否为ONNX模型
+        File configFile = new File(modelDir, "config.json");
+        File genaiConfigFile = new File(modelDir, "genai_config.json");
+        
+        if (genaiConfigFile.exists()) {
+            LogManager.logI(TAG, "检测到genai_config.json，选择ONNX Runtime GenAI推理引擎");
+            return new GenAIInferenceEngine();
+        } else if (configFile.exists()) {
+            // 根据配置选择ONNX引擎类型
+            boolean useOnnxGenAI = ConfigManager.getBoolean(context, ConfigManager.KEY_USE_ONNX_GENAI, true);
+            if (useOnnxGenAI) {
+                LogManager.logI(TAG, "检测到config.json，选择ONNX Runtime GenAI推理引擎");
+                return new GenAIInferenceEngine();
+            } else {
+                LogManager.logI(TAG, "检测到config.json，选择传统ONNX Runtime推理引擎");
+                return new OnnxRuntimeInferenceEngine();
+            }
+        }
+        
+        LogManager.logW(TAG, "无法确定模型类型，未找到支持的配置文件或模型文件");
+        return null;
+    }
+    
+    /**
+     * 为LlamaCpp模型创建基本配置
+     * @param modelPath 模型路径
+     * @return 模型配置
+     */
+    private ModelConfig createBasicModelConfig(String modelPath) {
+        LogManager.logI(TAG, "为LlamaCpp模型创建基本配置");
+        
+        // 创建基本配置
+        ModelConfig config = new ModelConfig("llamacpp", 32000, 4096, 32, 32);
+        config.setModelPath(modelPath);
+        
+        // 设置序列长度
+        int configuredMaxSeqLength = ConfigManager.getMaxSequenceLength(context);
+        config.setMaxSequenceLength(configuredMaxSeqLength);
+        
+        // 设置基本token
+        config.setBosToken(1);
+        config.setEosToken(2);
+        
+        LogManager.logD(TAG, "LlamaCpp基本配置创建完成，最大序列长度: " + configuredMaxSeqLength);
+        
+        return config;
     }
     
     /**

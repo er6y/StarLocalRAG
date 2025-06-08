@@ -51,15 +51,8 @@ android {
         options.encoding = "UTF-8"
     }
     
-    // 添加dex选项以增加编译时内存
-    dexOptions {
-        javaMaxHeapSize "6g"  // 增加到6GB以提升编译性能
-        preDexLibraries = false
-        additionalParameters = [
-            "--multi-dex",
-            "--set-max-idx-number=48000"
-        ]
-    }
+    // dexOptions is obsolete and removed in Android Gradle Plugin 8.0+
+    // Dexing is now optimized automatically by the Android Gradle Plugin
     
     // 添加性能优化配置
     packagingOptions {
@@ -92,8 +85,8 @@ android {
     // 指定支持的ABI
     defaultConfig {
         ndk {
-            // 只支持 ARM 架构，因为目前只有这些架构的库文件
-            abiFilters 'arm64-v8a', 'armeabi-v7a'
+            // 支持 ARM 和 x86 架构，包括模拟器支持
+            abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86_64', 'x86'
         }
     }
     
@@ -155,6 +148,11 @@ dependencies {
     implementation files('libs/onnxruntime-genai-android-0.8.1.aar')
     // Tokenizers JNI
     implementation project(':libs:tokenizers-jni')
+    
+    // LlamaCpp JNI - 使用项目依赖方式
+    implementation project(':libs:llamacpp-jni')
+    // 如果需要使用AAR文件，请确保文件存在并取消注释下面一行
+    //implementation files('../libs/llamacpp-jni/build/outputs/aar/llamacpp-jni-release.aar')
     
     // 文档解析库
     implementation 'org.apache.tika:tika-core:2.7.0'

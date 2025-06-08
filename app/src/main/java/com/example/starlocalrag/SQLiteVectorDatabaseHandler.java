@@ -335,7 +335,7 @@ public class SQLiteVectorDatabaseHandler {
     /**
      * 打开数据库连接
      */
-    private void openDatabase() {
+    private final void openDatabase() {
         try {
             // 如果已经有打开的数据库连接，先关闭它
             if (database != null && database.isOpen()) {
@@ -396,7 +396,7 @@ public class SQLiteVectorDatabaseHandler {
     /**
      * 关闭数据库连接
      */
-    public void closeDatabase() {
+    public final void closeDatabase() {
         try {
             if (database != null && database.isOpen()) {
                 LogManager.logI(TAG, "关闭数据库连接");

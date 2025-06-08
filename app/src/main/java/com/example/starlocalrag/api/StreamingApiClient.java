@@ -102,7 +102,7 @@ public class StreamingApiClient {
                 .header("Authorization", "Bearer " + apiKey)
                 .header("Content-Type", "application/json")
                 .header("Accept", "text/event-stream")
-                .post(RequestBody.create(MediaType.parse("application/json"), requestBody.toString()))
+                .post(RequestBody.create(requestBody.toString(), MediaType.parse("application/json")))
                 .build();
                 
             // 发送请求

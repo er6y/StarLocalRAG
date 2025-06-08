@@ -67,8 +67,26 @@ public class ConfigManager {
     public static final String KEY_MAX_SEQUENCE_LENGTH = "maxSequenceLength"; // 最大序列长度
     public static final String KEY_NO_THINKING = "no_thinking"; // 是否禁用思考模式
     public static final String KEY_THREADS = "threads"; // ONNX推理线程数
-    public static final String KEY_KV_CACHE_SIZE = "kv_cache_size"; // KV缓存大小(Tokens)
+    public static final String KEY_KV_CACHE_SIZE = "kv_cache_size"; // 最大输出token数
     public static final String KEY_USE_ONNX_GENAI = "use_onnx_genai"; // 是否使用OnnxRuntimeGenAI引擎
+    
+    // LlamaCpp 相关配置键
+    public static final String KEY_LLAMACPP_MODEL_PATH = "llamacpp_model_path"; // LlamaCpp模型路径
+    public static final String KEY_LLAMACPP_CONTEXT_SIZE = "llamacpp_context_size"; // 上下文大小
+    public static final String KEY_LLAMACPP_BATCH_SIZE = "llamacpp_batch_size"; // 批处理大小
+    public static final String KEY_LLAMACPP_THREADS = "llamacpp_threads"; // 线程数
+    public static final String KEY_LLAMACPP_GPU_LAYERS = "llamacpp_gpu_layers"; // GPU层数
+    public static final String KEY_LLAMACPP_TEMPERATURE = "llamacpp_temperature"; // 温度参数
+    public static final String KEY_LLAMACPP_TOP_P = "llamacpp_top_p"; // Top-P采样
+    public static final String KEY_LLAMACPP_TOP_K = "llamacpp_top_k"; // Top-K采样
+    public static final String KEY_LLAMACPP_REPEAT_PENALTY = "llamacpp_repeat_penalty"; // 重复惩罚
+    public static final String KEY_LLAMACPP_REPEAT_LAST_N = "llamacpp_repeat_last_n"; // 重复检查长度
+    public static final String KEY_LLAMACPP_SEED = "llamacpp_seed"; // 随机种子
+    public static final String KEY_LLAMACPP_USE_MMAP = "llamacpp_use_mmap"; // 使用内存映射
+    public static final String KEY_LLAMACPP_USE_MLOCK = "llamacpp_use_mlock"; // 使用内存锁定
+    public static final String KEY_LLAMACPP_NORMALIZE_EMBEDDINGS = "llamacpp_normalize_embeddings"; // 归一化嵌入
+    public static final String KEY_LLAMACPP_EMBEDDING_BATCH_SIZE = "llamacpp_embedding_batch_size"; // 嵌入批处理大小
+    public static final String KEY_USE_LLAMACPP = "use_llamacpp"; // 是否使用LlamaCpp引擎
     
     // 文本大小相关的键
     public static final String KEY_GLOBAL_TEXT_SIZE = "global_text_size";
@@ -91,10 +109,28 @@ public class ConfigManager {
     public static final float DEFAULT_TEXT_SIZE = 14f;
     
     // LLM 推理相关的默认值
-    public static final int DEFAULT_MAX_SEQUENCE_LENGTH = 2048;
+    public static final int DEFAULT_MAX_SEQUENCE_LENGTH = 1792;
     public static final boolean DEFAULT_NO_THINKING = false;
     public static final int DEFAULT_THREADS = 4;
-    public static final int DEFAULT_KV_CACHE_SIZE = 1024; // KV缓存默认大小
+    public static final int DEFAULT_KV_CACHE_SIZE = 2048; // 最大输出token数默认值
+    
+    // LlamaCpp 相关默认值
+    public static final String DEFAULT_LLAMACPP_MODEL_PATH = "files/models/llamacpp";
+    public static final int DEFAULT_LLAMACPP_CONTEXT_SIZE = 2048;
+    public static final int DEFAULT_LLAMACPP_BATCH_SIZE = 512;
+    public static final int DEFAULT_LLAMACPP_THREADS = 4;
+    public static final int DEFAULT_LLAMACPP_GPU_LAYERS = 0;
+    public static final float DEFAULT_LLAMACPP_TEMPERATURE = 0.8f;
+    public static final float DEFAULT_LLAMACPP_TOP_P = 0.95f;
+    public static final int DEFAULT_LLAMACPP_TOP_K = 40;
+    public static final float DEFAULT_LLAMACPP_REPEAT_PENALTY = 1.1f;
+    public static final int DEFAULT_LLAMACPP_REPEAT_LAST_N = 64;
+    public static final int DEFAULT_LLAMACPP_SEED = -1; // -1表示随机种子
+    public static final boolean DEFAULT_LLAMACPP_USE_MMAP = true;
+    public static final boolean DEFAULT_LLAMACPP_USE_MLOCK = false;
+    public static final boolean DEFAULT_LLAMACPP_NORMALIZE_EMBEDDINGS = true;
+    public static final int DEFAULT_LLAMACPP_EMBEDDING_BATCH_SIZE = 32;
+    public static final boolean DEFAULT_USE_LLAMACPP = false;
 
     private static JSONObject configCache = null;
 
@@ -920,18 +956,18 @@ public class ConfigManager {
     }
 
     /**
-     * 获取KV缓存大小
+     * 获取最大输出token数
      * @param context 上下文
-     * @return KV缓存大小(Tokens)
+     * @return 最大输出token数
      */
     public static int getKvCacheSize(Context context) {
         return getInt(context, KEY_KV_CACHE_SIZE, DEFAULT_KV_CACHE_SIZE);
     }
 
     /**
-     * 设置KV缓存大小
+     * 设置最大输出token数
      * @param context 上下文
-     * @param kvCacheSize KV缓存大小(Tokens)
+     * @param kvCacheSize 最大输出token数
      */
     public static void setKvCacheSize(Context context, int kvCacheSize) {
         setInt(context, KEY_KV_CACHE_SIZE, kvCacheSize);
@@ -1469,6 +1505,24 @@ public class ConfigManager {
             config.put(KEY_BUILD_PROGRESS_TEXT_SIZE, DEFAULT_TEXT_SIZE);
             config.put(KEY_NOTE_CONTENT_TEXT_SIZE, DEFAULT_TEXT_SIZE);
             config.put(KEY_LOG_CONTENT_TEXT_SIZE, DEFAULT_TEXT_SIZE);
+            
+            // LlamaCpp 相关配置
+            config.put(KEY_LLAMACPP_MODEL_PATH, DEFAULT_LLAMACPP_MODEL_PATH);
+            config.put(KEY_LLAMACPP_CONTEXT_SIZE, DEFAULT_LLAMACPP_CONTEXT_SIZE);
+            config.put(KEY_LLAMACPP_BATCH_SIZE, DEFAULT_LLAMACPP_BATCH_SIZE);
+            config.put(KEY_LLAMACPP_THREADS, DEFAULT_LLAMACPP_THREADS);
+            config.put(KEY_LLAMACPP_GPU_LAYERS, DEFAULT_LLAMACPP_GPU_LAYERS);
+            config.put(KEY_LLAMACPP_TEMPERATURE, DEFAULT_LLAMACPP_TEMPERATURE);
+            config.put(KEY_LLAMACPP_TOP_P, DEFAULT_LLAMACPP_TOP_P);
+            config.put(KEY_LLAMACPP_TOP_K, DEFAULT_LLAMACPP_TOP_K);
+            config.put(KEY_LLAMACPP_REPEAT_PENALTY, DEFAULT_LLAMACPP_REPEAT_PENALTY);
+            config.put(KEY_LLAMACPP_REPEAT_LAST_N, DEFAULT_LLAMACPP_REPEAT_LAST_N);
+            config.put(KEY_LLAMACPP_SEED, DEFAULT_LLAMACPP_SEED);
+            config.put(KEY_LLAMACPP_USE_MMAP, DEFAULT_LLAMACPP_USE_MMAP);
+            config.put(KEY_LLAMACPP_USE_MLOCK, DEFAULT_LLAMACPP_USE_MLOCK);
+            config.put(KEY_LLAMACPP_NORMALIZE_EMBEDDINGS, DEFAULT_LLAMACPP_NORMALIZE_EMBEDDINGS);
+            config.put(KEY_LLAMACPP_EMBEDDING_BATCH_SIZE, DEFAULT_LLAMACPP_EMBEDDING_BATCH_SIZE);
+            config.put(KEY_USE_LLAMACPP, DEFAULT_USE_LLAMACPP);
             
             Log.d(TAG, "创建默认配置: " + config.toString(2));
             return config;
