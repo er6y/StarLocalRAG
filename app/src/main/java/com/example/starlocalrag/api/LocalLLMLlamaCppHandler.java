@@ -6,7 +6,7 @@ import android.util.Log;
 import com.example.starlocalrag.ConfigManager;
 import com.example.starlocalrag.LogManager;
 import com.starlocalrag.llamacpp.LlamaCppInference;
-
+import com.starlocalrag.llamacpp.LlamaCppEmbedding;
 import com.starlocalrag.llamacpp.NativeLibraryLoader;
 
 import java.io.File;
@@ -37,8 +37,10 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
     // 上下文
     private final Context context;
     
-    // LlamaCpp推理引擎
-    private LlamaCppInference llamaCppInference;
+    // LlamaCpp推理引擎句柄
+    private long modelHandle = 0;
+    private long contextHandle = 0;
+    private LlamaCppEmbedding llamaCppEmbedding;
     private ExecutorService executorService;
     
     // 状态管理
@@ -113,33 +115,44 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
         // 从ConfigManager获取配置参数 - 参考OnnxRuntimeGenAI的做法
         int configMaxSeqLength = ConfigManager.getMaxSequenceLength(context);
         int configThreads = ConfigManager.getThreads(context);
-        int configKvCacheSize = ConfigManager.getKvCacheSize(context);
+        int configMaxNewTokens = ConfigManager.getMaxNewTokens(context);
+        boolean configUseGpu = ConfigManager.getBoolean(context, ConfigManager.KEY_USE_GPU, false);
         
         // 线程数配置 - 与OnnxRuntimeGenAI对齐：MIN(CPU核心数, getThreads)
         int availableProcessors = Runtime.getRuntime().availableProcessors();
         int actualThreads = Math.min(configThreads, availableProcessors);
         
         // 设置参数
-        maxTokens = configKvCacheSize; // 使用最大输出token数作为maxTokens
+        maxTokens = configMaxNewTokens; // 使用最大输出token数作为maxTokens
         int contextSize = configMaxSeqLength; // 上下文大小应该是最大序列长度，不是输出token数
-        int nGpuLayers = 0; // 仅CPU推理
+        int nGpuLayers = configUseGpu ? -1 : 0; // 根据配置设置GPU层数
         
         LogManager.logI(TAG, String.format("线程配置 - 用户配置: %d线程, CPU核心: %d, 实际使用: %d线程", 
             configThreads, availableProcessors, actualThreads));
+        LogManager.logI(TAG, String.format("GPU配置 - 使用GPU: %s, GPU层数: %d", 
+            configUseGpu ? "是" : "否", nGpuLayers));
         
-        // 一行代码初始化 - 类似SimpleGenAI
-        llamaCppInference = new LlamaCppInference(ggufFile.getAbsolutePath());
+        // 使用新的静态方法初始化
+        // 1. 初始化后端
+        LlamaCppInference.backend_init();
         
-        // 配置推理参数 - 只设置必要的系统配置，不设置temperature、topP、topK
-        llamaCppInference.setContextSize(contextSize)  // 设置上下文大小为最大序列长度
-                .setMaxSequenceLength(configMaxSeqLength)  // 设置最大序列长度
-                .setThreads(actualThreads)  // 使用MIN(CPU核心数, getThreads)
-                .setGpuLayers(nGpuLayers)  // GPU层数
-                .setMaxTokens(maxTokens);  // 使用最大输出token数作为maxTokens
+        // 2. 加载模型（使用GPU层数参数）
+        modelHandle = LlamaCppInference.load_model_with_gpu(ggufFile.getAbsolutePath(), nGpuLayers);
+        if (modelHandle == 0) {
+            throw new RuntimeException("模型加载失败: " + ggufFile.getAbsolutePath());
+        }
+        
+        // 3. 创建上下文（GPU层数已在模型加载时设置）
+        contextHandle = LlamaCppInference.new_context_with_params(modelHandle, contextSize, actualThreads, 0);
+        if (contextHandle == 0) {
+            LlamaCppInference.free_model(modelHandle);
+            throw new RuntimeException("上下文创建失败");
+        }
         
         LogManager.logI(TAG, "✓ LlamaCpp引擎初始化完成");
-        LogManager.logI(TAG, "模型信息: " + llamaCppInference.getModelInfo());
-        LogManager.logI(TAG, "最大序列长度: " + configMaxSeqLength + ", 线程数: " + actualThreads + ", 最大输出token数: " + configKvCacheSize);
+        LogManager.logI(TAG, "模型句柄: " + modelHandle + ", 上下文句柄: " + contextHandle);
+        LogManager.logI(TAG, String.format("配置参数 - 最大序列长度: %d, 线程数: %d, 最大输出token数: %d, GPU加速: %s", 
+            configMaxSeqLength, actualThreads, configMaxNewTokens, configUseGpu ? "启用" : "禁用"));
     }
     
     /**
@@ -207,7 +220,7 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
                 
                 StringBuilder fullResponse = new StringBuilder();
                 
-                generateWithLlamaCpp(prompt, callback, fullResponse);
+                generateWithLlamaCpp(prompt, params, callback, fullResponse);
                 
             } catch (Exception e) {
                 LogManager.logE(TAG, "生成文本异常", e);
@@ -223,34 +236,64 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
     /**
      * 使用LlamaCpp进行推理
      */
-    private void generateWithLlamaCpp(String prompt, LocalLlmHandler.StreamingCallback callback, StringBuilder fullResponse) {
+    private void generateWithLlamaCpp(String prompt, LocalLlmHandler.InferenceParams params, LocalLlmHandler.StreamingCallback callback, StringBuilder fullResponse) {
         try {
-            // 创建生成参数 - 类似SimpleGenAI.createGeneratorParams()
-            LlamaCppInference.GeneratorParams params = llamaCppInference.createGeneratorParams();
+            // 从ConfigManager获取配置参数
+            int maxTokens = ConfigManager.getMaxNewTokens(context);
             
-            // 从ConfigManager获取配置参数并设置 - 只设置必要的系统配置
-            int maxTokens = ConfigManager.getKvCacheSize(context); // 使用最大输出token数作为maxTokens
-            int threads = ConfigManager.getThreads(context);
-            int kvCacheSize = ConfigManager.getKvCacheSize(context);
+            LogManager.logI(TAG, String.format("推理参数 - MaxTokens: %d", maxTokens));
             
-            // 只设置必要的系统配置，不设置temperature、topP、topK
-            params.setSearchOption("max_length", maxTokens);
-            params.setSearchOption("threads", threads);
-            params.setSearchOption("cache_size", kvCacheSize);
+            // 动态创建批处理大小，支持超长prompt
+            // 首先估算prompt的token数量（粗略估算：字符数/4）
+            int estimatedTokens = Math.max(512, prompt.length() / 4 + 100);
+            // 限制最大batch大小避免内存问题
+            int batchSize = Math.min(estimatedTokens, 2048);
             
-            LogManager.logI(TAG, "推理参数 - MaxTokens: " + maxTokens + ", Threads: " + threads + ", CacheSize: " + kvCacheSize);
-            LogManager.logI(TAG, "采样参数由GGUF模型自动配置");
+            LogManager.logI(TAG, String.format("动态batch大小 - 估算tokens: %d, 使用batch大小: %d", estimatedTokens, batchSize));
             
-            // 一站式推理调用 - 类似SimpleGenAI.generate(params, prompt, listener)
-            String result = llamaCppInference.generate(params, prompt, token -> {
-                if (!shouldStop.get() && !token.isEmpty()) {
+            long batch = LlamaCppInference.new_batch(batchSize, 0, 1);
+            long sampler = params != null ? 
+                LlamaCppInference.new_sampler_with_params(
+                    params.getTemperature(),
+                    params.getTopP(),
+                    params.getTopK()
+                ) : LlamaCppInference.new_sampler();
+            
+            try {
+                // 清空KV缓存
+                LlamaCppInference.kv_cache_clear(contextHandle);
+                
+                LogManager.logI(TAG, String.format("[调试] 调用completion_init - contextHandle=%d, batch=%d, prompt长度=%d, maxTokens=%d, batchSize=%d", 
+                    contextHandle, batch, prompt.length(), maxTokens, 512));
+                LogManager.logI(TAG, String.format("[调试] 提示词内容: '%s'", prompt));
+                
+                // 初始化完成
+                int tokenCount = LlamaCppInference.completion_init(contextHandle, batch, prompt, maxTokens, false);
+                if (tokenCount < 0) {
+                    LogManager.logE(TAG, "初始化完成失败");
+                    return;
+                }
+                
+                // 生成循环
+                LlamaCppInference.IntVar currentPos = new LlamaCppInference.IntVar(tokenCount);
+                
+                for (int i = 0; i < maxTokens && !shouldStop.get(); i++) {
+                    String token = LlamaCppInference.completion_loop(contextHandle, batch, sampler, maxTokens, currentPos);
+                    if (token == null || token.isEmpty()) {
+                        break;
+                    }
+                    
                     fullResponse.append(token);
                     totalTokensGenerated.incrementAndGet();
                     if (callback != null) {
                         callback.onToken(token);
                     }
                 }
-            });
+            } finally {
+                // 清理资源
+                LlamaCppInference.free_batch(batch);
+                LlamaCppInference.free_sampler(sampler);
+            }
             
             if (!shouldStop.get() && callback != null) {
                 // 计算统计信息
@@ -277,46 +320,81 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
     /**
      * 备用方法：使用传统流式生成（如果一站式API有问题）
      */
-    private void generateWithTraditionalStreaming(String prompt, LocalLlmHandler.StreamingCallback callback, StringBuilder fullResponse) {
+    private void generateWithTraditionalStreaming(String prompt, LocalLlmHandler.InferenceParams params, LocalLlmHandler.StreamingCallback callback, StringBuilder fullResponse) {
         try {
-            // 使用LlamaCppInference的流式生成
-            llamaCppInference.generateStream(prompt, 
-                new LlamaCppInference.StreamCallback() {
-                    @Override
-                    public void onText(String text, boolean isComplete) {
-                        if (shouldStop.get()) {
-                            return;
-                        }
-                        
-                        fullResponse.append(text);
-                        totalTokensGenerated.incrementAndGet();
-                        
-                        if (callback != null) {
-                            callback.onToken(text);
-                            if (isComplete) {
-                                // 计算统计信息
-                                long duration = System.currentTimeMillis() - generationStartTime;
-                                int tokens = totalTokensGenerated.get();
-                                double tokensPerSecond = tokens > 0 && duration > 0 ? 
-                                    (tokens * 1000.0) / duration : 0.0;
-                                
-                                LogManager.logI(TAG, String.format(
-                                    "传统API生成完成 - 总tokens: %d, 耗时: %dms, 速率: %.2f tokens/s",
-                                    tokens, duration, tokensPerSecond));
-                                
-                                callback.onComplete(fullResponse.toString());
-                            }
-                        }
+            // 使用底层JNI方法进行流式生成
+            int maxTokens = ConfigManager.getMaxNewTokens(context);
+            
+            // 动态创建批处理大小，支持超长prompt
+            // 首先估算prompt的token数量（粗略估算：字符数/4）
+            int estimatedTokens = Math.max(512, prompt.length() / 4 + 100);
+            // 限制最大batch大小避免内存问题
+            int batchSize = Math.min(estimatedTokens, 2048);
+            
+            LogManager.logI(TAG, String.format("动态batch大小 - 估算tokens: %d, 使用batch大小: %d", estimatedTokens, batchSize));
+            
+            long batch = LlamaCppInference.new_batch(batchSize, 0, 1);
+            long sampler = params != null ? 
+                LlamaCppInference.new_sampler_with_params(
+                    params.getTemperature(),
+                    params.getTopP(),
+                    params.getTopK()
+                ) : LlamaCppInference.new_sampler();
+            
+            try {
+                // 清空KV缓存
+                LlamaCppInference.kv_cache_clear(contextHandle);
+                
+                LogManager.logI(TAG, String.format("[调试] 调用completion_init - contextHandle=%d, batch=%d, prompt长度=%d, maxTokens=%d", 
+                    contextHandle, batch, prompt.length(), maxTokens));
+                LogManager.logI(TAG, String.format("[调试] 提示词内容: '%s'", prompt));
+                
+                // 初始化完成
+                int tokenCount = LlamaCppInference.completion_init(contextHandle, batch, prompt, maxTokens, false);
+                if (tokenCount < 0) {
+                    LogManager.logE(TAG, "初始化完成失败");
+                    if (callback != null) {
+                        callback.onError("初始化完成失败");
+                    }
+                    return;
+                }
+                
+                // 生成循环
+                LlamaCppInference.IntVar currentPos = new LlamaCppInference.IntVar(tokenCount);
+                
+                for (int i = 0; i < maxTokens && !shouldStop.get(); i++) {
+                    String token = LlamaCppInference.completion_loop(contextHandle, batch, sampler, maxTokens, currentPos);
+                    if (token == null || token.isEmpty()) {
+                        break;
                     }
                     
-                    @Override
-                    public void onError(String error) {
-                        LogManager.logE(TAG, "传统API生成过程中发生错误: " + error);
-                        if (callback != null) {
-                            callback.onError(error);
-                        }
+                    fullResponse.append(token);
+                    totalTokensGenerated.incrementAndGet();
+                    
+                    if (callback != null) {
+                        callback.onToken(token);
                     }
-                });
+                }
+                
+                // 生成完成
+                if (callback != null && !shouldStop.get()) {
+                    // 计算统计信息
+                    long duration = System.currentTimeMillis() - generationStartTime;
+                    int tokens = totalTokensGenerated.get();
+                    double tokensPerSecond = tokens > 0 && duration > 0 ? 
+                        (tokens * 1000.0) / duration : 0.0;
+                    
+                    LogManager.logI(TAG, String.format(
+                        "传统API生成完成 - 总tokens: %d, 耗时: %dms, 速率: %.2f tokens/s",
+                        tokens, duration, tokensPerSecond));
+                    
+                    callback.onComplete(fullResponse.toString());
+                }
+            } finally {
+                // 清理资源
+                LlamaCppInference.free_batch(batch);
+                LlamaCppInference.free_sampler(sampler);
+            }
             
         } catch (Exception e) {
             LogManager.logE(TAG, "传统API推理失败: " + e.getMessage(), e);
@@ -330,14 +408,11 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
      * 更新推理参数
      */
     private void updateInferenceParameters(LocalLlmHandler.InferenceParams params) {
-        if (llamaCppInference != null && params != null) {
+        if (modelHandle != 0 && params != null) {
             try {
-                // 更新温度、top_p、top_k等参数
-                llamaCppInference.setTemperature(params.getTemperature());
-                llamaCppInference.setTopP(params.getTopP());
-                llamaCppInference.setTopK(params.getTopK());
+                // 参数设置已改为通过采样器实现，在创建采样器时设置参数
                 // 注意：LlamaCppInference没有setRepeatPenalty方法，暂时跳过
-                // llamaCppInference.setRepeatPenalty(params.getRepetitionPenalty());
+                // LlamaCppInference.setRepeatPenalty(params.getRepetitionPenalty());
                 
                 LogManager.logD(TAG, String.format(
                     "更新推理参数 - temp: %.2f, top_p: %.2f, top_k: %d, repeat_penalty: %.2f",
@@ -369,14 +444,66 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
             try {
                 Log.i(TAG, "开始生成文本: " + prompt.substring(0, Math.min(prompt.length(), 100)) + "...");
                 
-                String result = llamaCppInference.generate(prompt);
+                // 使用底层JNI方法进行同步生成
+                int maxTokens = ConfigManager.getMaxNewTokens(context);
                 
-                if (result == null) {
-                    result = "";
+                // 动态创建批处理大小，支持超长prompt
+                // 首先估算prompt的token数量（粗略估算：字符数/4）
+                int estimatedTokens = Math.max(512, prompt.length() / 4 + 100);
+                // 限制最大batch大小避免内存问题
+                int batchSize = Math.min(estimatedTokens, 2048);
+                
+                LogManager.logI(TAG, String.format("动态batch大小 - 估算tokens: %d, 使用batch大小: %d", estimatedTokens, batchSize));
+                
+                long batch = LlamaCppInference.new_batch(batchSize, 0, 1);
+                // 使用默认参数创建采样器
+                long sampler = LlamaCppInference.new_sampler_with_params(
+                    1.0f,  // 默认温度
+                    0.9f,  // 默认top_p
+                    40     // 默认top_k
+                );
+                
+                StringBuilder result = new StringBuilder();
+                
+                try {
+                    // 清空KV缓存
+                LlamaCppInference.kv_cache_clear(contextHandle);
+                
+                LogManager.logI(TAG, String.format("[调试] generateTextAsync调用completion_init - contextHandle=%d, batch=%d, prompt长度=%d, maxTokens=%d", 
+                    contextHandle, batch, prompt.length(), maxTokens));
+                LogManager.logI(TAG, String.format("[调试] 提示词内容: '%s'", prompt));
+                
+                // 初始化完成
+                int tokenCount = LlamaCppInference.completion_init(contextHandle, batch, prompt, maxTokens, false);
+                    if (tokenCount < 0) {
+                        LogManager.logE(TAG, "初始化完成失败");
+                        return "";
+                    }
+                    
+                    // 生成循环
+                    LlamaCppInference.IntVar currentPos = new LlamaCppInference.IntVar(tokenCount);
+                    
+                    for (int i = 0; i < maxTokens; i++) {
+                        String token = LlamaCppInference.completion_loop(contextHandle, batch, sampler, maxTokens, currentPos);
+                        if (token == null || token.isEmpty()) {
+                            break;
+                        }
+                        result.append(token);
+                    }
+                } finally {
+                    // 清理资源
+                    LlamaCppInference.free_batch(batch);
+                    LlamaCppInference.free_sampler(sampler);
                 }
                 
-                Log.i(TAG, "文本生成完成，长度: " + (result != null ? result.length() : 0));
-                return result != null ? result : "";
+                String finalResult = result.toString();
+                
+                if (finalResult == null) {
+                    finalResult = "";
+                }
+                
+                Log.i(TAG, "文本生成完成，长度: " + (finalResult != null ? finalResult.length() : 0));
+                return finalResult != null ? finalResult : "";
                 
             } catch (Exception e) {
                 Log.e(TAG, "生成文本异常", e);
@@ -393,14 +520,8 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
             LogManager.logI(TAG, "停止LlamaCpp文本生成");
             shouldStop.set(true);
             
-            if (llamaCppInference != null) {
-                try {
-                    // 注意：LlamaCppInference没有stopGeneration方法，使用shouldStop标志
-                    // llamaCppInference.stopGeneration();
-                } catch (Exception e) {
-                    LogManager.logW(TAG, "停止生成时发生异常", e);
-                }
-            }
+            // 使用shouldStop标志来停止生成
+            // 不需要调用特定的停止方法，生成循环会检查shouldStop标志
             
             isGenerating.set(false);
         }
@@ -429,15 +550,20 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
                 return false;
             }
             
-            // 嵌入功能已集成到LlamaCppInference中，无需单独初始化
-            LogManager.logI(TAG, "嵌入功能将通过LlamaCppInference提供");
+            // 使用专门的LlamaCppEmbedding类
+            llamaCppEmbedding = new LlamaCppEmbedding(ggufFile.getAbsolutePath());
             
             LogManager.logI(TAG, "LlamaCpp词嵌入功能初始化成功");
+            LogManager.logI(TAG, "嵌入模型信息: " + llamaCppEmbedding.getModelInfo());
+            LogManager.logI(TAG, "嵌入维度: " + llamaCppEmbedding.getEmbeddingSize());
             return true;
             
         } catch (Exception e) {
             LogManager.logE(TAG, "初始化词嵌入功能失败", e);
-            // 嵌入功能已集成到LlamaCppInference中，无需单独清理
+            if (llamaCppEmbedding != null) {
+                llamaCppEmbedding.close();
+                llamaCppEmbedding = null;
+            }
             return false;
         }
     }
@@ -448,8 +574,8 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
      * @return 嵌入向量，失败返回null
      */
     public float[] getEmbedding(String text) {
-        if (!isInitialized()) {
-            LogManager.logE(TAG, "LlamaCpp引擎未初始化，无法计算嵌入");
+        if (llamaCppEmbedding == null || !llamaCppEmbedding.isInitialized()) {
+            LogManager.logE(TAG, "LlamaCpp嵌入引擎未初始化，无法计算嵌入");
             return null;
         }
         
@@ -461,8 +587,8 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
         try {
             LogManager.logD(TAG, "开始计算文本嵌入，文本长度: " + text.length());
             
-            // 使用LlamaCppInference计算嵌入
-            float[] embedding = llamaCppInference.getEmbedding(text);
+            // 使用专门的LlamaCppEmbedding计算嵌入
+            float[] embedding = llamaCppEmbedding.getEmbedding(text);
             
             if (embedding != null) {
                 LogManager.logD(TAG, "嵌入计算完成，维度: " + embedding.length);
@@ -484,8 +610,8 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
      */
     public CompletableFuture<float[][]> getEmbeddingsAsync(java.util.List<String> texts) {
         return CompletableFuture.supplyAsync(() -> {
-            if (!isInitialized()) {
-                LogManager.logE(TAG, "LlamaCpp引擎未初始化，无法计算批量嵌入");
+            if (llamaCppEmbedding == null || !llamaCppEmbedding.isInitialized()) {
+                LogManager.logE(TAG, "LlamaCpp嵌入引擎未初始化，无法计算批量嵌入");
                 return null;
             }
             
@@ -497,8 +623,8 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
             try {
                 LogManager.logD(TAG, "开始计算批量文本嵌入，文本数量: " + texts.size());
                 
-                // 使用LlamaCppInference计算批量嵌入
-                float[][] embeddings = llamaCppInference.getEmbeddings(texts);
+                // 使用专门的LlamaCppEmbedding计算批量嵌入
+                float[][] embeddings = llamaCppEmbedding.getEmbeddings(texts);
                 
                 if (embeddings != null) {
                     LogManager.logD(TAG, "批量嵌入计算完成，返回 " + embeddings.length + " 个嵌入向量");
@@ -520,8 +646,8 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
      * @return 嵌入向量数组
      */
     public float[][] getEmbeddings(String[] texts) {
-        if (!isInitialized()) {
-            LogManager.logE(TAG, "LlamaCpp引擎未初始化，无法计算批量嵌入");
+        if (llamaCppEmbedding == null || !llamaCppEmbedding.isInitialized()) {
+            LogManager.logE(TAG, "LlamaCpp嵌入引擎未初始化，无法计算批量嵌入");
             return null;
         }
         
@@ -533,8 +659,8 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
         try {
             LogManager.logD(TAG, "开始计算批量文本嵌入，文本数量: " + texts.length);
             
-            // 使用LlamaCppInference计算批量嵌入
-            float[][] embeddings = llamaCppInference.getEmbeddings(texts);
+            // 使用专门的LlamaCppEmbedding计算批量嵌入
+            float[][] embeddings = llamaCppEmbedding.getEmbeddings(texts);
             
             if (embeddings != null) {
                 LogManager.logD(TAG, "批量嵌入计算完成，返回 " + embeddings.length + " 个嵌入向量");
@@ -553,7 +679,7 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
      * 获取状态信息
      */
     public boolean isInitialized() {
-        return llamaCppInference != null && isInitialized.get();
+        return modelHandle != 0 && contextHandle != 0 && isInitialized.get();
     }
     
     public boolean isGenerating() {
@@ -564,11 +690,11 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
      * 检查词嵌入功能是否可用
      */
     public boolean isEmbeddingAvailable() {
-        return llamaCppInference != null && llamaCppInference.supportsEmbedding();
+        return llamaCppEmbedding != null && llamaCppEmbedding.isInitialized() && llamaCppEmbedding.supportsEmbedding();
     }
     
     public String getModelInfo() {
-        if (llamaCppInference != null) {
+        if (modelHandle != 0 && contextHandle != 0) {
             return "LlamaCpp推理引擎已初始化";
         }
         return "未初始化";
@@ -611,18 +737,37 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
         // 停止当前生成
         stopInference();
         
-        // 释放LlamaCppInference
-        if (llamaCppInference != null) {
+        // 释放LlamaCpp句柄
+        if (contextHandle != 0) {
             try {
-                llamaCppInference.close();
-                LogManager.logI(TAG, "LlamaCppInference资源释放完成");
+                LlamaCppInference.free_context(contextHandle);
+                LogManager.logI(TAG, "上下文资源释放完成");
             } catch (Exception e) {
-                LogManager.logW(TAG, "释放推理引擎时发生异常", e);
+                LogManager.logW(TAG, "释放上下文时发生异常", e);
             }
-            llamaCppInference = null;
+            contextHandle = 0;
         }
         
-        // 嵌入功能已集成到LlamaCppInference中，无需单独释放
+        if (modelHandle != 0) {
+            try {
+                LlamaCppInference.free_model(modelHandle);
+                LogManager.logI(TAG, "模型资源释放完成");
+            } catch (Exception e) {
+                LogManager.logW(TAG, "释放模型时发生异常", e);
+            }
+            modelHandle = 0;
+        }
+        
+        // 释放嵌入资源
+        if (llamaCppEmbedding != null) {
+            try {
+                llamaCppEmbedding.close();
+                LogManager.logI(TAG, "LlamaCppEmbedding资源释放完成");
+            } catch (Exception e) {
+                LogManager.logW(TAG, "释放嵌入引擎时发生异常", e);
+            }
+            llamaCppEmbedding = null;
+        }
         
         // 关闭线程池
         if (executorService != null && !executorService.isShutdown()) {
@@ -646,30 +791,14 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
         return "LlamaCpp";
     }
     
-    public int getEmbeddingSize() {
-        if (!isInitialized()) {
-            return 0;
-        }
-        
-        try {
-            return llamaCppInference.getEmbeddingSize();
-        } catch (Exception e) {
-            LogManager.logE(TAG, "获取嵌入维度失败: " + e.getMessage(), e);
-            return 0;
-        }
-    }
+    // getEmbeddingSize和supportsEmbedding方法已移至LlamaCppEmbedding.java
+    // 请通过getEmbeddingHandler()获取LlamaCppEmbedding实例来使用这些方法
     
-    public boolean supportsEmbedding() {
-        if (!isInitialized()) {
-            return false;
-        }
-        
-        try {
-            return llamaCppInference.supportsEmbedding();
-        } catch (Exception e) {
-            LogManager.logE(TAG, "检查嵌入支持失败: " + e.getMessage(), e);
-            return false;
-        }
+    // Embedding相关方法已移至LlamaCppEmbedding.java
+    // 如需使用Embedding功能，请直接使用LlamaCppEmbedding实例
+    
+    public LlamaCppEmbedding getEmbeddingHandler() {
+        return llamaCppEmbedding;
     }
     
     /**

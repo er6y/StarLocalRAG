@@ -255,8 +255,8 @@ public class LocalLLMOnnxRuntimeGenAIHandler implements LocalLlmHandler.Inferenc
                 // 注意：ONNX Runtime GenAI内置KV缓存管理，这里只是尝试启用优化
                 generatorParams.setSearchOption("use_cache", true);
                 // 从配置管理器获取KV缓存大小
-            int kvCacheSize = ConfigManager.getKvCacheSize(context);
-            generatorParams.setSearchOption("cache_size", (double)kvCacheSize); // 设置缓存序列长度（不是内存大小）
+            int maxNewTokens = ConfigManager.getMaxNewTokens(context);
+        generatorParams.setSearchOption("max_new_tokens", (double)maxNewTokens); // 设置最大输出token数
                 LogManager.logI(TAG, "✓ KV缓存优化已启用（内置管理）");
             } catch (Exception e) {
                 LogManager.logW(TAG, "KV缓存配置不支持（使用默认内置缓存）: " + e.getMessage());
@@ -538,8 +538,8 @@ public class LocalLLMOnnxRuntimeGenAIHandler implements LocalLlmHandler.Inferenc
             // 启用KV缓存优化（ONNX Runtime GenAI内置管理）
             generatorParams.setSearchOption("use_cache", true);
             // 从配置管理器获取KV缓存大小
-            int kvCacheSize = ConfigManager.getKvCacheSize(context);
-            generatorParams.setSearchOption("cache_size", (double)kvCacheSize); // 缓存序列长度（使用double类型）
+            int maxNewTokens = ConfigManager.getMaxNewTokens(context);
+            generatorParams.setSearchOption("max_new_tokens", (double)maxNewTokens); // 最大输出token数（使用double类型）
             
             // 内存优化（注意：这些选项可能不被ONNX Runtime GenAI支持）
             try {
@@ -897,8 +897,9 @@ public class LocalLLMOnnxRuntimeGenAIHandler implements LocalLlmHandler.Inferenc
         ));
         
         // KV缓存配置
-        int kvCacheSize = ConfigManager.getKvCacheSize(context);
-        stats.append(String.format("   • KV缓存大小: %d tokens\n", kvCacheSize));
+        int maxNewTokens = ConfigManager.getMaxNewTokens(context);
+        stats.append(String.format("   • 最大输出token数: %d tokens\n", maxNewTokens));
+        stats.append("   • KV缓存大小: 由引擎自动计算\n");
         
         // 线程配置
         if (!useGpuAcceleration) {

@@ -60,7 +60,7 @@ public class SettingsFragment extends Fragment {
     // LLM 推理设置相关UI组件
     private EditText editTextMaxSequenceLength; // 最大序列长度
     private EditText editTextThreads; // 推理线程数
-    private EditText editTextKvCacheSize; // 最大输出token数
+    private EditText editTextMaxNewTokens; // 最大输出token数
     
     // Activity Result Launchers
     private ActivityResultLauncher<Intent> modelPathLauncher;
@@ -148,7 +148,7 @@ public class SettingsFragment extends Fragment {
         // 初始化 LLM 推理设置相关UI组件
         editTextMaxSequenceLength = view.findViewById(R.id.editTextMaxSequenceLength);
         editTextThreads = view.findViewById(R.id.editTextThreads);
-        editTextKvCacheSize = view.findViewById(R.id.editTextKvCacheSize);
+        editTextMaxNewTokens = view.findViewById(R.id.editTextKvCacheSize); // UI控件ID保持不变以兼容现有布局
         // switchNoThinking已移动到RAG问答界面
         seekBarFontSize = view.findViewById(R.id.seekBarFontSize); // 字体大小拖动条
         textViewFontSizeValue = view.findViewById(R.id.textViewFontSizeValue); // 字体大小值显示
@@ -291,7 +291,7 @@ public class SettingsFragment extends Fragment {
             // 加载 LLM 推理设置
             int maxSequenceLength = ConfigManager.getMaxSequenceLength(context);
             int threads = ConfigManager.getThreads(context);
-            int kvCacheSize = ConfigManager.getKvCacheSize(context);
+            int maxNewTokens = ConfigManager.getMaxNewTokens(context);
             boolean noThinking = ConfigManager.getNoThinking(context);
             
             // 设置UI
@@ -311,7 +311,7 @@ public class SettingsFragment extends Fragment {
             // 设置 LLM 推理设置UI
             editTextMaxSequenceLength.setText(String.valueOf(maxSequenceLength));
             editTextThreads.setText(String.valueOf(threads));
-            editTextKvCacheSize.setText(String.valueOf(kvCacheSize));
+            editTextMaxNewTokens.setText(String.valueOf(maxNewTokens));
             // switchNoThinking已移动到RAG问答界面
             
             LogManager.logD(TAG, "设置加载完成");
@@ -390,11 +390,11 @@ public class SettingsFragment extends Fragment {
             // 获取 LLM 推理设置
             String maxSequenceLengthStr = editTextMaxSequenceLength.getText().toString().trim();
             String threadsStr = editTextThreads.getText().toString().trim();
-            String kvCacheSizeStr = editTextKvCacheSize.getText().toString().trim();
+            String maxNewTokensStr = editTextMaxNewTokens.getText().toString().trim();
             // noThinking已移动到RAG问答界面
             
             // 验证 LLM 推理设置
-            if (maxSequenceLengthStr.isEmpty() || threadsStr.isEmpty() || kvCacheSizeStr.isEmpty()) {
+            if (maxSequenceLengthStr.isEmpty() || threadsStr.isEmpty() || maxNewTokensStr.isEmpty()) {
                 Toast.makeText(context, "请填写所有 LLM 推理设置", Toast.LENGTH_SHORT).show();
                 return;
             }
@@ -402,7 +402,7 @@ public class SettingsFragment extends Fragment {
             // 转换为整数
             int maxSequenceLength = Integer.parseInt(maxSequenceLengthStr);
             int threads = Integer.parseInt(threadsStr);
-            int kvCacheSize = Integer.parseInt(kvCacheSizeStr);
+            int maxNewTokens = Integer.parseInt(maxNewTokensStr);
             
             // 验证值范围
             if (maxSequenceLength < 100 || maxSequenceLength > 8192) {
@@ -415,16 +415,16 @@ public class SettingsFragment extends Fragment {
                 return;
             }
             
-            if (kvCacheSize < 512 || kvCacheSize > 4096) {
+            if (maxNewTokens < 512 || maxNewTokens > 4096) {
                 Toast.makeText(context, "最大输出token数应在512-4096之间", Toast.LENGTH_SHORT).show();
                 return;
             }
             
             // 验证最大序列长度与最大输出token数的关系
-            // maxSequenceLength是总的上下文长度，kvCacheSize是最大输出token数
-            // 输入token数 = maxSequenceLength - kvCacheSize，需要预留一定缓冲区
-            if (maxSequenceLength <= kvCacheSize + 256) {
-                Toast.makeText(context, "最大序列长度必须大于最大输出token数加上256 (当前需要大于" + (kvCacheSize + 256) + ")", Toast.LENGTH_LONG).show();
+            // maxSequenceLength是总的上下文长度，maxNewTokens是最大输出token数
+        // 输入token数 = maxSequenceLength - maxNewTokens，需要预留一定缓冲区
+        if (maxSequenceLength <= maxNewTokens + 256) {
+            Toast.makeText(context, "最大序列长度必须大于最大输出token数加上256 (当前需要大于" + (maxNewTokens + 256) + ")", Toast.LENGTH_LONG).show();
                 return;
             }
             
@@ -444,7 +444,7 @@ public class SettingsFragment extends Fragment {
             // 保存 LLM 推理设置
             ConfigManager.setMaxSequenceLength(context, maxSequenceLength);
             ConfigManager.setThreads(context, threads);
-            ConfigManager.setKvCacheSize(context, kvCacheSize);
+            ConfigManager.setMaxNewTokens(context, maxNewTokens);
             // noThinking已移动到RAG问答界面
             
             // 创建JSON格式的设置摘要

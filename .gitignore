@@ -102,3 +102,5 @@ test_onnx.py
 
 # 特别保留 JNI 库文件
 !**/*.so
+/log.ini
+/app/debug

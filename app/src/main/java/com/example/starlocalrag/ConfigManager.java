@@ -67,7 +67,8 @@ public class ConfigManager {
     public static final String KEY_MAX_SEQUENCE_LENGTH = "maxSequenceLength"; // 最大序列长度
     public static final String KEY_NO_THINKING = "no_thinking"; // 是否禁用思考模式
     public static final String KEY_THREADS = "threads"; // ONNX推理线程数
-    public static final String KEY_KV_CACHE_SIZE = "kv_cache_size"; // 最大输出token数
+    public static final String KEY_MAX_NEW_TOKENS = "max_new_tokens"; // 最大输出token数
+    public static final String KEY_KV_CACHE_SIZE = "kv_cache_size"; // 兼容性保留，已废弃，使用max_new_tokens
     public static final String KEY_USE_ONNX_GENAI = "use_onnx_genai"; // 是否使用OnnxRuntimeGenAI引擎
     
     // LlamaCpp 相关配置键
@@ -112,7 +113,8 @@ public class ConfigManager {
     public static final int DEFAULT_MAX_SEQUENCE_LENGTH = 1792;
     public static final boolean DEFAULT_NO_THINKING = false;
     public static final int DEFAULT_THREADS = 4;
-    public static final int DEFAULT_KV_CACHE_SIZE = 2048; // 最大输出token数默认值
+    public static final int DEFAULT_MAX_NEW_TOKENS = 2048; // 最大输出token数默认值
+    public static final int DEFAULT_KV_CACHE_SIZE = 2048; // 兼容性保留，已废弃
     
     // LlamaCpp 相关默认值
     public static final String DEFAULT_LLAMACPP_MODEL_PATH = "files/models/llamacpp";
@@ -960,17 +962,42 @@ public class ConfigManager {
      * @param context 上下文
      * @return 最大输出token数
      */
-    public static int getKvCacheSize(Context context) {
-        return getInt(context, KEY_KV_CACHE_SIZE, DEFAULT_KV_CACHE_SIZE);
+    public static int getMaxNewTokens(Context context) {
+        // 优先使用新的key，如果不存在则使用旧的key进行兼容
+        int newValue = getInt(context, KEY_MAX_NEW_TOKENS, -1);
+        if (newValue != -1) {
+            return newValue;
+        }
+        return getInt(context, KEY_KV_CACHE_SIZE, DEFAULT_MAX_NEW_TOKENS);
     }
 
     /**
      * 设置最大输出token数
      * @param context 上下文
-     * @param kvCacheSize 最大输出token数
+     * @param maxNewTokens 最大输出token数
      */
+    public static void setMaxNewTokens(Context context, int maxNewTokens) {
+        setInt(context, KEY_MAX_NEW_TOKENS, maxNewTokens);
+        // 同时更新旧的key以保持兼容性
+        setInt(context, KEY_KV_CACHE_SIZE, maxNewTokens);
+    }
+
+    /**
+     * 获取最大输出token数（兼容性方法，已废弃）
+     * @deprecated 使用 getMaxNewTokens() 替代
+     */
+    @Deprecated
+    public static int getKvCacheSize(Context context) {
+        return getMaxNewTokens(context);
+    }
+
+    /**
+     * 设置最大输出token数（兼容性方法，已废弃）
+     * @deprecated 使用 setMaxNewTokens() 替代
+     */
+    @Deprecated
     public static void setKvCacheSize(Context context, int kvCacheSize) {
-        setInt(context, KEY_KV_CACHE_SIZE, kvCacheSize);
+        setMaxNewTokens(context, kvCacheSize);
     }
 
     /**
