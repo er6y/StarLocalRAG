@@ -219,11 +219,45 @@ public class LlamaCpp {
     /**
      * 获取模型信息
      * @param model 模型句柄
-     * @return 模型信息字符串
+     * @return 模型信息字符串，包含模型元数据
      */
     public static String getModelInfo(long model) {
-        // 暂时返回空字符串，需要重新设计接口
-        return "";
+        StringBuilder info = new StringBuilder();
+        info.append("模型信息:\n");
+        
+        try {
+            // 获取元数据数量
+            int metaCount = LlamaCppInference.model_meta_count(model);
+            info.append("元数据数量: ").append(metaCount).append("\n");
+            
+            // 获取所有元数据
+            info.append("元数据:\n");
+            for (int i = 0; i < metaCount; i++) {
+                String key = LlamaCppInference.model_meta_key_by_index(model, i);
+                String value = LlamaCppInference.model_meta_val_str_by_index(model, i);
+                if (key != null && value != null) {
+                    info.append("  ").append(key).append(": ").append(value).append("\n");
+                }
+            }
+            
+            // 尝试获取一些常见的元数据
+            String[] commonKeys = {"general.architecture", "general.name", "llama.context_length", 
+                                  "llama.embedding_length", "llama.block_count", "llama.feed_forward_length", 
+                                  "llama.attention.head_count", "llama.attention.head_count_kv", 
+                                  "llama.rope.dimension_count", "tokenizer.ggml.model", "tokenizer.ggml.tokens"};
+            
+            info.append("\n常用参数:\n");
+            for (String key : commonKeys) {
+                String value = LlamaCppInference.model_meta_val_str(model, key);
+                if (value != null) {
+                    info.append("  ").append(key).append(": ").append(value).append("\n");
+                }
+            }
+        } catch (Exception e) {
+            info.append("获取模型元数据失败: ").append(e.getMessage());
+        }
+        
+        return info.toString();
     }
     
     /**

@@ -2079,6 +2079,8 @@ public class RagQaFragment extends Fragment {
     
     // 处理新对话按钮点击
     private void handleNewChatClick() {
+        // 新对话调试日志已移除
+        
         updateProgressOnUiThread("");
         editTextUserPrompt.setText("");
         
@@ -2095,6 +2097,31 @@ public class RagQaFragment extends Fragment {
                 isTaskCancelled = true;
             }
         }
+        
+        // 重置模型记忆 - 清除KV缓存和对话历史
+        try {
+            String selectedApi = spinnerApiUrl.getSelectedItem().toString();
+            // 新对话调试日志已移除
+            
+            if ("local".equals(selectedApi)) {
+                // 新对话调试日志已移除
+                LocalLlmAdapter localAdapter = LocalLlmAdapter.getInstance(getContext());
+                if (localAdapter != null) {
+                    localAdapter.resetModelMemory();
+                } else {
+                    LogManager.logW("RagQaFragment", "LocalLlmAdapter实例为空");
+                }
+            } else {
+                // 对于在线大模型，清除本地对话历史和状态
+                // 新对话调试日志已移除
+                // 在线大模型通常是无状态的，每次请求都是独立的
+                // 这里主要是清除本地的UI状态和缓存
+            }
+        } catch (Exception e) {
+            LogManager.logE("RagQaFragment", "重置模型记忆失败", e);
+        }
+        
+        // 新对话调试日志已移除
     }
     
     // 创建上下文菜单

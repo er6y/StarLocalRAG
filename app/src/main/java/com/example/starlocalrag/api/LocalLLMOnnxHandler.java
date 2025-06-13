@@ -135,7 +135,7 @@ public class LocalLLMOnnxHandler {
         LogManager.logD(TAG, "开始推理，提示词长度: " + prompt.length());
         LogManager.logD(TAG, "推理参数 - maxTokenLength: " + maxTokenLength + ", thinkingMode: " + thinkingMode 
               + ", temperature: " + temperature + ", topK: " + topK);
-        LogManager.logD(TAG, "提示词内容: " + prompt);
+        // Prompt content debugging logging removed
         
         // 创建同步等待机制
         final CountDownLatch latch = new CountDownLatch(1);
@@ -1094,7 +1094,7 @@ public class LocalLLMOnnxHandler {
                     for (int i = 0; i < maxTokenLength; i++) {
                         // 检查是否应该停止推理
                         if (handler != null && handler.shouldStopInference()) {
-                            LogManager.logI(TAG, "[停止调试] ✓ 推理在第" + i + "步被停止");
+                            // 停止调试日志已移除
                             LogManager.logD(TAG, "[停止调试] 停止检查通过，准备退出推理循环");
                             callback.onError("推理被用户停止");
                             return;
@@ -1111,7 +1111,7 @@ public class LocalLLMOnnxHandler {
                         
                         // 执行推理前再次检查停止状态
                         if (handler != null && handler.shouldStopInference()) {
-                            LogManager.logI(TAG, "[停止调试] ✓ 推理在执行前被停止");
+                            // 停止调试日志已移除
                             callback.onError("推理被用户停止");
                             return;
                         }
@@ -1224,7 +1224,7 @@ public class LocalLLMOnnxHandler {
                                 
                                 // 在回调后检查停止状态
                                 if (handler != null && handler.shouldStopInference()) {
-                                    LogManager.logI(TAG, "[停止调试] ✓ 推理在token回调后被停止");
+                                    // 停止调试日志已移除
                                     callback.onError("推理被用户停止");
                                     return;
                                 }

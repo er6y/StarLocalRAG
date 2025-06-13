@@ -94,14 +94,14 @@ public class LocalLlmAdapter {
         
         // 注意：标题行应该由调用者添加，这里不再重复添加
         // 避免多次显示“模型回答”标题
-        LogManager.logD(TAG, "不再发送模型回答标题，由调用者负责");
+        //LogManager.logD(TAG, "不再发送模型回答标题，由调用者负责");
         
-        LogManager.logI(TAG, "[调试追踪] LocalLlmAdapter即将调用localLlmHandler.inference");
+        // 调试追踪日志已移除
         localLlmHandler.inference(prompt, new LocalLlmHandler.StreamingCallback() {
             @Override
             public void onToken(String token) {
                 // 打印详细日志，包括收到的token内容
-                LogManager.logD(TAG, "本地LLM适配器收到流式token[长度" + token.length() + "]: " + 
+                LogManager.logD(TAG, "token[长度" + token.length() + "]: " + 
                       (token.length() > 20 ? token.substring(0, 20) + "..." : token));
                 
                 // 将token发送给UI
@@ -114,7 +114,7 @@ public class LocalLlmAdapter {
             @Override
             public void onComplete(String fullResponse) {
                 LogManager.logD(TAG, "本地LLM推理完成，完整响应长度: " + fullResponse.length());
-                LogManager.logI(TAG, "[调试追踪] LocalLlmAdapter收到onComplete回调，响应内容: " + (fullResponse.length() > 50 ? fullResponse.substring(0, 50) + "..." : fullResponse));
+                // 调试追踪日志已移除
                 callback.onSuccess(fullResponse);
             }
             
@@ -185,13 +185,13 @@ public class LocalLlmAdapter {
      */
     public void stopGeneration() {
         // 停止生成逻辑
-        LogManager.logI(TAG, "[停止调试] 收到停止本地LLM生成请求");
+        // 停止调试日志已移除
         LogManager.logD(TAG, "[停止调试] localLlmHandler状态: " + (localLlmHandler != null ? "已初始化" : "未初始化"));
         
         if (localLlmHandler != null) {
             LogManager.logD(TAG, "[停止调试] 准备调用localLlmHandler.stopInference()");
             localLlmHandler.stopInference();
-            LogManager.logI(TAG, "[停止调试] 已调用localLlmHandler.stopInference()");
+            // 停止调试日志已移除
         } else {
             LogManager.logW(TAG, "[停止调试] localLlmHandler为null，无法停止推理");
         }
@@ -205,6 +205,20 @@ public class LocalLlmAdapter {
         if (localLlmHandler != null) {
             localLlmHandler.resetStopFlag();
         }
+    }
+    
+    /**
+     * 重置模型记忆 - 清除KV缓存和对话历史
+     */
+    public void resetModelMemory() {
+        // 新对话调试日志已移除
+        if (localLlmHandler != null) {
+            // 新对话调试日志已移除
+            localLlmHandler.resetModelMemory();
+        } else {
+            LogManager.logW(TAG, "[新对话调试] localLlmHandler为空，无法重置模型记忆");
+        }
+        // 新对话调试日志已移除
     }
     
     /**

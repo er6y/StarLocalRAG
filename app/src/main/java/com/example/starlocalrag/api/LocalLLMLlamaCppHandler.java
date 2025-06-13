@@ -1,10 +1,12 @@
 package com.example.starlocalrag.api;
 
+import android.app.ActivityManager;
 import android.content.Context;
 import android.util.Log;
 
 import com.example.starlocalrag.ConfigManager;
 import com.example.starlocalrag.LogManager;
+import com.example.starlocalrag.SettingsFragment;
 import com.starlocalrag.llamacpp.LlamaCppInference;
 import com.starlocalrag.llamacpp.LlamaCppEmbedding;
 import com.starlocalrag.llamacpp.NativeLibraryLoader;
@@ -37,6 +39,14 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
     // 上下文
     private final Context context;
     
+    /**
+     * 获取上下文
+     * @return 上下文对象
+     */
+    private Context getContext() {
+        return context;
+    }
+    
     // LlamaCpp推理引擎句柄
     private long modelHandle = 0;
     private long contextHandle = 0;
@@ -48,18 +58,45 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
     private final AtomicBoolean isGenerating = new AtomicBoolean(false);
     private final AtomicBoolean shouldStop = new AtomicBoolean(false);
     
+    // 内存池管理 - 预分配策略
+    private long preallocatedBatch = 0;
+    private long preallocatedSampler = 0;
+    private final AtomicBoolean batchInUse = new AtomicBoolean(false);
+    private final AtomicBoolean samplerInUse = new AtomicBoolean(false);
+    private int preallocatedBatchSize; // 预分配的batch大小，从配置获取
+    
+    // 生命周期管理
+    private final AtomicBoolean shouldKeepModelLoaded = new AtomicBoolean(true);
+    private long lastUsedTime = System.currentTimeMillis();
+    
     // 统计信息
     private final AtomicInteger totalTokensGenerated = new AtomicInteger(0);
+    private final AtomicInteger currentSessionTokens = new AtomicInteger(0);
     private long generationStartTime = 0;
+    private long inferenceStartTime = 0;
+    
+    // 内存监控
+    private long memoryBeforeInference = 0;
+    private long memoryMaxDuringInference = 0;
+    private final Runtime runtime = Runtime.getRuntime();
+    private ActivityManager activityManager;
+    private ActivityManager.MemoryInfo memoryInfo;
     
     // 模型配置
     private LocalLlmHandler.ModelConfig modelConfig;
     private String currentModelPath;
     private int maxTokens = 512; // 配置参数 - 从ConfigManager获取
     
+    // 模型参数缓存
+    private LocalLlmHandler.InferenceParams modelParams = null;
+    
     public LocalLLMLlamaCppHandler(Context context) {
         this.context = context;
         this.executorService = Executors.newSingleThreadExecutor();
+        
+        // 初始化内存监控
+        this.activityManager = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
+        this.memoryInfo = new ActivityManager.MemoryInfo();
         
         // 加载本地库
         try {
@@ -95,6 +132,8 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
         
         isInitialized.set(true);
         LogManager.logI(TAG, "LlamaCpp推理引擎初始化成功");
+        
+        // 模型参数已在initializeLlamaCpp中提取，无需重复调用
     }
     
     /**
@@ -149,10 +188,212 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
             throw new RuntimeException("上下文创建失败");
         }
         
+        // 4. 预分配batch和sampler - 内存池管理
+        preallocateResources();
+        
+        // 5. 模型加载完成后立即提取并打印模型参数
+        extractAndPrintModelParams();
+        
         LogManager.logI(TAG, "✓ LlamaCpp引擎初始化完成");
         LogManager.logI(TAG, "模型句柄: " + modelHandle + ", 上下文句柄: " + contextHandle);
         LogManager.logI(TAG, String.format("配置参数 - 最大序列长度: %d, 线程数: %d, 最大输出token数: %d, GPU加速: %s", 
             configMaxSeqLength, actualThreads, configMaxNewTokens, configUseGpu ? "启用" : "禁用"));
+        LogManager.logI(TAG, "预分配资源完成 - batch: " + preallocatedBatch + ", sampler: " + preallocatedSampler);
+    }
+    
+    /**
+     * 预分配资源 - 内存池管理策略
+     */
+    private void preallocateResources() {
+        try {
+            // 使用maxSequenceLength作为批处理大小，统一配置
+            preallocatedBatchSize = ConfigManager.getMaxSequenceLength(getContext());
+            LogManager.logI(TAG, "使用maxSequenceLength作为批处理大小: " + preallocatedBatchSize);
+            
+            // 预分配batch - 使用配置的最大batch大小
+            preallocatedBatch = LlamaCppInference.new_batch(preallocatedBatchSize, 0, 1);
+            if (preallocatedBatch == 0) {
+                LogManager.logW(TAG, "预分配batch失败，将使用动态分配");
+            } else {
+                LogManager.logI(TAG, "预分配batch成功: " + preallocatedBatch + ", 大小: " + preallocatedBatchSize);
+            }
+            
+            // 预分配sampler - 使用默认参数
+            preallocatedSampler = LlamaCppInference.new_sampler();
+            if (preallocatedSampler == 0) {
+                LogManager.logW(TAG, "预分配sampler失败，将使用动态分配");
+            } else {
+                LogManager.logI(TAG, "预分配sampler成功: " + preallocatedSampler);
+            }
+        } catch (Exception e) {
+            LogManager.logE(TAG, "预分配资源失败", e);
+        }
+    }
+    
+    /**
+     * 获取batch资源 - 内存池管理
+     */
+    private long acquireBatch(int requiredSize) {
+        // 如果预分配的batch可用且大小足够，则复用
+        if (preallocatedBatch != 0 && requiredSize <= preallocatedBatchSize && 
+            batchInUse.compareAndSet(false, true)) {
+            LogManager.logD(TAG, "复用预分配batch: " + preallocatedBatch);
+            return preallocatedBatch;
+        }
+        
+        // 否则动态分配
+        long batch = LlamaCppInference.new_batch(requiredSize, 0, 1);
+        LogManager.logD(TAG, "动态分配batch: " + batch + ", 大小: " + requiredSize);
+        return batch;
+    }
+    
+    /**
+     * 释放batch资源 - 内存池管理
+     */
+    private void releaseBatch(long batch) {
+        if (batch == preallocatedBatch) {
+            // 预分配的batch，标记为可用
+            batchInUse.set(false);
+            LogManager.logD(TAG, "释放预分配batch回池: " + batch);
+        } else {
+            // 动态分配的batch，直接释放
+            LlamaCppInference.free_batch(batch);
+            LogManager.logD(TAG, "释放动态batch: " + batch);
+        }
+    }
+    
+    /**
+     * 模型加载完成后从模型目录文件中提取推理参数
+     */
+    private void extractAndPrintModelParams() {
+        LogManager.logI(TAG, "========== 模型参数提取开始 ==========");
+        
+        // 从模型目录文件中提取参数
+        modelParams = extractParamsFromModelDirectory();
+        
+        if (modelParams != null) {
+            LogManager.logI(TAG, "✓ 成功从模型目录文件提取推理参数:");
+            LogManager.logI(TAG, String.format("  • Temperature: %.2f", modelParams.getTemperature()));
+            LogManager.logI(TAG, String.format("  • Top-P: %.2f", modelParams.getTopP()));
+            LogManager.logI(TAG, String.format("  • Top-K: %d", modelParams.getTopK()));
+            LogManager.logI(TAG, String.format("  • Repeat Penalty: %.2f", modelParams.getRepetitionPenalty()));
+        } else {
+            LogManager.logI(TAG, "✗ 模型目录中未找到推理参数文件，将使用备份配置或默认值");
+        }
+        
+        LogManager.logI(TAG, "========== 模型参数提取完成 ==========");
+    }
+    
+    /**
+     * 从模型目录文件中提取推理参数
+     * @return 从模型目录文件中提取的推理参数，如果提取失败则返回null
+     */
+    private LocalLlmHandler.InferenceParams extractParamsFromModelDirectory() {
+        try {
+            if (currentModelPath == null || currentModelPath.isEmpty()) {
+                LogManager.logW(TAG, "当前模型路径为空，无法提取参数");
+                return null;
+            }
+            
+            LogManager.logI(TAG, "开始从模型目录提取推理参数，模型路径: " + currentModelPath);
+            
+            // 确定模型目录
+            File modelFile = new File(currentModelPath);
+            File modelDir;
+            
+            if (modelFile.isFile()) {
+                // 如果是文件，获取其父目录
+                modelDir = modelFile.getParentFile();
+            } else {
+                // 如果是目录，直接使用
+                modelDir = modelFile;
+            }
+            
+            if (modelDir == null || !modelDir.exists() || !modelDir.isDirectory()) {
+                LogManager.logW(TAG, "模型目录不存在或无效: " + (modelDir != null ? modelDir.getAbsolutePath() : "null"));
+                return null;
+            }
+            
+            LogManager.logI(TAG, "模型目录: " + modelDir.getAbsolutePath());
+            
+            // 使用ModelParamsReader读取参数
+            LocalLlmHandler.InferenceParams params = ModelParamsReader.readInferenceParams(modelDir.getAbsolutePath());
+            
+            if (params != null) {
+                LogManager.logI(TAG, "✓ 成功从模型目录文件提取推理参数");
+                return params;
+            } else {
+                LogManager.logI(TAG, "✗ 模型目录中未找到有效的推理参数文件");
+                return null;
+            }
+        } catch (Exception e) {
+            LogManager.logE(TAG, "从模型目录提取参数失败", e);
+            return null;
+        }
+    }
+    
+    /**
+     * 已废弃：从模型元数据中提取推理参数的方法
+     * 根据用户要求，推理参数不应该存储在模型文件中，因此移除此功能
+     */
+    @Deprecated
+    private LocalLlmHandler.InferenceParams extractParamsFromModelMetadata_DEPRECATED(long modelHandle) {
+        // 此方法已废弃，推理参数应该从模型目录的配置文件中读取，而不是从模型元数据中读取
+        LogManager.logW(TAG, "extractParamsFromModelMetadata方法已废弃，请使用extractParamsFromModelDirectory");
+        return null;
+    }
+    
+    /**
+     * 获取sampler资源 - 内存池管理
+     */
+    private long acquireSampler(LocalLlmHandler.InferenceParams params) {
+        LocalLlmHandler.InferenceParams finalParams = null;
+        
+        // 参数优先级：模型目录参数 > 备份配置参数
+        if (modelParams != null) {
+            // 使用模型目录参数（最高优先级）
+            finalParams = modelParams;
+            LogManager.logI(TAG, "使用模型目录的推理参数（最高优先级）");
+        } else {
+            // 使用备份配置参数（第二优先级）
+            finalParams = getBackupInferenceParams();
+            LogManager.logI(TAG, "使用备份配置的推理参数（第二优先级）");
+        }
+        
+        // 如果预分配的sampler可用且使用默认参数，则复用
+        if (preallocatedSampler != 0 && finalParams == null && 
+            samplerInUse.compareAndSet(false, true)) {
+            LogManager.logD(TAG, "复用预分配sampler: " + preallocatedSampler);
+            return preallocatedSampler;
+        }
+        
+        // 否则动态分配
+        long sampler = finalParams != null ? 
+            LlamaCppInference.new_sampler_with_full_params(
+                finalParams.getTemperature(),
+                finalParams.getTopP(),
+                finalParams.getTopK(),
+                finalParams.getRepetitionPenalty()
+            ) : LlamaCppInference.new_sampler();
+        LogManager.logD(TAG, "动态分配sampler: " + sampler + 
+            (finalParams != null ? String.format(" (temp=%.2f, top_p=%.2f, top_k=%d, repeat_penalty=%.2f)", 
+                finalParams.getTemperature(), finalParams.getTopP(), finalParams.getTopK(), finalParams.getRepetitionPenalty()) : " (默认参数)"));
+        return sampler;
+    }
+    
+    /**
+     * 释放sampler资源 - 内存池管理
+     */
+    private void releaseSampler(long sampler) {
+        if (sampler == preallocatedSampler) {
+            // 预分配的sampler，标记为可用
+            samplerInUse.set(false);
+            LogManager.logD(TAG, "释放预分配sampler回池: " + sampler);
+        } else {
+            // 动态分配的sampler，直接释放
+            LlamaCppInference.free_sampler(sampler);
+            LogManager.logD(TAG, "释放动态sampler: " + sampler);
+        }
     }
     
     /**
@@ -207,9 +448,27 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
         executorService.submit(() -> {
             try {
                 isGenerating.set(true);
+                
+                // 推理开始时必须重置停止标志
+                // 停止调试日志已移除
                 shouldStop.set(false);
+                
+                // 同时重置JNI层的停止标志
+                try {
+                    LlamaCppInference.set_should_stop(false);
+                    // 停止调试日志已移除
+                } catch (Exception e) {
+                    LogManager.logE(TAG, "重置JNI停止标志失败: " + e.getMessage(), e);
+                }
                 generationStartTime = System.currentTimeMillis();
+                inferenceStartTime = System.currentTimeMillis();
                 totalTokensGenerated.set(0);
+                
+                // 重置当前会话统计
+                currentSessionTokens.set(0);
+                
+                // 开始内存监控
+                startMemoryMonitoring();
                 
                 LogManager.logI(TAG, "开始LlamaCpp流式生成文本");
                 
@@ -243,32 +502,36 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
             
             LogManager.logI(TAG, String.format("推理参数 - MaxTokens: %d", maxTokens));
             
+            // 应用chat template和thinking模式处理
+            boolean thinkingMode = params != null ? params.isThinkingMode() : true;
+            String processedPrompt = applyLlamaCppTemplate(prompt, thinkingMode);
+            LogManager.logD(TAG, String.format("应用模板后的prompt长度: %d, thinking模式: %s", 
+                processedPrompt.length(), thinkingMode));
+            
             // 动态创建批处理大小，支持超长prompt
             // 首先估算prompt的token数量（粗略估算：字符数/4）
-            int estimatedTokens = Math.max(512, prompt.length() / 4 + 100);
-            // 限制最大batch大小避免内存问题
-            int batchSize = Math.min(estimatedTokens, 2048);
+            int estimatedTokens = Math.max(512, processedPrompt.length() / 4 + 100);
+            // 限制最大batch大小避免内存问题，使用maxSequenceLength
+            int maxBatchSize = ConfigManager.getMaxSequenceLength(getContext());
+            int batchSize = Math.min(estimatedTokens, maxBatchSize);
             
             LogManager.logI(TAG, String.format("动态batch大小 - 估算tokens: %d, 使用batch大小: %d", estimatedTokens, batchSize));
             
-            long batch = LlamaCppInference.new_batch(batchSize, 0, 1);
-            long sampler = params != null ? 
-                LlamaCppInference.new_sampler_with_params(
-                    params.getTemperature(),
-                    params.getTopP(),
-                    params.getTopK()
-                ) : LlamaCppInference.new_sampler();
+            // 使用内存池管理获取资源
+            long batch = acquireBatch(batchSize);
+            long sampler = acquireSampler(params);
+            
+            // 更新最后使用时间
+            lastUsedTime = System.currentTimeMillis();
             
             try {
                 // 清空KV缓存
                 LlamaCppInference.kv_cache_clear(contextHandle);
                 
-                LogManager.logI(TAG, String.format("[调试] 调用completion_init - contextHandle=%d, batch=%d, prompt长度=%d, maxTokens=%d, batchSize=%d", 
-                    contextHandle, batch, prompt.length(), maxTokens, 512));
-                LogManager.logI(TAG, String.format("[调试] 提示词内容: '%s'", prompt));
+                // 调试日志已移除
                 
                 // 初始化完成
-                int tokenCount = LlamaCppInference.completion_init(contextHandle, batch, prompt, maxTokens, false);
+                int tokenCount = LlamaCppInference.completion_init(contextHandle, batch, processedPrompt, maxTokens, false);
                 if (tokenCount < 0) {
                     LogManager.logE(TAG, "初始化完成失败");
                     return;
@@ -278,21 +541,52 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
                 LlamaCppInference.IntVar currentPos = new LlamaCppInference.IntVar(tokenCount);
                 
                 for (int i = 0; i < maxTokens && !shouldStop.get(); i++) {
+                    // Stop debugging loop logging removed
+                    
+                    if (shouldStop.get()) {
+                        // 停止调试日志已移除
+                        break;
+                    }
+                    
+                    // 在JNI调用前再次确保JNI层的停止标志已设置
+                    if (shouldStop.get()) {
+                        try {
+                            LlamaCppInference.set_should_stop(true);
+                            // 停止调试日志已移除
+                        } catch (Exception e) {
+                            LogManager.logE(TAG, "设置JNI停止标志失败: " + e.getMessage(), e);
+                        }
+                        break;
+                    }
+                    
+                    // 注意：这个JNI调用可能会阻塞，无法被中断
                     String token = LlamaCppInference.completion_loop(contextHandle, batch, sampler, maxTokens, currentPos);
+                    
+                    // JNI调用返回后再次检查停止标志
+                    if (shouldStop.get()) {
+                        // 停止调试日志已移除
+                        break;
+                    }
+                    
                     if (token == null || token.isEmpty()) {
                         break;
                     }
                     
                     fullResponse.append(token);
                     totalTokensGenerated.incrementAndGet();
+                    currentSessionTokens.incrementAndGet();
+                    
+                    // 更新内存监控
+                    updateMemoryMonitoring();
+                    
                     if (callback != null) {
                         callback.onToken(token);
                     }
                 }
             } finally {
-                // 清理资源
-                LlamaCppInference.free_batch(batch);
-                LlamaCppInference.free_sampler(sampler);
+                // 使用内存池管理释放资源
+                releaseBatch(batch);
+                releaseSampler(sampler);
             }
             
             if (!shouldStop.get() && callback != null) {
@@ -306,7 +600,14 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
                     "生成完成 - 总tokens: %d, 耗时: %dms, 速率: %.2f tokens/s",
                     tokens, duration, tokensPerSecond));
                 
-                callback.onComplete(fullResponse.toString());
+                // 生成性能统计报告并追加到响应中
+                String performanceStats = getPerformanceStats();
+                String finalResponse = fullResponse.toString() + performanceStats;
+                
+                // 单独发送统计信息token，确保UI能够正确显示
+                callback.onToken(performanceStats);
+                
+                callback.onComplete(finalResponse);
             }
             
         } catch (Exception e) {
@@ -328,26 +629,24 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
             // 动态创建批处理大小，支持超长prompt
             // 首先估算prompt的token数量（粗略估算：字符数/4）
             int estimatedTokens = Math.max(512, prompt.length() / 4 + 100);
-            // 限制最大batch大小避免内存问题
-            int batchSize = Math.min(estimatedTokens, 2048);
+            // 限制最大batch大小避免内存问题，使用maxSequenceLength
+            int maxBatchSize = ConfigManager.getMaxSequenceLength(getContext());
+            int batchSize = Math.min(estimatedTokens, maxBatchSize);
             
             LogManager.logI(TAG, String.format("动态batch大小 - 估算tokens: %d, 使用batch大小: %d", estimatedTokens, batchSize));
             
-            long batch = LlamaCppInference.new_batch(batchSize, 0, 1);
-            long sampler = params != null ? 
-                LlamaCppInference.new_sampler_with_params(
-                    params.getTemperature(),
-                    params.getTopP(),
-                    params.getTopK()
-                ) : LlamaCppInference.new_sampler();
+            // 使用内存池管理获取资源
+            long batch = acquireBatch(batchSize);
+            long sampler = acquireSampler(params);
+            
+            // 更新最后使用时间
+            lastUsedTime = System.currentTimeMillis();
             
             try {
                 // 清空KV缓存
                 LlamaCppInference.kv_cache_clear(contextHandle);
                 
-                LogManager.logI(TAG, String.format("[调试] 调用completion_init - contextHandle=%d, batch=%d, prompt长度=%d, maxTokens=%d", 
-                    contextHandle, batch, prompt.length(), maxTokens));
-                LogManager.logI(TAG, String.format("[调试] 提示词内容: '%s'", prompt));
+                // 调试日志已移除
                 
                 // 初始化完成
                 int tokenCount = LlamaCppInference.completion_init(contextHandle, batch, prompt, maxTokens, false);
@@ -363,13 +662,32 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
                 LlamaCppInference.IntVar currentPos = new LlamaCppInference.IntVar(tokenCount);
                 
                 for (int i = 0; i < maxTokens && !shouldStop.get(); i++) {
+                    // Traditional streaming loop debugging logging removed
+                    
+                    if (shouldStop.get()) {
+                        // 停止调试日志已移除
+                        break;
+                    }
+                    
+                    // 注意：这个JNI调用可能会阻塞，无法被中断
                     String token = LlamaCppInference.completion_loop(contextHandle, batch, sampler, maxTokens, currentPos);
+                    
+                    // JNI调用返回后再次检查停止标志
+                    if (shouldStop.get()) {
+                        // 停止调试日志已移除
+                        break;
+                    }
+                    
                     if (token == null || token.isEmpty()) {
                         break;
                     }
                     
                     fullResponse.append(token);
                     totalTokensGenerated.incrementAndGet();
+                    currentSessionTokens.incrementAndGet();
+                    
+                    // 更新内存监控
+                    updateMemoryMonitoring();
                     
                     if (callback != null) {
                         callback.onToken(token);
@@ -388,12 +706,19 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
                         "传统API生成完成 - 总tokens: %d, 耗时: %dms, 速率: %.2f tokens/s",
                         tokens, duration, tokensPerSecond));
                     
-                    callback.onComplete(fullResponse.toString());
+                    // 生成性能统计报告并追加到响应中
+                    String performanceStats = getPerformanceStats();
+                    String finalResponse = fullResponse.toString() + performanceStats;
+                    
+                    // 单独发送统计信息token，确保UI能够正确显示
+                    callback.onToken(performanceStats);
+                    
+                    callback.onComplete(finalResponse);
                 }
             } finally {
-                // 清理资源
-                LlamaCppInference.free_batch(batch);
-                LlamaCppInference.free_sampler(sampler);
+                // 使用内存池管理释放资源
+                releaseBatch(batch);
+                releaseSampler(sampler);
             }
             
         } catch (Exception e) {
@@ -402,6 +727,48 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
                 callback.onError("传统API推理失败: " + e.getMessage());
             }
         }
+    }
+    
+    /**
+     * 应用LlamaCpp的thinking模式处理
+     * LlamaCpp内部使用C++分词器处理chat template，这里只处理thinking模式指令
+     * @param prompt 原始提示词
+     * @param thinkingMode 是否启用思考模式
+     * @return 处理后的提示词
+     */
+    private String applyLlamaCppTemplate(String prompt, boolean thinkingMode) {
+        try {
+            LogManager.logD(TAG, "处理LlamaCpp thinking模式，思考模式: " + thinkingMode);
+            
+            // LlamaCpp内部会处理chat template，这里只需要处理thinking模式指令
+            String result = addThinkingInstruction(prompt, thinkingMode);
+            
+            LogManager.logD(TAG, "thinking模式处理完成，处理后长度: " + result.length());
+            return result;
+            
+        } catch (Exception e) {
+            LogManager.logE(TAG, "处理thinking模式失败: " + e.getMessage(), e);
+            // 回退到原始prompt
+            return prompt;
+        }
+    }
+    
+    /**
+     * 添加thinking模式指令
+     * 根据ConfigManager的no_thinking逻辑控制/think或/no_think指令
+     * @param text 文本
+     * @param thinkingMode 是否启用思考模式
+     * @return 处理后的文本
+     */
+    private String addThinkingInstruction(String text, boolean thinkingMode) {
+        if (thinkingMode && !text.contains("/think")) {
+            // 启用思考模式时添加/think指令
+            return text + "\n/think";
+        } else if (!thinkingMode && !text.contains("/no_think")) {
+            // 禁用思考模式时添加/no_think指令
+            return text + "\n/no_think";
+        }
+        return text;
     }
     
     /**
@@ -415,9 +782,9 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
                 // LlamaCppInference.setRepeatPenalty(params.getRepetitionPenalty());
                 
                 LogManager.logD(TAG, String.format(
-                    "更新推理参数 - temp: %.2f, top_p: %.2f, top_k: %d, repeat_penalty: %.2f",
+                    "更新推理参数 - temp: %.2f, top_p: %.2f, top_k: %d, repeat_penalty: %.2f, thinking: %s",
                     params.getTemperature(), params.getTopP(), params.getTopK(), 
-                    params.getRepetitionPenalty()));
+                    params.getRepetitionPenalty(), params.isThinkingMode()));
             } catch (Exception e) {
                 LogManager.logW(TAG, "更新推理参数失败", e);
             }
@@ -450,8 +817,9 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
                 // 动态创建批处理大小，支持超长prompt
                 // 首先估算prompt的token数量（粗略估算：字符数/4）
                 int estimatedTokens = Math.max(512, prompt.length() / 4 + 100);
-                // 限制最大batch大小避免内存问题
-                int batchSize = Math.min(estimatedTokens, 2048);
+                // 限制最大batch大小避免内存问题，使用maxSequenceLength
+                int maxBatchSize = ConfigManager.getMaxSequenceLength(getContext());
+                int batchSize = Math.min(estimatedTokens, maxBatchSize);
                 
                 LogManager.logI(TAG, String.format("动态batch大小 - 估算tokens: %d, 使用batch大小: %d", estimatedTokens, batchSize));
                 
@@ -469,9 +837,7 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
                     // 清空KV缓存
                 LlamaCppInference.kv_cache_clear(contextHandle);
                 
-                LogManager.logI(TAG, String.format("[调试] generateTextAsync调用completion_init - contextHandle=%d, batch=%d, prompt长度=%d, maxTokens=%d", 
-                    contextHandle, batch, prompt.length(), maxTokens));
-                LogManager.logI(TAG, String.format("[调试] 提示词内容: '%s'", prompt));
+                // 调试日志已移除
                 
                 // 初始化完成
                 int tokenCount = LlamaCppInference.completion_init(contextHandle, batch, prompt, maxTokens, false);
@@ -516,15 +882,54 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
     
     @Override
     public void stopInference() {
-        if (isGenerating.get()) {
-            LogManager.logI(TAG, "停止LlamaCpp文本生成");
-            shouldStop.set(true);
+        // 方法调试日志已移除
+        LogManager.logD(TAG, "[停止调试] 停止标志当前状态: " + shouldStop.get());
+        shouldStop.set(true);
+        
+        // 方法调试日志已移除
+        // 同时设置JNI层的停止标志
+        try {
+            // JNI调试日志已移除
             
-            // 使用shouldStop标志来停止生成
-            // 不需要调用特定的停止方法，生成循环会检查shouldStop标志
+            // 先检查JNI方法是否可用
+            // JNI调试日志已移除
+            boolean currentJniState = LlamaCppInference.get_should_stop();
+            // JNI调试日志已移除
             
-            isGenerating.set(false);
+            // 调用JNI方法设置停止标志
+            // JNI调试日志已移除
+            LlamaCppInference.set_should_stop(true);
+            // JNI调试日志已移除
+            
+            // 验证设置是否生效
+            // JNI调试日志已移除
+            boolean newJniState = LlamaCppInference.get_should_stop();
+            // JNI调试日志已移除
+            
+            if (newJniState) {
+                // JNI调试日志已移除
+            } else {
+                LogManager.logE(TAG, "[JNI调试] ✗ JNI层停止标志设置失败 - 状态未改变");
+            }
+            
+            // 方法调试日志已移除
+            
+        } catch (UnsatisfiedLinkError e) {
+            LogManager.logE(TAG, "[JNI调试] JNI方法链接错误: " + e.getMessage(), e);
+            LogManager.logE(TAG, "[方法调试] 捕获到UnsatisfiedLinkError异常");
+        } catch (NoSuchMethodError e) {
+            LogManager.logE(TAG, "[JNI调试] JNI方法不存在: " + e.getMessage(), e);
+            LogManager.logE(TAG, "[方法调试] 捕获到NoSuchMethodError异常");
+        } catch (Exception e) {
+            LogManager.logE(TAG, "[JNI调试] 设置JNI停止标志失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "[方法调试] 捕获到Exception异常: " + e.getClass().getSimpleName());
         }
+        
+        // 方法调试日志已移除
+        
+        // 注意：不要在这里设置isGenerating为false
+        // 让推理循环检查shouldStop标志后自然结束，然后在finally块中设置isGenerating为false
+        // 方法调试日志已移除
     }
     
     /**
@@ -701,6 +1106,158 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
     }
     
     /**
+     * 开始内存监控
+     */
+    private void startMemoryMonitoring() {
+        Runtime runtime = Runtime.getRuntime();
+        // 记录推理开始前的内存状态
+        memoryBeforeInference = runtime.totalMemory() - runtime.freeMemory();
+        memoryMaxDuringInference = memoryBeforeInference;
+        
+        LogManager.logD(TAG, String.format("内存监控开始 - 应用内存: %d MB", 
+            memoryBeforeInference / (1024 * 1024)));
+    }
+    
+    /**
+     * 更新内存监控数据
+     */
+    private void updateMemoryMonitoring() {
+        Runtime runtime = Runtime.getRuntime();
+        long currentMemory = runtime.totalMemory() - runtime.freeMemory();
+        
+        if (currentMemory > memoryMaxDuringInference) {
+            memoryMaxDuringInference = currentMemory;
+        }
+    }
+    
+    /**
+     * 获取内存统计信息
+     */
+    private String getMemoryStats() {
+        long memoryIncrease = memoryMaxDuringInference - memoryBeforeInference;
+        
+        // 获取系统内存信息
+        activityManager.getMemoryInfo(memoryInfo);
+        long availableMemory = memoryInfo.availMem / (1024 * 1024); // MB
+        long totalMemory = memoryInfo.totalMem / (1024 * 1024); // MB
+        
+        return String.format("\n内存统计:\n" +
+            "- 应用推理前: %d MB\n" +
+            "- 应用最大占用: %d MB\n" +
+            "- 应用推理增量: %d MB\n" +
+            "- 系统可用内存: %d MB\n" +
+            "- 系统总内存: %d MB",
+            memoryBeforeInference / (1024 * 1024),
+            memoryMaxDuringInference / (1024 * 1024),
+            memoryIncrease / (1024 * 1024),
+            availableMemory,
+            totalMemory);
+    }
+    
+    /**
+     * 计算token生成速率
+     */
+    private double calculateTokenRate() {
+        long elapsedTime = inferenceStartTime > 0 ? System.currentTimeMillis() - inferenceStartTime : 0;
+        int tokens = currentSessionTokens.get();
+        return tokens > 0 && elapsedTime > 0 ? (tokens * 1000.0) / elapsedTime : 0.0;
+    }
+    
+    /**
+     * 估算文本的token数量（简单估算）
+     */
+    private int estimateTokenCount(String text) {
+        if (text == null || text.isEmpty()) {
+            return 0;
+        }
+        // 简单估算：平均每个token约4个字符（包括中英文）
+        return Math.max(1, text.length() / 4);
+    }
+    
+    /**
+     * 生成完整的性能统计报告
+     */
+    public String getPerformanceStats() {
+        double tokenRate = calculateTokenRate();
+        long elapsedTime = inferenceStartTime > 0 ? System.currentTimeMillis() - inferenceStartTime : 0;
+        
+        // 获取JVM内存信息
+        long jvmMaxMemory = runtime.maxMemory(); // JVM最大可用内存
+        long jvmTotalMemory = runtime.totalMemory(); // JVM当前总内存
+        long jvmUsedMemory = jvmTotalMemory - runtime.freeMemory(); // JVM当前使用内存
+        
+        // 获取真实的模型大小（通过llama.cpp API）
+        long modelSizeBytes = 0;
+        if (modelHandle != 0) {
+            try {
+                modelSizeBytes = LlamaCppInference.model_size(modelHandle);
+                LogManager.logD(TAG, "通过llama_model_size获取模型大小: " + (modelSizeBytes / 1024 / 1024) + "MB");
+            } catch (Exception e) {
+                LogManager.logW(TAG, "获取模型大小失败，使用内存增量估算", e);
+            }
+        }
+        
+        // 计算LLM内存使用：优先使用真实模型大小，否则使用内存增量估算
+        long llmMemoryUsage;
+        if (modelSizeBytes > 0) {
+            // 使用真实模型大小 + 上下文内存估算
+            long contextMemoryEstimate = 0;
+            if (contextHandle != 0) {
+                // 估算上下文内存：contextSize * 2 * sizeof(float) * layers（简化估算）
+                int contextSize = ConfigManager.getLlamaCppContextSize(context);
+                contextMemoryEstimate = contextSize * 2 * 4 * 32; // 假设32层，每个token 2个float（key+value）
+            }
+            llmMemoryUsage = modelSizeBytes + contextMemoryEstimate;
+            LogManager.logD(TAG, "LLM内存使用（模型+上下文）: " + (llmMemoryUsage / 1024 / 1024) + "MB");
+        } else {
+            // 回退到内存增量估算
+            llmMemoryUsage = memoryMaxDuringInference - memoryBeforeInference;
+            LogManager.logD(TAG, "LLM内存使用（增量估算）: " + (llmMemoryUsage / 1024 / 1024) + "MB");
+        }
+        
+        // 获取系统内存信息
+        activityManager.getMemoryInfo(memoryInfo);
+        long systemAvailableMemory = memoryInfo.availMem / (1024 * 1024); // MB
+        long systemTotalMemory = memoryInfo.totalMem / (1024 * 1024); // MB
+        
+        // 简化的性能统计报告格式
+        StringBuilder stats = new StringBuilder();
+        stats.append("\n\n---\n");
+        stats.append(String.format("tokens: %d • Time: %.2fs • Rate: %.2f token/s • JVMMaxMem: %dMB • LLMMaxMem: %dMB • SysMaxMem: %dMB",
+            currentSessionTokens.get(),
+            elapsedTime / 1000.0,
+            tokenRate,
+            jvmUsedMemory / (1024 * 1024),
+            Math.max(0, llmMemoryUsage / (1024 * 1024)),
+            (systemTotalMemory - systemAvailableMemory)
+        ));
+        
+        // 配置信息
+        int maxNewTokens = ConfigManager.getMaxNewTokens(context);
+        int contextSize = ConfigManager.getLlamaCppContextSize(context);
+        int batchSize = ConfigManager.getMaxSequenceLength(context);
+        int threads = ConfigManager.getThreads(context);
+        boolean useGpu = SettingsFragment.getUseGpu(context);
+        
+        stats.append(String.format("\n   • maxNewTokens: %d tokens\n", maxNewTokens));
+        stats.append(String.format("   • contextSize: %d tokens\n", contextSize));
+        stats.append(String.format("   • batchSize: %d tokens\n", batchSize));
+        stats.append(String.format("   • threads: %d\n", threads));
+        stats.append(String.format("   • GPU: %s\n", useGpu ? "True" : "False"));
+        
+        // 如果有模型参数，也显示出来
+        if (modelParams != null) {
+            stats.append(String.format("   • ggufParam: temp=%.2f, top_p=%.2f, top_k=%d, repeat_penalty=%.2f\n",
+                modelParams.getTemperature(), modelParams.getTopP(), 
+                modelParams.getTopK(), modelParams.getRepetitionPenalty()));
+        }
+        
+        stats.append("═══════════════════════════════════════\n");
+        
+        return stats.toString();
+    }
+    
+    /**
      * 获取统计信息
      */
     public String getStatistics() {
@@ -758,6 +1315,9 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
             modelHandle = 0;
         }
         
+        // 释放预分配资源
+        releasePreallocatedResources();
+        
         // 释放嵌入资源
         if (llamaCppEmbedding != null) {
             try {
@@ -799,6 +1359,153 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
     
     public LlamaCppEmbedding getEmbeddingHandler() {
         return llamaCppEmbedding;
+    }
+    
+    /**
+     * 释放预分配资源
+     */
+    private void releasePreallocatedResources() {
+        try {
+            if (preallocatedBatch != 0) {
+                LlamaCppInference.free_batch(preallocatedBatch);
+                LogManager.logI(TAG, "预分配batch资源释放完成: " + preallocatedBatch);
+                preallocatedBatch = 0;
+            }
+            
+            if (preallocatedSampler != 0) {
+                LlamaCppInference.free_sampler(preallocatedSampler);
+                LogManager.logI(TAG, "预分配sampler资源释放完成: " + preallocatedSampler);
+                preallocatedSampler = 0;
+            }
+            
+            batchInUse.set(false);
+            samplerInUse.set(false);
+        } catch (Exception e) {
+            LogManager.logE(TAG, "释放预分配资源失败", e);
+        }
+    }
+    
+    /**
+     * 重置模型记忆 - 清除KV缓存和对话历史
+     */
+    public void resetModelMemory() {
+        // 新对话调试日志已移除
+        
+        if (!isInitialized.get()) {
+            LogManager.logW(TAG, "模型未初始化，无法重置记忆");
+            return;
+        }
+        
+        // 新对话调试日志已移除
+        
+        try {
+            // 清除KV缓存
+            if (contextHandle != 0) {
+                // 新对话调试日志已移除
+                LlamaCppInference.kv_cache_clear(contextHandle);
+            } else {
+                LogManager.logW(TAG, "contextHandle为0，无法清除KV缓存");
+            }
+            
+            // 重置统计信息
+        // 新对话调试日志已移除
+        totalTokensGenerated.set(0);
+        currentSessionTokens.set(0);
+        generationStartTime = 0;
+        inferenceStartTime = 0;
+        memoryBeforeInference = 0;
+        memoryMaxDuringInference = 0;
+        // 新对话调试日志已移除
+            
+            // 更新最后使用时间
+            lastUsedTime = System.currentTimeMillis();
+            // 新对话调试日志已移除
+        } catch (Exception e) {
+            LogManager.logE(TAG, "重置模型记忆失败", e);
+        }
+    }
+    
+    /**
+     * 生命周期管理 - 检查是否应该保持模型加载
+     */
+    public boolean shouldKeepModelLoaded() {
+        return shouldKeepModelLoaded.get();
+    }
+    
+    /**
+     * 设置是否保持模型加载
+     */
+    public void setShouldKeepModelLoaded(boolean keep) {
+        shouldKeepModelLoaded.set(keep);
+        LogManager.logI(TAG, "设置模型保持加载状态: " + keep);
+    }
+    
+    /**
+     * 获取最后使用时间
+     */
+    public long getLastUsedTime() {
+        return lastUsedTime;
+    }
+    
+    /**
+     * 检查内存压力并决定是否释放模型
+     */
+    public boolean shouldReleaseForMemoryPressure() {
+        // 获取运行时内存信息
+        Runtime runtime = Runtime.getRuntime();
+        long maxMemory = runtime.maxMemory();
+        long totalMemory = runtime.totalMemory();
+        long freeMemory = runtime.freeMemory();
+        long usedMemory = totalMemory - freeMemory;
+        
+        // 计算内存使用率
+        double memoryUsageRatio = (double) usedMemory / maxMemory;
+        
+        // 如果内存使用率超过85%，建议释放模型
+        boolean shouldRelease = memoryUsageRatio > 0.85;
+        
+        if (shouldRelease) {
+            LogManager.logW(TAG, String.format(
+                "内存压力检测 - 使用率: %.2f%%, 建议释放模型", 
+                memoryUsageRatio * 100));
+        }
+        
+        return shouldRelease;
+    }
+    
+    /**
+     * 获取备份推理参数
+     * @return 从ConfigManager获取的备份推理参数，如果获取失败则返回null
+     */
+    private LocalLlmHandler.InferenceParams getBackupInferenceParams() {
+        try {
+            Context context = getContext();
+            if (context == null) {
+                LogManager.logW(TAG, "Context为空，无法获取备份推理参数");
+                return null;
+            }
+            
+            // 从ConfigManager获取备份推理参数
+            float temperature = ConfigManager.getBackupTemperature(context);
+            float topP = ConfigManager.getBackupTopP(context);
+            int topK = ConfigManager.getBackupTopK(context);
+            float repeatPenalty = ConfigManager.getBackupRepeatPenalty(context);
+            
+            // 创建推理参数对象
+            LocalLlmHandler.InferenceParams params = new LocalLlmHandler.InferenceParams();
+            params.setTemperature(temperature);
+            params.setTopP(topP);
+            params.setTopK(topK);
+            params.setRepetitionPenalty(repeatPenalty);
+            
+            LogManager.logI(TAG, String.format("获取备份推理参数 - Temperature: %.2f, Top-P: %.2f, Top-K: %d, Repeat Penalty: %.2f",
+                temperature, topP, topK, repeatPenalty));
+            
+            return params;
+        } catch (Exception e) {
+            LogManager.logE(TAG, "获取备份推理参数失败", e);
+            return null;
+        }
     }
     
     /**

@@ -625,11 +625,10 @@ public class LocalLlmHandler {
         resetStopFlag();
         
         LogManager.logD(TAG, "开始推理，引擎: " + inferenceEngine.getEngineType() + ", 提示词长度: " + prompt.length());
-        LogManager.logI(TAG, "[调试追踪] 即将调用推理引擎的inference方法: " + inferenceEngine.getClass().getSimpleName());
+        // 调试追踪日志已移除
         
         // 执行推理
         inferenceEngine.inference(prompt, params, callback);
-        LogManager.logI(TAG, "[调试追踪] 推理引擎的inference方法调用完成");
     }
     
     /**
@@ -738,10 +737,24 @@ public class LocalLlmHandler {
      * 停止当前推理
      */
     public void stopInference() {
-        LogManager.logI(TAG, "[停止调试] 收到停止推理请求");
+        // 停止调试日志已移除
         LogManager.logD(TAG, "[停止调试] 停止标志当前状态: " + shouldStopInference.get());
+        
+        // 首先调用当前推理引擎的stopInference方法
+        if (inferenceEngine != null) {
+            // 停止调试日志已移除
+            try {
+                inferenceEngine.stopInference();
+            } catch (Exception e) {
+                LogManager.logE(TAG, "推理引擎stopInference调用失败: " + e.getMessage());
+            }
+        } else {
+            LogManager.logW(TAG, "推理引擎为null，无法调用其stopInference方法");
+        }
+        
+        // 然后设置本地停止标志
         shouldStopInference.set(true);
-        LogManager.logI(TAG, "[停止调试] ✓ 停止标志已设置为true");
+        // 停止调试日志已移除
     }
     
     /**
@@ -756,6 +769,40 @@ public class LocalLlmHandler {
      */
     public void resetStopFlag() {
         shouldStopInference.set(false);
+    }
+    
+    /**
+     * 重置模型记忆 - 清除KV缓存和对话历史
+     */
+    public void resetModelMemory() {
+        // 新对话调试日志已移除
+        
+        if (!modelLoaded.get()) {
+            LogManager.logW(TAG, "模型未加载，无法重置记忆");
+            return;
+        }
+        
+        try {
+            // 新对话调试日志已移除
+            
+            // 根据推理引擎类型调用相应的重置方法
+            if (inferenceEngine instanceof LocalLLMLlamaCppHandler) {
+                // 新对话调试日志已移除
+                ((LocalLLMLlamaCppHandler) inferenceEngine).resetModelMemory();
+            } else if (inferenceEngine instanceof LocalLLMOnnxRuntimeGenAIHandler) {
+                // OnnxRuntimeGenAI引擎的重置逻辑
+                // 新对话调试日志已移除
+            } else if (localLlmOnnxHandler != null) {
+                // 传统ONNX引擎的重置逻辑
+                // 新对话调试日志已移除
+            } else {
+                LogManager.logW(TAG, "未知的推理引擎类型，无法重置记忆");
+            }
+            
+            // 新对话调试日志已移除
+        } catch (Exception e) {
+            LogManager.logE(TAG, "重置模型记忆失败", e);
+        }
     }
     
     /**
@@ -931,9 +978,8 @@ public class LocalLlmHandler {
             }
             
             // 直接调用GenAI处理器的推理方法
-            LogManager.logI(TAG, "[调试追踪] GenAIInferenceEngine即将调用genaiHandler.inference");
+            // 调试追踪日志已移除
             genaiHandler.inference(prompt, params, callback);
-            LogManager.logI(TAG, "[调试追踪] GenAIInferenceEngine调用genaiHandler.inference完成");
         }
         
         @Override

@@ -978,6 +978,115 @@ LogManager.logD(TAG, "思考模式设置: " + (thinkingMode ? "启用" : "禁用
 - 在每个token生成循环中检查`handler.shouldStopInference()`
 - 确保用户点击停止按钮后能及时中断推理过程
 
+
+4. **LlamaCpp推理停止问题修复 (2024年)**：
+
+**问题描述**：
+- 用户点击停止按钮后，推理并没有停止，仍然在继续推理和打印token
+- 日志显示停止标志已设置为true，但JNI层的`completion_loop`仍在继续执行
+
+**根本原因**：
+- 在`LocalLLMLlamaCppHandler.stopInference()`方法中，设置`shouldStop.set(true)`后立即设置`isGenerating.set(false)`
+- 这导致推理循环无法正确检查停止标志，因为状态被过早重置
+
+**修复方案**：
+```java
+@Override
+public void stopInference() {
+    LogManager.logI(TAG, "[停止调试] 收到停止推理请求");
+    LogManager.logD(TAG, "[停止调试] 停止标志当前状态: " + shouldStop.get());
+    shouldStop.set(true);
+    LogManager.logI(TAG, "[停止调试] ✓ 停止标志已设置为true");
+    
+    // 注意：不要在这里设置isGenerating为false
+    // 让推理循环检查shouldStop标志后自然结束，然后在finally块中设置isGenerating为false
+}
+```
+
+**技术要点**：
+- **状态管理时序**：停止标志设置后，应让推理循环自然检查并退出
+- **线程安全**：使用原子变量确保多线程环境下的状态一致性
+- **资源清理**：在finally块中统一处理状态重置和资源释放
+- **调试支持**：增加详细的调试日志便于问题排查
+
+**深层技术分析**：
+经过进一步调试发现，问题的根本原因更加复杂：
+
+1. **JNI层阻塞问题**：
+   - `completion_loop` JNI调用是阻塞性的，无法被Java层中断
+   - 每次JNI调用可能耗时数百毫秒，在此期间无法检查停止标志
+   - 这解释了为什么设置停止标志后仍有几个token继续生成
+
+2. **架构层面的限制**：
+   - llama.cpp的C++实现没有内置的中断机制
+   - JNI调用期间Java线程被阻塞，无法响应停止请求
+   - 需要在JNI调用的间隙检查停止标志
+
+**最终解决方案**：实现JNI层停止检查机制
+
+1. **JNI层修改**（`llama_inference.cpp`）：
+```cpp
+// 添加全局停止标志
+static std::atomic<bool> g_should_stop{false};
+
+// 添加停止控制JNI方法
+JNIEXPORT void JNICALL
+Java_com_starlocalrag_llamacpp_LlamaCppInference_set_1should_1stop(
+        JNIEnv *, jobject, jboolean should_stop) {
+    g_should_stop.store(should_stop);
+}
+
+// 在completion_loop的关键位置检查停止标志
+JNIEXPORT jstring JNICALL
+Java_com_starlocalrag_llamacpp_LlamaCppInference_completion_1loop(...) {
+    // 在llama_decode完成后检查停止标志，确保每生成一个token后都能及时响应停止请求
+    if (g_should_stop.load()) {
+        return nullptr;
+    }
+}
+```
+
+2. **Java层集成**（`LlamaCppInference.java`）：
+```java
+// 添加停止控制方法
+public static native void set_should_stop(boolean shouldStop);
+public static native boolean get_should_stop();
+```
+
+3. **Handler层同步**（`LocalLLMLlamaCppHandler.java`）：
+```java
+@Override
+public void stopInference() {
+    shouldStop.set(true);
+    // 同时设置JNI层停止标志
+    LlamaCppInference.set_should_stop(true);
+}
+
+// 推理开始时重置停止标志
+private void generateText(...) {
+    shouldStop.set(false);
+    LlamaCppInference.set_should_stop(false);
+    // ...
+}
+```
+
+**影响与意义**：
+- 解决了用户体验问题：点击停止按钮能在下一个token生成后停止推理
+- 提高了应用响应性：最多延迟一个token的生成时间（通常<1秒）
+- 增强了系统稳定性：正确的状态管理减少了异常情况
+- 为类似的JNI阻塞问题提供了解决思路
+
+**调试日志改进**：
+为了更好地诊断停止机制的执行情况，在JNI层添加了强制日志输出：
+```cpp
+// 在set_should_stop方法中添加强制日志
+__android_log_print(ANDROID_LOG_INFO, "LlamaCppJNI", "[强制日志] 设置停止标志: %s", should_stop ? "true" : "false");
+
+// 在completion_loop停止检查处添加强制日志
+__android_log_print(ANDROID_LOG_INFO, "LlamaCppJNI", "[强制日志] completion_loop检测到停止标志，退出");
+```
+这些强制日志确保在调试时能够清楚地看到停止标志的设置和检查过程，便于排查停止机制的问题。
+
 **修复效果验证**：
 - 思考模式勾选后，推理参数正确调整（temperature=0.6, topK=20）
 - 停止按钮功能正常，能及时中断推理过程
@@ -1035,6 +1144,54 @@ if (!enableThinking) {
 - 在`applyDefaultTemplate()`方法中，移除了助手角色的思考标记添加代码
 - 确保`/no_think`指令只在禁用思考模式时添加，避免重复添加
 - 保持与现有配置管理系统的兼容性
+
+#### 3.19.6 LlamaCpp Handler思考模式指令优化
+
+**优化背景**：
+为了与ONNX Handler保持一致，并充分利用Qwen3等模型对thinking模式的原生支持，对`LocalLLMLlamaCppHandler`中的思考模式处理逻辑进行了优化。
+
+**核心改进**：
+1. **双向指令控制**：不仅在禁用思考模式时添加`/no_think`指令，也在启用思考模式时添加`/think`指令
+2. **显式控制机制**：通过明确的指令告知模型当前的思考模式状态
+3. **最佳实践对齐**：与Qwen3官方推荐的控制方式保持一致
+
+**实现修改**：
+在`LocalLLMLlamaCppHandler.java`的`addThinkingInstruction`方法中：
+
+```java
+// 优化前：仅处理禁用思考模式
+private String addThinkingInstruction(String text, boolean thinkingMode) {
+    if (!thinkingMode && !text.contains("/no_think")) {
+        return text + "\n/no_think";
+    }
+    return text;
+}
+
+// 优化后：双向指令控制
+private String addThinkingInstruction(String text, boolean thinkingMode) {
+    if (thinkingMode && !text.contains("/think")) {
+        // 启用思考模式时添加/think指令
+        return text + "\n/think";
+    } else if (!thinkingMode && !text.contains("/no_think")) {
+        // 禁用思考模式时添加/no_think指令
+        return text + "\n/no_think";
+    }
+    return text;
+}
+```
+
+**技术优势**：
+1. **一致性**：与ONNX Handler的处理逻辑保持一致
+2. **兼容性**：对不支持thinking模式的模型，指令会被忽略，不会造成问题
+3. **灵活性**：支持动态切换thinking模式，无需修改chat template
+4. **性能**：避免在template层面的复杂处理，提高推理效率
+5. **可维护性**：逻辑清晰，易于理解和维护
+
+**最佳实践**：
+- 在chat template层面固定`enable_thinking=True`（如果模型支持）
+- 在prompt层面通过`/think`和`/no_think`指令进行动态控制
+- 根据ConfigManager的`no_thinking`配置自动添加相应指令
+- 避免重复添加指令，确保文本中只包含一个控制指令
 
 #### 3.19.4 ONNX Runtime版本升级
 
@@ -2742,6 +2899,57 @@ Fatal signal 6 (SIGABRT), code -1 (SI_QUEUE) in tid 4904
 
 这次内存管理问题的发现和修复是项目开发过程中的重要里程碑，不仅解决了潜在的稳定性问题，也为项目建立了更加健壮的基础架构。
 
+#### JNI 层内存管理优化分析（2024-12-19）
+
+**当前状态评估**：
+通过对 LlamaCpp JNI 层面的内存管理进行深入分析，发现当前实现已经具备了较为完善的内存管理机制：
+
+1. **JNI 层内存管理现状**：
+   - `new_batch` 和 `free_batch` 函数已实现完整的内存分配和释放逻辑
+   - 使用全局映射表 `batch_token_counts` 和 `batch_seq_max_counts` 跟踪内存分配信息
+   - 实现了详细的内存对齐检查和连续性验证
+   - 添加了防御性编程措施，包括参数验证和边界检查
+
+2. **Java 层内存池管理**：
+   - `LocalLLMLlamaCppHandler` 已实现预分配资源池策略
+   - 通过 `preallocatedBatch` 和 `preallocatedSampler` 减少频繁的内存分配
+   - 实现了资源复用机制，提高内存使用效率
+   - 添加了 `releasePreallocatedResources()` 方法确保资源正确释放
+
+**JNI 层无需额外调整的原因**：
+
+1. **内存管理职责分离**：
+   - JNI 层负责底层 C++ 对象的生命周期管理
+   - Java 层负责高级内存池策略和资源复用
+   - 两层各司其职，避免重复管理导致的复杂性
+
+2. **现有机制已足够健壮**：
+   - JNI 层的 `free_batch` 和 `free_sampler` 函数已正确释放所有分配的内存
+   - 使用互斥锁保护全局状态，确保线程安全
+   - 实现了完整的错误处理和资源清理机制
+
+3. **性能考虑**：
+   - JNI 层添加内存池会增加复杂性而收益有限
+   - Java 层的预分配策略已经有效减少了 JNI 调用频率
+   - 避免在 JNI 层实现复杂的内存管理逻辑
+
+**最佳实践建议**：
+
+1. **保持当前架构**：
+   - JNI 层专注于正确的内存分配和释放
+   - Java 层负责高级内存优化策略
+   - 避免跨层的内存管理复杂性
+
+2. **监控和调试**：
+   - 利用现有的详细日志系统监控内存使用
+   - 定期检查内存泄漏和异常情况
+   - 使用内存分析工具验证内存管理效果
+
+3. **未来优化方向**：
+   - 根据实际使用模式调整预分配策略
+   - 考虑实现更智能的资源回收机制
+   - 监控长期运行的内存使用趋势
+
 #### 动态Batch大小处理（2024年最新）
 
 **问题背景**：
@@ -2897,3 +3105,324 @@ long batch = LlamaCppInference.new_batch(512, 0, 1);
    - 实现自动重试机制
 
 这项改进显著提升了应用处理长文本的能力，为用户提供了更强大和灵活的AI交互体验。
+
+### 3.25 推理参数优先级管理系统 (2025-01-13)
+
+为了解决推理参数硬编码问题，实现了完整的推理参数优先级管理系统，支持从模型目录配置文件和用户备份设置中获取推理参数，确保模型能够使用最合适的推理配置。
+
+#### 问题背景
+
+**原有问题**：
+- 推理参数（temperature, top_p, top_k, repeat_penalty）在代码中硬编码
+- 所有模型使用相同的默认参数，无法体现模型特性
+- 缺乏用户自定义推理参数的备份机制
+- 无法从模型目录的配置文件中读取推理参数
+- 参数优先级不明确，缺乏统一的管理策略
+
+**技术需求**：
+- 从模型目录下的配置文件中读取推理参数
+- 实现用户备份推理参数的存储和获取
+- 建立清晰的参数优先级体系
+- 移除不必要的模型元数据查询逻辑
+- 保持向后兼容性和系统稳定性
+
+#### 实现方案
+
+**1. 模型目录参数文件读取工具**
+
+创建了 `ModelParamsReader.java` 工具类，支持从模型目录下的配置文件中读取推理参数：
+```java
+public class ModelParamsReader {
+    /**
+     * 从模型目录读取推理参数
+     * @param modelDirPath 模型目录路径
+     * @return 推理参数对象，如果读取失败返回null
+     */
+    public static LocalLlmHandler.InferenceParams readInferenceParams(String modelDirPath) {
+        // 尝试读取 params 文件（键值对格式）
+        File paramsFile = new File(modelDir, "params");
+        if (paramsFile.exists()) {
+            return readFromParamsFile(paramsFile);
+        }
+        
+        // 尝试读取 generation_config.json 文件
+        File configFile = new File(modelDir, "generation_config.json");
+        if (configFile.exists()) {
+            return readFromJsonFile(configFile);
+        }
+        
+        return null;
+    }
+}
+```
+
+**2. 备份推理参数配置管理**
+
+在 `ConfigManager.java` 中添加了备份推理参数的存储和获取方法：
+```java
+// 备份推理参数配置键
+public static final String KEY_BACKUP_TEMPERATURE = "backup_temperature";
+public static final String KEY_BACKUP_TOP_P = "backup_top_p";
+public static final String KEY_BACKUP_TOP_K = "backup_top_k";
+public static final String KEY_BACKUP_REPEAT_PENALTY = "backup_repeat_penalty";
+
+// 获取备份推理参数
+public float getBackupTemperature() {
+    return sharedPreferences.getFloat(KEY_BACKUP_TEMPERATURE, DEFAULT_BACKUP_TEMPERATURE);
+}
+
+// 保存备份推理参数
+public void setBackupTemperature(float temperature) {
+    editor.putFloat(KEY_BACKUP_TEMPERATURE, temperature).apply();
+}
+```
+
+**3. 设置页面用户界面**
+
+在 `fragment_settings.xml` 和 `SettingsFragment.java` 中添加了备份推理参数的用户界面：
+```xml
+<!-- 备份推理参数设置 -->
+<TextView
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:text="备份推理参数设置"
+    android:textStyle="bold" />
+
+<EditText
+    android:id="@+id/etBackupTemperature"
+    android:hint="Temperature (0.1-2.0)" />
+```
+
+**4. 推理引擎参数优先级管理**
+
+在 `LocalLLMLlamaCppHandler.java` 中实现了完整的参数优先级管理系统：
+
+```java
+/**
+ * 从模型目录文件中提取推理参数
+ */
+private LocalLlmHandler.InferenceParams extractParamsFromModelDirectory() {
+    if (currentModelPath == null || currentModelPath.isEmpty()) {
+        LogManager.logW(TAG, "当前模型路径为空，无法提取参数");
+        return null;
+    }
+    
+    File modelFile = new File(currentModelPath);
+    File modelDir = modelFile.getParentFile();
+    
+    if (modelDir == null || !modelDir.exists()) {
+        LogManager.logW(TAG, "模型目录不存在: " + currentModelPath);
+        return null;
+    }
+    
+    // 使用ModelParamsReader读取参数
+    LocalLlmHandler.InferenceParams params = ModelParamsReader.readInferenceParams(modelDir.getAbsolutePath());
+    
+    if (params != null) {
+        LogManager.logI(TAG, "✓ 成功从模型目录文件提取推理参数");
+    } else {
+        LogManager.logI(TAG, "✗ 模型目录中未找到有效的推理参数文件");
+    }
+    
+    return params;
+}
+
+/**
+ * 获取备份推理参数
+ */
+private LocalLlmHandler.InferenceParams getBackupInferenceParams() {
+    if (context == null) {
+        LogManager.logW(TAG, "Context为空，无法获取备份推理参数");
+        return null;
+    }
+    
+    try {
+        ConfigManager configManager = new ConfigManager(context);
+        
+        // 从ConfigManager获取备份推理参数
+        float temperature = configManager.getBackupTemperature();
+        float topP = configManager.getBackupTopP();
+        int topK = configManager.getBackupTopK();
+        float repeatPenalty = configManager.getBackupRepeatPenalty();
+        
+        // 创建推理参数对象
+        LocalLlmHandler.InferenceParams params = new LocalLlmHandler.InferenceParams();
+        params.setTemperature(temperature);
+        params.setTopP(topP);
+        params.setTopK(topK);
+        params.setRepetitionPenalty(repeatPenalty);
+        
+        LogManager.logI(TAG, String.format("获取备份推理参数 - Temperature: %.2f, Top-P: %.2f, Top-K: %d, Repeat Penalty: %.2f",
+            temperature, topP, topK, repeatPenalty));
+        
+        return params;
+    } catch (Exception e) {
+        LogManager.logE(TAG, "获取备份推理参数失败", e);
+        return null;
+    }
+}
+```
+
+**5. 采样器创建优化**
+
+更新了 `acquireSampler` 方法以支持新的两级参数优先级选择：
+```java
+private long acquireSampler(LocalLlmHandler.InferenceParams params) {
+    LocalLlmHandler.InferenceParams finalParams = null;
+    
+    // 参数优先级：模型目录参数 > 备份配置参数
+    if (modelParams != null) {
+        // 使用模型目录参数（最高优先级）
+        finalParams = modelParams;
+        LogManager.logI(TAG, "使用模型目录的推理参数（最高优先级）");
+    } else {
+        // 使用备份配置参数（第二优先级）
+        finalParams = getBackupInferenceParams();
+        LogManager.logI(TAG, "使用备份配置的推理参数（第二优先级）");
+    }
+    
+    // 如果预分配的sampler可用且使用默认参数，则复用
+    if (preallocatedSampler != 0 && finalParams == null && 
+        samplerInUse.compareAndSet(false, true)) {
+        LogManager.logD(TAG, "复用预分配sampler: " + preallocatedSampler);
+        return preallocatedSampler;
+    }
+    
+    // 否则动态分配
+    long sampler = finalParams != null ? 
+        LlamaCppInference.new_sampler_with_params(
+            finalParams.getTemperature(),
+            finalParams.getTopP(),
+            finalParams.getTopK()
+        ) : LlamaCppInference.new_sampler();
+        
+    LogManager.logD(TAG, "动态分配sampler: " + sampler + 
+        (finalParams != null ? String.format(" (temp=%.2f, top_p=%.2f, top_k=%d)", 
+            finalParams.getTemperature(), finalParams.getTopP(), finalParams.getTopK()) : " (默认参数)"));
+            
+    return sampler;
+}
+```
+
+#### 技术特点
+
+**1. 清晰的参数优先级体系**：
+- 模型目录参数具有最高优先级，确保模型特定配置生效
+- 备份配置参数作为可靠的回退机制
+- 简化的两级优先级，避免复杂的参数冲突
+
+**2. 灵活的文件格式支持**：
+- 支持 `params` 文件（键值对格式）
+- 支持 `generation_config.json` 文件（JSON格式）
+- 自动检测和解析不同格式的配置文件
+- 智能参数名称匹配（支持多种命名变体）
+
+**3. 增强的错误处理和调试**：
+- 详细的日志记录，便于问题诊断
+- 优雅的错误处理，确保系统稳定性
+- 参数来源追踪和调试信息
+- 文件读取失败时的异常捕获
+
+**4. 向后兼容性**：
+- 保持与现有代码的完全兼容
+- 渐进式增强，不影响现有功能
+- 移除了不必要的模型元数据查询逻辑
+
+**5. 用户友好的备份机制**：
+- 通过ConfigManager提供用户可配置的备份参数
+- 支持在设置页面中配置备份推理参数
+- 确保在模型目录无配置文件时仍有合理的参数可用
+
+#### 工作流程
+
+```
+模型加载完成
+↓
+初始化时调用extractParamsFromModelDirectory
+↓
+检查模型目录是否存在params或generation_config.json文件
+↓
+使用ModelParamsReader解析配置文件
+↓
+如果成功解析，保存为modelParams（最高优先级）
+↓
+创建采样器时执行acquireSampler方法
+↓
+检查是否有modelParams（模型目录参数）
+↓
+如果没有，调用getBackupInferenceParams获取备份参数
+↓
+使用最终确定的参数创建采样器
+↓
+使用提取的参数创建采样器
+↓
+记录详细的参数使用日志
+```
+
+#### 优势与影响
+
+**1. 灵活的配置管理**：
+- 支持模型特定的推理参数配置
+- 提供可靠的用户备份参数机制
+- 简化的两级优先级避免配置冲突
+
+**2. 用户友好的体验**：
+- 模型目录配置文件便于模型分发
+- 用户可通过设置页面配置备份参数
+- 确保在任何情况下都有合理的参数可用
+
+**3. 系统稳定性增强**：
+- 移除了复杂的模型元数据查询逻辑
+- 减少了JNI调用的潜在风险
+- 提供了更可靠的参数获取机制
+
+**4. 维护性提升**：
+- 代码逻辑更加清晰简洁
+- 减少了不必要的复杂性
+- 便于后续功能扩展和维护
+
+#### 最佳实践
+
+**1. 模型配置建议**：
+- 在模型目录中创建 `params` 或 `generation_config.json` 文件
+- 使用标准的参数名称格式
+- 提供适合模型特性的推理参数值
+
+**2. 用户配置管理**：
+- 在设置页面配置合理的备份推理参数
+- 定期检查和更新备份参数设置
+- 确保备份参数适用于大多数模型
+
+**3. 调试和监控**：
+- 定期检查参数读取日志
+- 监控参数来源和使用情况
+- 验证模型推理效果和参数有效性
+
+**4. 性能考虑**：
+- 参数读取仅在模型初始化时执行
+- 对运行时性能影响极小
+- 配置文件应保持简洁高效
+
+#### 未来扩展方向
+
+**1. 更多参数支持**：
+- 支持更多llama.cpp推理参数类型
+- 添加模型特定的高级配置选项
+- 支持更多配置文件格式
+
+**2. 用户界面增强**：
+- 在设置页面显示当前模型的推理参数
+- 提供参数预览和编辑功能
+- 添加参数模板和预设功能
+
+**3. 智能化配置**：
+- 根据模型类型自动推荐参数
+- 提供参数优化建议
+- 支持A/B测试不同参数配置
+
+**3. 性能优化**：
+- 实现参数缓存机制
+- 优化元数据查询性能
+- 支持批量参数提取
+
+这项功能的实现标志着应用在模型配置自动化方面的重要进步，为用户提供了更智能和便捷的AI模型使用体验。

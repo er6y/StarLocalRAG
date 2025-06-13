@@ -62,6 +62,12 @@ public class SettingsFragment extends Fragment {
     private EditText editTextThreads; // 推理线程数
     private EditText editTextMaxNewTokens; // 最大输出token数
     
+    // 备份推理参数UI组件
+    private EditText editTextBackupTemperature; // 备份温度参数
+    private EditText editTextBackupTopP; // 备份Top-P参数
+    private EditText editTextBackupTopK; // 备份Top-K参数
+    private EditText editTextBackupRepeatPenalty; // 备份重复惩罚参数
+    
     // Activity Result Launchers
     private ActivityResultLauncher<Intent> modelPathLauncher;
     private ActivityResultLauncher<Intent> embeddingModelPathLauncher;
@@ -152,6 +158,12 @@ public class SettingsFragment extends Fragment {
         // switchNoThinking已移动到RAG问答界面
         seekBarFontSize = view.findViewById(R.id.seekBarFontSize); // 字体大小拖动条
         textViewFontSizeValue = view.findViewById(R.id.textViewFontSizeValue); // 字体大小值显示
+        
+        // 初始化备份推理参数UI组件
+        editTextBackupTemperature = view.findViewById(R.id.editTextBackupTemperature);
+        editTextBackupTopP = view.findViewById(R.id.editTextBackupTopP);
+        editTextBackupTopK = view.findViewById(R.id.editTextBackupTopK);
+        editTextBackupRepeatPenalty = view.findViewById(R.id.editTextBackupRepeatPenalty);
         
         // 加载当前设置
         loadSettings();
@@ -314,6 +326,18 @@ public class SettingsFragment extends Fragment {
             editTextMaxNewTokens.setText(String.valueOf(maxNewTokens));
             // switchNoThinking已移动到RAG问答界面
             
+            // 加载备份推理参数
+            float backupTemperature = ConfigManager.getBackupTemperature(context);
+            float backupTopP = ConfigManager.getBackupTopP(context);
+            int backupTopK = ConfigManager.getBackupTopK(context);
+            float backupRepeatPenalty = ConfigManager.getBackupRepeatPenalty(context);
+            
+            // 设置备份推理参数UI
+            editTextBackupTemperature.setText(String.valueOf(backupTemperature));
+            editTextBackupTopP.setText(String.valueOf(backupTopP));
+            editTextBackupTopK.setText(String.valueOf(backupTopK));
+            editTextBackupRepeatPenalty.setText(String.valueOf(backupRepeatPenalty));
+            
             LogManager.logD(TAG, "设置加载完成");
         } catch (Exception e) {
             LogManager.logE(TAG, "加载设置失败: " + e.getMessage(), e);
@@ -393,9 +417,21 @@ public class SettingsFragment extends Fragment {
             String maxNewTokensStr = editTextMaxNewTokens.getText().toString().trim();
             // noThinking已移动到RAG问答界面
             
+            // 获取备份推理参数
+            String backupTemperatureStr = editTextBackupTemperature.getText().toString().trim();
+            String backupTopPStr = editTextBackupTopP.getText().toString().trim();
+            String backupTopKStr = editTextBackupTopK.getText().toString().trim();
+            String backupRepeatPenaltyStr = editTextBackupRepeatPenalty.getText().toString().trim();
+            
             // 验证 LLM 推理设置
             if (maxSequenceLengthStr.isEmpty() || threadsStr.isEmpty() || maxNewTokensStr.isEmpty()) {
                 Toast.makeText(context, "请填写所有 LLM 推理设置", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            
+            // 验证备份推理参数
+            if (backupTemperatureStr.isEmpty() || backupTopPStr.isEmpty() || backupTopKStr.isEmpty() || backupRepeatPenaltyStr.isEmpty()) {
+                Toast.makeText(context, "请填写所有备份推理参数", Toast.LENGTH_SHORT).show();
                 return;
             }
             
@@ -403,6 +439,12 @@ public class SettingsFragment extends Fragment {
             int maxSequenceLength = Integer.parseInt(maxSequenceLengthStr);
             int threads = Integer.parseInt(threadsStr);
             int maxNewTokens = Integer.parseInt(maxNewTokensStr);
+            
+            // 转换备份推理参数
+            float backupTemperature = Float.parseFloat(backupTemperatureStr);
+            float backupTopP = Float.parseFloat(backupTopPStr);
+            int backupTopK = Integer.parseInt(backupTopKStr);
+            float backupRepeatPenalty = Float.parseFloat(backupRepeatPenaltyStr);
             
             // 验证值范围
             if (maxSequenceLength < 100 || maxSequenceLength > 8192) {
@@ -417,6 +459,27 @@ public class SettingsFragment extends Fragment {
             
             if (maxNewTokens < 512 || maxNewTokens > 4096) {
                 Toast.makeText(context, "最大输出token数应在512-4096之间", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            
+            // 验证备份推理参数范围
+            if (backupTemperature < 0.0f || backupTemperature > 2.0f) {
+                Toast.makeText(context, "备份温度参数应在0.0-2.0之间", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            
+            if (backupTopP < 0.0f || backupTopP > 1.0f) {
+                Toast.makeText(context, "备份Top-P参数应在0.0-1.0之间", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            
+            if (backupTopK < 1 || backupTopK > 100) {
+                Toast.makeText(context, "备份Top-K参数应在1-100之间", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            
+            if (backupRepeatPenalty < 0.0f || backupRepeatPenalty > 2.0f) {
+                Toast.makeText(context, "备份重复惩罚参数应在0.0-2.0之间", Toast.LENGTH_SHORT).show();
                 return;
             }
             
@@ -446,6 +509,12 @@ public class SettingsFragment extends Fragment {
             ConfigManager.setThreads(context, threads);
             ConfigManager.setMaxNewTokens(context, maxNewTokens);
             // noThinking已移动到RAG问答界面
+            
+            // 保存备份推理参数
+            ConfigManager.setBackupTemperature(context, backupTemperature);
+            ConfigManager.setBackupTopP(context, backupTopP);
+            ConfigManager.setBackupTopK(context, backupTopK);
+            ConfigManager.setBackupRepeatPenalty(context, backupRepeatPenalty);
             
             // 创建JSON格式的设置摘要
             JSONObject settingsSummary = new JSONObject();

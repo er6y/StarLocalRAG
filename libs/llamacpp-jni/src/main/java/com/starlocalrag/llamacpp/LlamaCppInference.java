@@ -126,6 +126,60 @@ public class LlamaCppInference {
      */
     public static native void kv_cache_clear(long contextHandle);
     
+    // ========== 推理控制 ==========
+    
+    /**
+     * 设置停止标志
+     * @param shouldStop 是否应该停止推理
+     */
+    public static native void set_should_stop(boolean shouldStop);
+    
+    /**
+     * 获取停止标志状态
+     * @return 当前停止标志状态
+     */
+    public static native boolean get_should_stop();
+    
+    // ========== 模型元数据获取 ==========
+    
+    /**
+     * 获取模型元数据键值对数量
+     * @param modelHandle 模型句柄
+     * @return 元数据键值对数量
+     */
+    public static native int model_meta_count(long modelHandle);
+    
+    /**
+     * 根据索引获取元数据键名
+     * @param modelHandle 模型句柄
+     * @param index 索引
+     * @return 键名，如果失败返回null
+     */
+    public static native String model_meta_key_by_index(long modelHandle, int index);
+    
+    /**
+     * 根据键名获取元数据值
+     * @param modelHandle 模型句柄
+     * @param key 键名
+     * @return 值，如果失败返回null
+     */
+    public static native String model_meta_val_str(long modelHandle, String key);
+    
+    /**
+     * 根据索引获取元数据值
+     * @param modelHandle 模型句柄
+     * @param index 索引
+     * @return 值，如果失败返回null
+     */
+    public static native String model_meta_val_str_by_index(long modelHandle, int index);
+    
+    /**
+     * 获取模型大小（字节）
+     * @param modelHandle 模型句柄
+     * @return 模型大小（字节），如果失败返回0
+     */
+    public static native long model_size(long modelHandle);
+    
     // ========== 参数设置（通过采样器实现）==========
     
     /**
@@ -136,6 +190,11 @@ public class LlamaCppInference {
      * @return 采样器句柄
      */
     public static native long new_sampler_with_params(float temperature, float topP, int topK);
+    
+    /**
+     * 创建带完整参数的采样器（包含repeat_penalty）
+     */
+    public static native long new_sampler_with_full_params(float temperature, float topP, int topK, float repeatPenalty);
     
     /**
      * 注意：参数设置已改为通过采样器实现

@@ -89,6 +89,12 @@ public class ConfigManager {
     public static final String KEY_LLAMACPP_EMBEDDING_BATCH_SIZE = "llamacpp_embedding_batch_size"; // 嵌入批处理大小
     public static final String KEY_USE_LLAMACPP = "use_llamacpp"; // 是否使用LlamaCpp引擎
     
+    // 备份推理参数配置键（用于外部设置）
+    public static final String KEY_BACKUP_TEMPERATURE = "backup_temperature"; // 备份温度参数
+    public static final String KEY_BACKUP_TOP_P = "backup_top_p"; // 备份Top-P采样
+    public static final String KEY_BACKUP_TOP_K = "backup_top_k"; // 备份Top-K采样
+    public static final String KEY_BACKUP_REPEAT_PENALTY = "backup_repeat_penalty"; // 备份重复惩罚
+    
     // 文本大小相关的键
     public static final String KEY_GLOBAL_TEXT_SIZE = "global_text_size";
     public static final String KEY_RAG_RESPONSE_TEXT_SIZE = "rag_response_text_size";
@@ -118,8 +124,8 @@ public class ConfigManager {
     
     // LlamaCpp 相关默认值
     public static final String DEFAULT_LLAMACPP_MODEL_PATH = "files/models/llamacpp";
-    public static final int DEFAULT_LLAMACPP_CONTEXT_SIZE = 2048;
-    public static final int DEFAULT_LLAMACPP_BATCH_SIZE = 512;
+    public static final int DEFAULT_LLAMACPP_CONTEXT_SIZE = DEFAULT_MAX_SEQUENCE_LENGTH; // 统一使用maxSequenceLength
+    public static final int DEFAULT_LLAMACPP_BATCH_SIZE = DEFAULT_MAX_SEQUENCE_LENGTH; // 统一使用maxSequenceLength
     public static final int DEFAULT_LLAMACPP_THREADS = 4;
     public static final int DEFAULT_LLAMACPP_GPU_LAYERS = 0;
     public static final float DEFAULT_LLAMACPP_TEMPERATURE = 0.8f;
@@ -133,6 +139,12 @@ public class ConfigManager {
     public static final boolean DEFAULT_LLAMACPP_NORMALIZE_EMBEDDINGS = true;
     public static final int DEFAULT_LLAMACPP_EMBEDDING_BATCH_SIZE = 32;
     public static final boolean DEFAULT_USE_LLAMACPP = false;
+    
+    // 备份推理参数默认值
+    public static final float DEFAULT_BACKUP_TEMPERATURE = 0.8f;
+    public static final float DEFAULT_BACKUP_TOP_P = 0.95f;
+    public static final int DEFAULT_BACKUP_TOP_K = 40;
+    public static final float DEFAULT_BACKUP_REPEAT_PENALTY = 1.1f;
 
     private static JSONObject configCache = null;
 
@@ -1470,6 +1482,114 @@ public class ConfigManager {
     }
 
     /**
+     * 获取LlamaCpp批处理大小
+     * @param context 上下文
+     * @return 批处理大小
+     */
+    public static int getLlamaCppBatchSize(Context context) {
+        return getInt(context, KEY_LLAMACPP_BATCH_SIZE, DEFAULT_LLAMACPP_BATCH_SIZE);
+    }
+
+    /**
+     * 设置LlamaCpp批处理大小
+     * @param context 上下文
+     * @param batchSize 批处理大小
+     */
+    public static void setLlamaCppBatchSize(Context context, int batchSize) {
+        setInt(context, KEY_LLAMACPP_BATCH_SIZE, batchSize);
+    }
+
+    /**
+     * 获取备份温度参数
+     * @param context 上下文
+     * @return 备份温度参数
+     */
+    public static float getBackupTemperature(Context context) {
+        return getFloat(context, KEY_BACKUP_TEMPERATURE, DEFAULT_BACKUP_TEMPERATURE);
+    }
+
+    /**
+     * 设置备份温度参数
+     * @param context 上下文
+     * @param temperature 温度参数
+     */
+    public static void setBackupTemperature(Context context, float temperature) {
+        setFloat(context, KEY_BACKUP_TEMPERATURE, temperature);
+    }
+
+    /**
+     * 获取备份Top-P参数
+     * @param context 上下文
+     * @return 备份Top-P参数
+     */
+    public static float getBackupTopP(Context context) {
+        return getFloat(context, KEY_BACKUP_TOP_P, DEFAULT_BACKUP_TOP_P);
+    }
+
+    /**
+     * 设置备份Top-P参数
+     * @param context 上下文
+     * @param topP Top-P参数
+     */
+    public static void setBackupTopP(Context context, float topP) {
+        setFloat(context, KEY_BACKUP_TOP_P, topP);
+    }
+
+    /**
+     * 获取备份Top-K参数
+     * @param context 上下文
+     * @return 备份Top-K参数
+     */
+    public static int getBackupTopK(Context context) {
+        return getInt(context, KEY_BACKUP_TOP_K, DEFAULT_BACKUP_TOP_K);
+    }
+
+    /**
+     * 设置备份Top-K参数
+     * @param context 上下文
+     * @param topK Top-K参数
+     */
+    public static void setBackupTopK(Context context, int topK) {
+        setInt(context, KEY_BACKUP_TOP_K, topK);
+    }
+
+    /**
+     * 获取备份重复惩罚参数
+     * @param context 上下文
+     * @return 备份重复惩罚参数
+     */
+    public static float getBackupRepeatPenalty(Context context) {
+        return getFloat(context, KEY_BACKUP_REPEAT_PENALTY, DEFAULT_BACKUP_REPEAT_PENALTY);
+    }
+
+    /**
+     * 设置备份重复惩罚参数
+     * @param context 上下文
+     * @param repeatPenalty 重复惩罚参数
+     */
+    public static void setBackupRepeatPenalty(Context context, float repeatPenalty) {
+        setFloat(context, KEY_BACKUP_REPEAT_PENALTY, repeatPenalty);
+    }
+
+    /**
+     * 获取LlamaCpp上下文大小
+     * @param context 上下文
+     * @return 上下文大小
+     */
+    public static int getLlamaCppContextSize(Context context) {
+        return getInt(context, KEY_LLAMACPP_CONTEXT_SIZE, DEFAULT_LLAMACPP_CONTEXT_SIZE);
+    }
+
+    /**
+     * 设置LlamaCpp上下文大小
+     * @param context 上下文
+     * @param contextSize 上下文大小
+     */
+    public static void setLlamaCppContextSize(Context context, int contextSize) {
+        setInt(context, KEY_LLAMACPP_CONTEXT_SIZE, contextSize);
+    }
+
+    /**
      * 检查是否启用调试模式
      * @param context 上下文
      * @return 是否启用调试模式
@@ -1550,6 +1670,12 @@ public class ConfigManager {
             config.put(KEY_LLAMACPP_NORMALIZE_EMBEDDINGS, DEFAULT_LLAMACPP_NORMALIZE_EMBEDDINGS);
             config.put(KEY_LLAMACPP_EMBEDDING_BATCH_SIZE, DEFAULT_LLAMACPP_EMBEDDING_BATCH_SIZE);
             config.put(KEY_USE_LLAMACPP, DEFAULT_USE_LLAMACPP);
+            
+            // 备份推理参数配置
+            config.put(KEY_BACKUP_TEMPERATURE, DEFAULT_BACKUP_TEMPERATURE);
+            config.put(KEY_BACKUP_TOP_P, DEFAULT_BACKUP_TOP_P);
+            config.put(KEY_BACKUP_TOP_K, DEFAULT_BACKUP_TOP_K);
+            config.put(KEY_BACKUP_REPEAT_PENALTY, DEFAULT_BACKUP_REPEAT_PENALTY);
             
             Log.d(TAG, "创建默认配置: " + config.toString(2));
             return config;
