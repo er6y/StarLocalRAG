@@ -3156,40 +3156,40 @@ public class ModelParamsReader {
 }
 ```
 
-**2. 备份推理参数配置管理**
+**2. 手动推理参数配置管理**
 
-在 `ConfigManager.java` 中添加了备份推理参数的存储和获取方法：
+在 `ConfigManager.java` 中添加了手动推理参数的存储和获取方法：
 ```java
-// 备份推理参数配置键
-public static final String KEY_BACKUP_TEMPERATURE = "backup_temperature";
-public static final String KEY_BACKUP_TOP_P = "backup_top_p";
-public static final String KEY_BACKUP_TOP_K = "backup_top_k";
-public static final String KEY_BACKUP_REPEAT_PENALTY = "backup_repeat_penalty";
+// 手动推理参数配置键
+public static final String KEY_MANUAL_TEMPERATURE = "manual_temperature";
+public static final String KEY_MANUAL_TOP_P = "manual_top_p";
+public static final String KEY_MANUAL_TOP_K = "manual_top_k";
+public static final String KEY_MANUAL_REPEAT_PENALTY = "manual_repeat_penalty";
 
-// 获取备份推理参数
-public float getBackupTemperature() {
-    return sharedPreferences.getFloat(KEY_BACKUP_TEMPERATURE, DEFAULT_BACKUP_TEMPERATURE);
+// 获取手动推理参数
+public float getManualTemperature() {
+    return sharedPreferences.getFloat(KEY_MANUAL_TEMPERATURE, DEFAULT_MANUAL_TEMPERATURE);
 }
 
-// 保存备份推理参数
-public void setBackupTemperature(float temperature) {
-    editor.putFloat(KEY_BACKUP_TEMPERATURE, temperature).apply();
+// 保存手动推理参数
+public void setManualTemperature(float temperature) {
+    editor.putFloat(KEY_MANUAL_TEMPERATURE, temperature).apply();
 }
 ```
 
 **3. 设置页面用户界面**
 
-在 `fragment_settings.xml` 和 `SettingsFragment.java` 中添加了备份推理参数的用户界面：
+在 `fragment_settings.xml` 和 `SettingsFragment.java` 中添加了手动推理参数的用户界面：
 ```xml
-<!-- 备份推理参数设置 -->
+<!-- 手动推理参数设置 -->
 <TextView
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:text="备份推理参数设置"
+    android:text="手动推理参数设置"
     android:textStyle="bold" />
 
 <EditText
-    android:id="@+id/etBackupTemperature"
+    android:id="@+id/editTextManualTemperature"
     android:hint="Temperature (0.1-2.0)" />
 ```
 
@@ -3228,22 +3228,22 @@ private LocalLlmHandler.InferenceParams extractParamsFromModelDirectory() {
 }
 
 /**
- * 获取备份推理参数
+ * 获取手动推理参数
  */
-private LocalLlmHandler.InferenceParams getBackupInferenceParams() {
+private LocalLlmHandler.InferenceParams getManualInferenceParams() {
     if (context == null) {
-        LogManager.logW(TAG, "Context为空，无法获取备份推理参数");
+        LogManager.logW(TAG, "Context为空，无法获取手动推理参数");
         return null;
     }
     
     try {
         ConfigManager configManager = new ConfigManager(context);
         
-        // 从ConfigManager获取备份推理参数
-        float temperature = configManager.getBackupTemperature();
-        float topP = configManager.getBackupTopP();
-        int topK = configManager.getBackupTopK();
-        float repeatPenalty = configManager.getBackupRepeatPenalty();
+        // 从ConfigManager获取手动推理参数
+        float temperature = configManager.getManualTemperature();
+        float topP = configManager.getManualTopP();
+        int topK = configManager.getManualTopK();
+        float repeatPenalty = configManager.getManualRepeatPenalty();
         
         // 创建推理参数对象
         LocalLlmHandler.InferenceParams params = new LocalLlmHandler.InferenceParams();
@@ -3252,12 +3252,12 @@ private LocalLlmHandler.InferenceParams getBackupInferenceParams() {
         params.setTopK(topK);
         params.setRepetitionPenalty(repeatPenalty);
         
-        LogManager.logI(TAG, String.format("获取备份推理参数 - Temperature: %.2f, Top-P: %.2f, Top-K: %d, Repeat Penalty: %.2f",
+        LogManager.logI(TAG, String.format("获取手动推理参数 - Temperature: %.2f, Top-P: %.2f, Top-K: %d, Repeat Penalty: %.2f",
             temperature, topP, topK, repeatPenalty));
         
         return params;
     } catch (Exception e) {
-        LogManager.logE(TAG, "获取备份推理参数失败", e);
+        LogManager.logE(TAG, "获取手动推理参数失败", e);
         return null;
     }
 }
@@ -3270,15 +3270,15 @@ private LocalLlmHandler.InferenceParams getBackupInferenceParams() {
 private long acquireSampler(LocalLlmHandler.InferenceParams params) {
     LocalLlmHandler.InferenceParams finalParams = null;
     
-    // 参数优先级：模型目录参数 > 备份配置参数
+    // 参数优先级：模型目录参数 > 手动配置参数
     if (modelParams != null) {
         // 使用模型目录参数（最高优先级）
         finalParams = modelParams;
         LogManager.logI(TAG, "使用模型目录的推理参数（最高优先级）");
     } else {
-        // 使用备份配置参数（第二优先级）
-        finalParams = getBackupInferenceParams();
-        LogManager.logI(TAG, "使用备份配置的推理参数（第二优先级）");
+        // 使用手动配置参数（第二优先级）
+        finalParams = getManualInferenceParams();
+        LogManager.logI(TAG, "使用手动配置的推理参数（第二优先级）");
     }
     
     // 如果预分配的sampler可用且使用默认参数，则复用
@@ -3350,7 +3350,7 @@ private long acquireSampler(LocalLlmHandler.InferenceParams params) {
 ↓
 检查是否有modelParams（模型目录参数）
 ↓
-如果没有，调用getBackupInferenceParams获取备份参数
+如果没有，调用getManualInferenceParams获取手动参数
 ↓
 使用最终确定的参数创建采样器
 ↓
@@ -3363,12 +3363,12 @@ private long acquireSampler(LocalLlmHandler.InferenceParams params) {
 
 **1. 灵活的配置管理**：
 - 支持模型特定的推理参数配置
-- 提供可靠的用户备份参数机制
+- 提供可靠的用户手动参数机制
 - 简化的两级优先级避免配置冲突
 
 **2. 用户友好的体验**：
 - 模型目录配置文件便于模型分发
-- 用户可通过设置页面配置备份参数
+- 用户可通过设置页面配置手动参数
 - 确保在任何情况下都有合理的参数可用
 
 **3. 系统稳定性增强**：

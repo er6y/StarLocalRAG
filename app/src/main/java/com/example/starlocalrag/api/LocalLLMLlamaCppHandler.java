@@ -90,6 +90,9 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
     // 模型参数缓存
     private LocalLlmHandler.InferenceParams modelParams = null;
     
+    // 实际使用的推理参数（用于性能统计显示）
+    private volatile LocalLlmHandler.InferenceParams actualUsedParams = null;
+    
     public LocalLLMLlamaCppHandler(Context context) {
         this.context = context;
         this.executorService = Executors.newSingleThreadExecutor();
@@ -349,16 +352,32 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
     private long acquireSampler(LocalLlmHandler.InferenceParams params) {
         LocalLlmHandler.InferenceParams finalParams = null;
         
-        // 参数优先级：模型目录参数 > 备份配置参数
-        if (modelParams != null) {
-            // 使用模型目录参数（最高优先级）
-            finalParams = modelParams;
-            LogManager.logI(TAG, "使用模型目录的推理参数（最高优先级）");
-        } else {
-            // 使用备份配置参数（第二优先级）
-            finalParams = getBackupInferenceParams();
-            LogManager.logI(TAG, "使用备份配置的推理参数（第二优先级）");
+        // 检查是否优先使用手动参数
+        Context context = getContext();
+        boolean priorityManualParams = false;
+        if (context != null) {
+            priorityManualParams = ConfigManager.getPriorityManualParams(context);
         }
+        
+        if (priorityManualParams) {
+            // 优先手动参数开关打开，直接使用手动参数
+            finalParams = getManualInferenceParams();
+            LogManager.logI(TAG, "优先手动参数开关已开启，直接使用手动推理参数");
+        } else {
+            // 参数优先级：模型目录参数 > 手动配置参数
+            if (modelParams != null) {
+                // 使用模型目录参数（最高优先级）
+                finalParams = modelParams;
+                LogManager.logI(TAG, "使用模型目录的推理参数（最高优先级）");
+            } else {
+                // 使用手动配置参数（第二优先级）
+                finalParams = getManualInferenceParams();
+                LogManager.logI(TAG, "使用手动配置的推理参数（第二优先级）");
+            }
+        }
+        
+        // 记录实际使用的参数（用于性能统计显示）
+        actualUsedParams = finalParams;
         
         // 如果预分配的sampler可用且使用默认参数，则复用
         if (preallocatedSampler != 0 && finalParams == null && 
@@ -1245,11 +1264,12 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
         stats.append(String.format("   • threads: %d\n", threads));
         stats.append(String.format("   • GPU: %s\n", useGpu ? "True" : "False"));
         
-        // 如果有模型参数，也显示出来
-        if (modelParams != null) {
+        // 显示实际使用的推理参数
+        LocalLlmHandler.InferenceParams actualParams = getActualInferenceParams();
+        if (actualParams != null) {
             stats.append(String.format("   • ggufParam: temp=%.2f, top_p=%.2f, top_k=%d, repeat_penalty=%.2f\n",
-                modelParams.getTemperature(), modelParams.getTopP(), 
-                modelParams.getTopK(), modelParams.getRepetitionPenalty()));
+                actualParams.getTemperature(), actualParams.getTopP(), 
+                actualParams.getTopK(), actualParams.getRepetitionPenalty()));
         }
         
         stats.append("═══════════════════════════════════════\n");
@@ -1474,22 +1494,22 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
     }
     
     /**
-     * 获取备份推理参数
-     * @return 从ConfigManager获取的备份推理参数，如果获取失败则返回null
+     * 获取手动推理参数
+     * @return 手动推理参数对象
      */
-    private LocalLlmHandler.InferenceParams getBackupInferenceParams() {
+    private LocalLlmHandler.InferenceParams getManualInferenceParams() {
         try {
             Context context = getContext();
             if (context == null) {
-                LogManager.logW(TAG, "Context为空，无法获取备份推理参数");
+                LogManager.logW(TAG, "Context为空，无法获取手动推理参数");
                 return null;
             }
             
-            // 从ConfigManager获取备份推理参数
-            float temperature = ConfigManager.getBackupTemperature(context);
-            float topP = ConfigManager.getBackupTopP(context);
-            int topK = ConfigManager.getBackupTopK(context);
-            float repeatPenalty = ConfigManager.getBackupRepeatPenalty(context);
+            // 从ConfigManager获取手动推理参数
+            float temperature = ConfigManager.getManualTemperature(context);
+            float topP = ConfigManager.getManualTopP(context);
+            int topK = ConfigManager.getManualTopK(context);
+            float repeatPenalty = ConfigManager.getManualRepeatPenalty(context);
             
             // 创建推理参数对象
             LocalLlmHandler.InferenceParams params = new LocalLlmHandler.InferenceParams();
@@ -1506,6 +1526,15 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
             LogManager.logE(TAG, "获取备份推理参数失败", e);
             return null;
         }
+    }
+    
+    /**
+     * 获取实际使用的推理参数（用于性能统计显示）
+     * @return 实际使用的推理参数，逻辑与acquireSampler中的参数选择一致
+     */
+    private LocalLlmHandler.InferenceParams getActualInferenceParams() {
+        // 直接返回实际使用的参数（在acquireSampler中记录）
+        return actualUsedParams;
     }
     
     /**

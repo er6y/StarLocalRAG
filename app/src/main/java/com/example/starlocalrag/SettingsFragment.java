@@ -52,7 +52,7 @@ public class SettingsFragment extends Fragment {
     private Button buttonSaveSettings;
     private SwitchCompat switchDebugMode;
     private SwitchCompat switchUseGpu;
-    private SwitchCompat switchUseOnnxGenAI; // OnnxRuntimeGenAI引擎开关
+    // ONNX引擎开关已移除
     private SwitchCompat switchJsonDatasetSplitting; // JSON训练集分块优化开关
     private SeekBar seekBarFontSize; // 字体大小拖动条
     private TextView textViewFontSizeValue; // 字体大小值显示
@@ -62,11 +62,12 @@ public class SettingsFragment extends Fragment {
     private EditText editTextThreads; // 推理线程数
     private EditText editTextMaxNewTokens; // 最大输出token数
     
-    // 备份推理参数UI组件
-    private EditText editTextBackupTemperature; // 备份温度参数
-    private EditText editTextBackupTopP; // 备份Top-P参数
-    private EditText editTextBackupTopK; // 备份Top-K参数
-    private EditText editTextBackupRepeatPenalty; // 备份重复惩罚参数
+    // 手动推理参数UI组件
+    private EditText editTextManualTemperature; // 手动温度参数
+    private EditText editTextManualTopP; // 手动Top-P参数
+    private EditText editTextManualTopK; // 手动Top-K参数
+    private EditText editTextManualRepeatPenalty; // 手动重复惩罚参数
+    private SwitchCompat switchPriorityManualParams; // 优先手动参数开关
     
     // Activity Result Launchers
     private ActivityResultLauncher<Intent> modelPathLauncher;
@@ -148,7 +149,7 @@ public class SettingsFragment extends Fragment {
         buttonSaveSettings = view.findViewById(R.id.buttonSaveSettings);
         switchDebugMode = view.findViewById(R.id.switchDebugMode);
         switchUseGpu = view.findViewById(R.id.switchUseGpu);
-        switchUseOnnxGenAI = view.findViewById(R.id.switchUseOnnxGenAI); // OnnxRuntimeGenAI引擎开关
+        // ONNX引擎开关初始化已移除
         switchJsonDatasetSplitting = view.findViewById(R.id.switchJsonDatasetSplitting); // JSON训练集分块优化开关
         
         // 初始化 LLM 推理设置相关UI组件
@@ -159,11 +160,12 @@ public class SettingsFragment extends Fragment {
         seekBarFontSize = view.findViewById(R.id.seekBarFontSize); // 字体大小拖动条
         textViewFontSizeValue = view.findViewById(R.id.textViewFontSizeValue); // 字体大小值显示
         
-        // 初始化备份推理参数UI组件
-        editTextBackupTemperature = view.findViewById(R.id.editTextBackupTemperature);
-        editTextBackupTopP = view.findViewById(R.id.editTextBackupTopP);
-        editTextBackupTopK = view.findViewById(R.id.editTextBackupTopK);
-        editTextBackupRepeatPenalty = view.findViewById(R.id.editTextBackupRepeatPenalty);
+        // 初始化手动推理参数UI组件
+        editTextManualTemperature = view.findViewById(R.id.editTextManualTemperature);
+        editTextManualTopP = view.findViewById(R.id.editTextManualTopP);
+        editTextManualTopK = view.findViewById(R.id.editTextManualTopK);
+        editTextManualRepeatPenalty = view.findViewById(R.id.editTextManualRepeatPenalty);
+        switchPriorityManualParams = view.findViewById(R.id.switchPriorityManualParams); // 优先手动参数开关
         
         // 加载当前设置
         loadSettings();
@@ -291,8 +293,7 @@ public class SettingsFragment extends Fragment {
             // 加载GPU加速设置
             boolean useGpu = ConfigManager.getBoolean(context, ConfigManager.KEY_USE_GPU, false);
             
-            // 加载OnnxRuntimeGenAI引擎设置
-            boolean useOnnxGenAI = ConfigManager.getBoolean(context, ConfigManager.KEY_USE_ONNX_GENAI, true);
+            // ONNX引擎设置加载已移除
             
             // 加载JSON训练集分块优化开关
             boolean jsonDatasetSplitting = ConfigManager.isJsonDatasetSplittingEnabled(context);
@@ -315,7 +316,7 @@ public class SettingsFragment extends Fragment {
             editTextKnowledgeBasePath.setText(knowledgeBasePath);
             switchDebugMode.setChecked(debugMode);
             switchUseGpu.setChecked(useGpu);
-            switchUseOnnxGenAI.setChecked(useOnnxGenAI);
+            // ONNX引擎开关设置已移除
             switchJsonDatasetSplitting.setChecked(jsonDatasetSplitting);
             seekBarFontSize.setProgress(Math.round(fontSize) - 10);
             updateFontSizeText(Math.round(fontSize) - 10);
@@ -326,17 +327,19 @@ public class SettingsFragment extends Fragment {
             editTextMaxNewTokens.setText(String.valueOf(maxNewTokens));
             // switchNoThinking已移动到RAG问答界面
             
-            // 加载备份推理参数
-            float backupTemperature = ConfigManager.getBackupTemperature(context);
-            float backupTopP = ConfigManager.getBackupTopP(context);
-            int backupTopK = ConfigManager.getBackupTopK(context);
-            float backupRepeatPenalty = ConfigManager.getBackupRepeatPenalty(context);
+            // 加载手动推理参数
+            float manualTemperature = ConfigManager.getManualTemperature(context);
+            float manualTopP = ConfigManager.getManualTopP(context);
+            int manualTopK = ConfigManager.getManualTopK(context);
+            float manualRepeatPenalty = ConfigManager.getManualRepeatPenalty(context);
+            boolean priorityManualParams = ConfigManager.getBoolean(context, ConfigManager.KEY_PRIORITY_MANUAL_PARAMS, false);
             
-            // 设置备份推理参数UI
-            editTextBackupTemperature.setText(String.valueOf(backupTemperature));
-            editTextBackupTopP.setText(String.valueOf(backupTopP));
-            editTextBackupTopK.setText(String.valueOf(backupTopK));
-            editTextBackupRepeatPenalty.setText(String.valueOf(backupRepeatPenalty));
+            // 设置手动推理参数UI
+            editTextManualTemperature.setText(String.valueOf(manualTemperature));
+            editTextManualTopP.setText(String.valueOf(manualTopP));
+            editTextManualTopK.setText(String.valueOf(manualTopK));
+            editTextManualRepeatPenalty.setText(String.valueOf(manualRepeatPenalty));
+            switchPriorityManualParams.setChecked(priorityManualParams);
             
             LogManager.logD(TAG, "设置加载完成");
         } catch (Exception e) {
@@ -401,8 +404,7 @@ public class SettingsFragment extends Fragment {
             // 获取GPU加速设置
             boolean useGpu = switchUseGpu.isChecked();
             
-            // 获取OnnxRuntimeGenAI引擎设置
-            boolean useOnnxGenAI = switchUseOnnxGenAI.isChecked();
+            // ONNX引擎设置获取已移除
             
             // 获取JSON训练集分块优化开关
             boolean jsonDatasetSplitting = switchJsonDatasetSplitting.isChecked();
@@ -417,11 +419,12 @@ public class SettingsFragment extends Fragment {
             String maxNewTokensStr = editTextMaxNewTokens.getText().toString().trim();
             // noThinking已移动到RAG问答界面
             
-            // 获取备份推理参数
-            String backupTemperatureStr = editTextBackupTemperature.getText().toString().trim();
-            String backupTopPStr = editTextBackupTopP.getText().toString().trim();
-            String backupTopKStr = editTextBackupTopK.getText().toString().trim();
-            String backupRepeatPenaltyStr = editTextBackupRepeatPenalty.getText().toString().trim();
+            // 获取手动推理参数
+            String manualTemperatureStr = editTextManualTemperature.getText().toString().trim();
+            String manualTopPStr = editTextManualTopP.getText().toString().trim();
+            String manualTopKStr = editTextManualTopK.getText().toString().trim();
+            String manualRepeatPenaltyStr = editTextManualRepeatPenalty.getText().toString().trim();
+            boolean priorityManualParams = switchPriorityManualParams.isChecked();
             
             // 验证 LLM 推理设置
             if (maxSequenceLengthStr.isEmpty() || threadsStr.isEmpty() || maxNewTokensStr.isEmpty()) {
@@ -429,9 +432,9 @@ public class SettingsFragment extends Fragment {
                 return;
             }
             
-            // 验证备份推理参数
-            if (backupTemperatureStr.isEmpty() || backupTopPStr.isEmpty() || backupTopKStr.isEmpty() || backupRepeatPenaltyStr.isEmpty()) {
-                Toast.makeText(context, "请填写所有备份推理参数", Toast.LENGTH_SHORT).show();
+            // 验证手动推理参数
+            if (manualTemperatureStr.isEmpty() || manualTopPStr.isEmpty() || manualTopKStr.isEmpty() || manualRepeatPenaltyStr.isEmpty()) {
+                Toast.makeText(context, "请填写所有手动推理参数", Toast.LENGTH_SHORT).show();
                 return;
             }
             
@@ -440,11 +443,11 @@ public class SettingsFragment extends Fragment {
             int threads = Integer.parseInt(threadsStr);
             int maxNewTokens = Integer.parseInt(maxNewTokensStr);
             
-            // 转换备份推理参数
-            float backupTemperature = Float.parseFloat(backupTemperatureStr);
-            float backupTopP = Float.parseFloat(backupTopPStr);
-            int backupTopK = Integer.parseInt(backupTopKStr);
-            float backupRepeatPenalty = Float.parseFloat(backupRepeatPenaltyStr);
+            // 转换手动推理参数
+            float manualTemperature = Float.parseFloat(manualTemperatureStr);
+            float manualTopP = Float.parseFloat(manualTopPStr);
+            int manualTopK = Integer.parseInt(manualTopKStr);
+            float manualRepeatPenalty = Float.parseFloat(manualRepeatPenaltyStr);
             
             // 验证值范围
             if (maxSequenceLength < 100 || maxSequenceLength > 8192) {
@@ -462,24 +465,24 @@ public class SettingsFragment extends Fragment {
                 return;
             }
             
-            // 验证备份推理参数范围
-            if (backupTemperature < 0.0f || backupTemperature > 2.0f) {
-                Toast.makeText(context, "备份温度参数应在0.0-2.0之间", Toast.LENGTH_SHORT).show();
+            // 验证手动推理参数范围
+            if (manualTemperature < 0.0f || manualTemperature > 2.0f) {
+                Toast.makeText(context, "手动温度参数应在0.0-2.0之间", Toast.LENGTH_SHORT).show();
                 return;
             }
             
-            if (backupTopP < 0.0f || backupTopP > 1.0f) {
-                Toast.makeText(context, "备份Top-P参数应在0.0-1.0之间", Toast.LENGTH_SHORT).show();
+            if (manualTopP < 0.0f || manualTopP > 1.0f) {
+                Toast.makeText(context, "手动Top-P参数应在0.0-1.0之间", Toast.LENGTH_SHORT).show();
                 return;
             }
             
-            if (backupTopK < 1 || backupTopK > 100) {
-                Toast.makeText(context, "备份Top-K参数应在1-100之间", Toast.LENGTH_SHORT).show();
+            if (manualTopK < 1 || manualTopK > 100) {
+                Toast.makeText(context, "手动Top-K参数应在1-100之间", Toast.LENGTH_SHORT).show();
                 return;
             }
             
-            if (backupRepeatPenalty < 0.0f || backupRepeatPenalty > 2.0f) {
-                Toast.makeText(context, "备份重复惩罚参数应在0.0-2.0之间", Toast.LENGTH_SHORT).show();
+            if (manualRepeatPenalty < 0.0f || manualRepeatPenalty > 2.0f) {
+                Toast.makeText(context, "手动重复惩罚参数应在0.0-2.0之间", Toast.LENGTH_SHORT).show();
                 return;
             }
             
@@ -500,7 +503,7 @@ public class SettingsFragment extends Fragment {
             ConfigManager.setString(context, ConfigManager.KEY_KNOWLEDGE_BASE_PATH, knowledgeBasePath);
             ConfigManager.setBoolean(context, ConfigManager.KEY_DEBUG_MODE, debugMode);
             ConfigManager.setBoolean(context, ConfigManager.KEY_USE_GPU, useGpu);
-            ConfigManager.setBoolean(context, ConfigManager.KEY_USE_ONNX_GENAI, useOnnxGenAI);
+            // ONNX引擎配置保存已移除
             ConfigManager.setJsonDatasetSplittingEnabled(context, jsonDatasetSplitting);
             ConfigManager.setGlobalTextSize(context, fontSize);
             
@@ -510,11 +513,12 @@ public class SettingsFragment extends Fragment {
             ConfigManager.setMaxNewTokens(context, maxNewTokens);
             // noThinking已移动到RAG问答界面
             
-            // 保存备份推理参数
-            ConfigManager.setBackupTemperature(context, backupTemperature);
-            ConfigManager.setBackupTopP(context, backupTopP);
-            ConfigManager.setBackupTopK(context, backupTopK);
-            ConfigManager.setBackupRepeatPenalty(context, backupRepeatPenalty);
+            // 保存手动推理参数
+            ConfigManager.setManualTemperature(context, manualTemperature);
+            ConfigManager.setManualTopP(context, manualTopP);
+            ConfigManager.setManualTopK(context, manualTopK);
+            ConfigManager.setManualRepeatPenalty(context, manualRepeatPenalty);
+            ConfigManager.setBoolean(context, ConfigManager.KEY_PRIORITY_MANUAL_PARAMS, priorityManualParams);
             
             // 创建JSON格式的设置摘要
             JSONObject settingsSummary = new JSONObject();
@@ -526,7 +530,7 @@ public class SettingsFragment extends Fragment {
             settingsSummary.put("knowledgeBasePath", knowledgeBasePath);
             settingsSummary.put("debugMode", debugMode);
             settingsSummary.put("useGpu", useGpu);
-            settingsSummary.put("useOnnxGenAI", useOnnxGenAI);
+            // ONNX引擎设置摘要已移除
             settingsSummary.put("jsonDatasetSplitting", jsonDatasetSplitting);
             
             // 添加 LLM 推理设置信息

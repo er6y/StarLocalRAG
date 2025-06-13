@@ -29,12 +29,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import ai.onnxruntime.NodeInfo;
-import ai.onnxruntime.OnnxTensor;
-import ai.onnxruntime.OrtEnvironment;
-import ai.onnxruntime.OrtException;
-import ai.onnxruntime.OrtSession;
-import ai.onnxruntime.OrtSession.SessionOptions;
+// ONNX Runtime相关导入已移除
 import java.util.Iterator;
 import java.util.Arrays;
 import com.example.starlocalrag.HarmonyOSGPUAdapter;
@@ -81,12 +76,6 @@ public class LocalLlmHandler {
     // 推理引擎接口（支持多种实现）
     private InferenceEngine inferenceEngine;
     
-    // ONNX运行时环境
-    private OrtEnvironment ortEnvironment;
-    
-    // ONNX会话
-    private OrtSession ortSession;
-    
     // 模型配置
     private ModelConfig modelConfig;
     
@@ -101,10 +90,9 @@ public class LocalLlmHandler {
     private int maxSeqLen = 2048;
     
     // 模型类型
-    private String modelType = "onnx";
+    private String modelType = "gguf";
     
-    // ONNX处理器
-    private LocalLLMOnnxHandler localLlmOnnxHandler;
+    // ONNX相关变量已移除
     
     // 模型配置类
     public static class ModelConfig {
@@ -415,21 +403,7 @@ public class LocalLlmHandler {
         LogManager.logI(TAG, "推理引擎已切换为: " + engine.getEngineType());
     }
     
-    /**
-     * 切换到ONNX Runtime GenAI引擎
-     */
-    public void switchToGenAIEngine() {
-        LogManager.logI(TAG, "切换到ONNX Runtime GenAI推理引擎");
-        setInferenceEngine(new GenAIInferenceEngine());
-    }
-    
-    /**
-     * 切换到传统ONNX Runtime引擎
-     */
-    public void switchToOnnxRuntimeEngine() {
-        LogManager.logI(TAG, "切换到传统ONNX Runtime推理引擎");
-        setInferenceEngine(new OnnxRuntimeInferenceEngine());
-    }
+    // ONNX引擎切换方法已移除
     
     /**
      * 获取当前推理引擎类型
@@ -450,12 +424,8 @@ public class LocalLlmHandler {
      * 根据配置更新推理引擎
      */
     public void updateEngineFromConfig() {
-        boolean useOnnxGenAI = ConfigManager.getBoolean(context, ConfigManager.KEY_USE_ONNX_GENAI, true);
-        if (useOnnxGenAI && !(inferenceEngine instanceof GenAIInferenceEngine)) {
-            switchToGenAIEngine();
-        } else if (!useOnnxGenAI && !(inferenceEngine instanceof OnnxRuntimeInferenceEngine)) {
-            switchToOnnxRuntimeEngine();
-        }
+        // ONNX引擎配置更新逻辑已移除，只支持LlamaCpp引擎
+        LogManager.logI(TAG, "只支持LlamaCpp引擎，无需更新引擎配置");
     }
     
     /**
@@ -544,25 +514,8 @@ public class LocalLlmHandler {
                 }
                 inferenceEngine = selectedEngine;
                 
-                // 3. 加载模型配置（仅对ONNX模型需要）
-                ModelConfig modelConfig = null;
-                if (inferenceEngine instanceof GenAIInferenceEngine || inferenceEngine instanceof OnnxRuntimeInferenceEngine) {
-                    File configFile = new File(modelDir, "config.json");
-                    if (!configFile.exists()) {
-                        // 尝试使用genai_config.json (ONNX Runtime GenAI格式)
-                        configFile = new File(modelDir, "genai_config.json");
-                        if (!configFile.exists()) {
-                            throw new IOException("ONNX模型配置文件不存在: " + modelDir.getAbsolutePath() + "/config.json 或 " + modelDir.getAbsolutePath() + "/genai_config.json");
-                        }
-                        LogManager.logI(TAG, "使用ONNX Runtime GenAI配置文件: genai_config.json");
-                    } else {
-                        LogManager.logI(TAG, "使用标准配置文件: config.json");
-                    }
-                    modelConfig = loadModelConfig(configFile);
-                } else {
-                    // 对于LlamaCpp，创建基本配置
-                    modelConfig = createBasicModelConfig(modelDir.getAbsolutePath());
-                }
+                // 3. 加载模型配置（只支持LlamaCpp）
+                ModelConfig modelConfig = createBasicModelConfig(modelDir.getAbsolutePath());
                 
                 // 4. 初始化推理引擎
                 inferenceEngine.initialize(modelDir.getAbsolutePath(), modelConfig);
@@ -652,55 +605,12 @@ public class LocalLlmHandler {
      * @return 生成的文本数组
      */
     public String[] inferenceStreamBatch(String[] inputTexts, int maxTokens, float temperature, int topK, float topP, LocalLlmCallback callback) {
-        if (localLlmOnnxHandler == null) {
-            LogManager.logE(TAG, "模型未加载，无法进行批处理推理");
-            String[] errorResults = new String[inputTexts.length];
-            for (int i = 0; i < inputTexts.length; i++) {
-                errorResults[i] = "模型未加载";
-            }
-            return errorResults;
+        LogManager.logE(TAG, "批处理推理不支持，ONNX引擎已移除");
+        String[] errorResults = new String[inputTexts.length];
+        for (int i = 0; i < inputTexts.length; i++) {
+            errorResults[i] = "批处理推理不支持";
         }
-        
-        if (modelConfig == null || modelConfig.getMaxBatchSize() <= 1) {
-            LogManager.logW(TAG, "当前模型不支持批处理，将使用单序列推理");
-            // 回退到单序列推理
-            String[] results = new String[inputTexts.length];
-            for (int i = 0; i < inputTexts.length; i++) {
-                // 使用同步推理方法，需要实现一个简化版本
-                try {
-                    results[i] = localLlmOnnxHandler.inference(inputTexts[i], maxTokens, false, temperature, topK);
-                } catch (Exception e) {
-                    LogManager.logE(TAG, "单序列推理失败: " + e.getMessage(), e);
-                    results[i] = "推理失败: " + e.getMessage();
-                }
-            }
-            return results;
-        }
-        
-        LogManager.logI(TAG, "开始批处理推理，输入序列数: " + inputTexts.length + ", 最大批处理大小: " + modelConfig.getMaxBatchSize());
-        
-        // 创建流式回调适配器
-         LocalLLMOnnxHandler.StreamingCallback streamCallback = null;
-         if (callback != null) {
-             streamCallback = new LocalLLMOnnxHandler.StreamingCallback() {
-                 @Override
-                 public void onToken(String token) {
-                     callback.onTokenGenerated(token);
-                 }
-                 
-                 @Override
-                 public void onComplete(String fullResponse) {
-                     callback.onComplete(fullResponse);
-                 }
-                 
-                 @Override
-                 public void onError(String errorMessage) {
-                     callback.onError(errorMessage);
-                 }
-             };
-         }
-        
-        return localLlmOnnxHandler.inferenceStreamBatch(inputTexts, maxTokens, temperature, topK, topP, streamCallback);
+        return errorResults;
     }
     
     /**
@@ -783,23 +693,12 @@ public class LocalLlmHandler {
         }
         
         try {
-            // 新对话调试日志已移除
-            
             // 根据推理引擎类型调用相应的重置方法
             if (inferenceEngine instanceof LocalLLMLlamaCppHandler) {
-                // 新对话调试日志已移除
                 ((LocalLLMLlamaCppHandler) inferenceEngine).resetModelMemory();
-            } else if (inferenceEngine instanceof LocalLLMOnnxRuntimeGenAIHandler) {
-                // OnnxRuntimeGenAI引擎的重置逻辑
-                // 新对话调试日志已移除
-            } else if (localLlmOnnxHandler != null) {
-                // 传统ONNX引擎的重置逻辑
-                // 新对话调试日志已移除
             } else {
                 LogManager.logW(TAG, "未知的推理引擎类型，无法重置记忆");
             }
-            
-            // 新对话调试日志已移除
         } catch (Exception e) {
             LogManager.logE(TAG, "重置模型记忆失败", e);
         }
@@ -827,7 +726,7 @@ public class LocalLlmHandler {
     public void unloadModel() {
         // 卸载模型逻辑
         LogManager.logD(TAG, "卸载模型");
-        // 注意：LocalLLMOnnxHandler没有close方法
+        // ONNX Handler已移除
         // 设置模型卸载标志
         modelLoaded.set(false);
         
@@ -950,143 +849,9 @@ public class LocalLlmHandler {
         }
     }
 
-    /**
-     * ONNX Runtime GenAI推理引擎实现
-     * 使用新的ONNX Runtime GenAI API
-     */
-    private class GenAIInferenceEngine implements InferenceEngine {
-        private LocalLLMOnnxRuntimeGenAIHandler genaiHandler;
-        
-        @Override
-        public void initialize(String modelPath, ModelConfig config) throws Exception {
-            LogManager.logI(TAG, "初始化ONNX Runtime GenAI推理引擎: " + modelPath);
-            
-            // 创建GenAI处理器
-            genaiHandler = new LocalLLMOnnxRuntimeGenAIHandler(context);
-            
-            // 初始化处理器
-            genaiHandler.initialize(modelPath, config);
-            
-            LogManager.logI(TAG, "✓ ONNX Runtime GenAI引擎初始化完成");
-        }
-        
-        @Override
-        public void inference(String prompt, InferenceParams params, StreamingCallback callback) {
-            if (genaiHandler == null || !genaiHandler.isInitialized()) {
-                callback.onError("ONNX Runtime GenAI引擎未初始化");
-                return;
-            }
-            
-            // 直接调用GenAI处理器的推理方法
-            // 调试追踪日志已移除
-            genaiHandler.inference(prompt, params, callback);
-        }
-        
-        @Override
-        public void stopInference() {
-            if (genaiHandler != null) {
-                genaiHandler.stopInference();
-            }
-            shouldStopInference.set(true);
-        }
-        
-        @Override
-        public void release() {
-            if (genaiHandler != null) {
-                genaiHandler.release();
-                genaiHandler = null;
-            }
-        }
-        
-        @Override
-        public String getEngineType() {
-            return "ONNX Runtime GenAI";
-        }
-        
-        /**
-         * 获取GenAI处理器实例（用于高级操作）
-         * @return GenAI处理器实例
-         */
-        public LocalLLMOnnxRuntimeGenAIHandler getGenAIHandler() {
-            return genaiHandler;
-        }
-    }
+    // ONNX Runtime GenAI推理引擎已移除
 
-    /**
-     * ONNX Runtime推理引擎实现
-     * 封装现有的LocalLLMOnnxHandler
-     */
-    private class OnnxRuntimeInferenceEngine implements InferenceEngine {
-        private LocalLLMOnnxHandler onnxHandler;
-        
-        @Override
-        public void initialize(String modelPath, ModelConfig config) throws Exception {
-            // 这里需要初始化ONNX Runtime环境和会话
-            // 暂时保持原有逻辑，后续会被GenAI引擎替代
-            LogManager.logI(TAG, "初始化ONNX Runtime推理引擎: " + modelPath);
-            
-            // TODO: 实现完整的ONNX Runtime初始化逻辑
-            // 这里应该包含原有的ortEnvironment和ortSession初始化代码
-            
-            // 创建LocalLLMOnnxHandler实例
-            // onnxHandler = new LocalLLMOnnxHandler(context, ortEnvironment, ortSession, config);
-        }
-        
-        @Override
-        public void inference(String prompt, InferenceParams params, StreamingCallback callback) {
-            if (onnxHandler == null) {
-                callback.onError("ONNX Runtime引擎未初始化");
-                return;
-            }
-            
-            // 转换参数并调用原有的推理方法
-            onnxHandler.inferenceStream(prompt, 
-                params.getMaxTokenLength(), 
-                params.isThinkingMode(), 
-                params.getTemperature(), 
-                params.getTopK(), 
-                new LocalLLMOnnxHandler.StreamingCallback() {
-                    @Override
-                    public void onToken(String token) {
-                        if (shouldStopInference()) {
-                            callback.onError("推理被用户停止");
-                            return;
-                        }
-                        callback.onToken(token);
-                    }
-                    
-                    @Override
-                    public void onComplete(String fullResponse) {
-                        callback.onComplete(fullResponse);
-                    }
-                    
-                    @Override
-                    public void onError(String errorMessage) {
-                        callback.onError(errorMessage);
-                    }
-                }, LocalLlmHandler.this);
-        }
-        
-        @Override
-        public void stopInference() {
-            // 设置停止标志
-            shouldStopInference.set(true);
-        }
-        
-        @Override
-        public void release() {
-            if (onnxHandler != null) {
-                // TODO: 释放ONNX Runtime资源
-                // 需要释放ortSession和ortEnvironment
-                onnxHandler = null;
-            }
-        }
-        
-        @Override
-        public String getEngineType() {
-            return "ONNX Runtime";
-        }
-    }
+    // ONNX Runtime推理引擎已移除
 
     /**
      * 加载模型配置
@@ -1216,26 +981,8 @@ public class LocalLlmHandler {
             return new LocalLLMLlamaCppHandler(context);
         }
         
-        // 检查是否为ONNX模型
-        File configFile = new File(modelDir, "config.json");
-        File genaiConfigFile = new File(modelDir, "genai_config.json");
-        
-        if (genaiConfigFile.exists()) {
-            LogManager.logI(TAG, "检测到genai_config.json，选择ONNX Runtime GenAI推理引擎");
-            return new GenAIInferenceEngine();
-        } else if (configFile.exists()) {
-            // 根据配置选择ONNX引擎类型
-            boolean useOnnxGenAI = ConfigManager.getBoolean(context, ConfigManager.KEY_USE_ONNX_GENAI, true);
-            if (useOnnxGenAI) {
-                LogManager.logI(TAG, "检测到config.json，选择ONNX Runtime GenAI推理引擎");
-                return new GenAIInferenceEngine();
-            } else {
-                LogManager.logI(TAG, "检测到config.json，选择传统ONNX Runtime推理引擎");
-                return new OnnxRuntimeInferenceEngine();
-            }
-        }
-        
-        LogManager.logW(TAG, "无法确定模型类型，未找到支持的配置文件或模型文件");
+        // ONNX模型支持已移除，只支持GGUF模型
+        LogManager.logW(TAG, "只支持GGUF模型，ONNX模型支持已移除");
         return null;
     }
     

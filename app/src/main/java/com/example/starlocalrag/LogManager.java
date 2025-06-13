@@ -562,6 +562,56 @@ public class LogManager {
             Log.e(tag, message, throwable);
         }
     }
+
+    /**
+     * 专门为print方法写入原始内容到日志文件，不添加格式化
+     * @param message 原始消息内容
+     */
+    private synchronized void writeRawToLogFile(String message) {
+        try {
+            // 检查日志文件大小
+            checkLogFileSize();
+            
+            // 直接写入原始消息，不添加时间戳、级别和标签格式化
+            try (BufferedWriter writer = new BufferedWriter(new FileWriter(logFile, true))) {
+                writer.write(message);
+            }
+        } catch (IOException e) {
+            LogManager.logE(TAG, "写入原始内容到日志文件失败: " + e.getMessage(), e);
+        }
+    }
+
+
+
+    /**
+     * 静态方法：打印消息到控制台并写入日志文件
+     * 会检查debug_mode配置，只有在调试模式开启时才记录到文件
+     * @param message 消息内容
+     */
+    public static void print(String message) {
+        try {
+            // 直接打印到控制台
+            System.out.print(message);
+            
+            // 检查是否需要写入日志文件
+            Context context = getApplicationContext();
+            if (context != null) {
+                // 检查debug_mode配置
+                boolean debugMode = ConfigManager.getBoolean(context, ConfigManager.KEY_DEBUG_MODE, false);
+                if (debugMode) {
+                    LogManager logManager = LogManager.getInstance(context);
+                    if (logManager != null) {
+                        logManager.writeRawToLogFile(message);
+                    }
+                }
+                // 调试模式关闭时，只输出到控制台，不记录到文件
+            }
+        } catch (Exception e) {
+            // 异常情况下至少保证控制台输出
+            System.out.print(message);
+            Log.e(TAG, "LogManager.print异常: " + e.getMessage(), e);
+        }
+    }
     
     /**
      * 获取Application Context的辅助方法

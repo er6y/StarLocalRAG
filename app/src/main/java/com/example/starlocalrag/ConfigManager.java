@@ -69,7 +69,7 @@ public class ConfigManager {
     public static final String KEY_THREADS = "threads"; // ONNX推理线程数
     public static final String KEY_MAX_NEW_TOKENS = "max_new_tokens"; // 最大输出token数
     public static final String KEY_KV_CACHE_SIZE = "kv_cache_size"; // 兼容性保留，已废弃，使用max_new_tokens
-    public static final String KEY_USE_ONNX_GENAI = "use_onnx_genai"; // 是否使用OnnxRuntimeGenAI引擎
+    // ONNX相关配置项已移除
     
     // LlamaCpp 相关配置键
     public static final String KEY_LLAMACPP_MODEL_PATH = "llamacpp_model_path"; // LlamaCpp模型路径
@@ -89,11 +89,12 @@ public class ConfigManager {
     public static final String KEY_LLAMACPP_EMBEDDING_BATCH_SIZE = "llamacpp_embedding_batch_size"; // 嵌入批处理大小
     public static final String KEY_USE_LLAMACPP = "use_llamacpp"; // 是否使用LlamaCpp引擎
     
-    // 备份推理参数配置键（用于外部设置）
-    public static final String KEY_BACKUP_TEMPERATURE = "backup_temperature"; // 备份温度参数
-    public static final String KEY_BACKUP_TOP_P = "backup_top_p"; // 备份Top-P采样
-    public static final String KEY_BACKUP_TOP_K = "backup_top_k"; // 备份Top-K采样
-    public static final String KEY_BACKUP_REPEAT_PENALTY = "backup_repeat_penalty"; // 备份重复惩罚
+    // 手动推理参数配置键（用于外部设置）
+    public static final String KEY_MANUAL_TEMPERATURE = "manual_temperature"; // 手动温度参数
+    public static final String KEY_MANUAL_TOP_P = "manual_top_p"; // 手动Top-P采样
+    public static final String KEY_MANUAL_TOP_K = "manual_top_k"; // 手动Top-K采样
+    public static final String KEY_MANUAL_REPEAT_PENALTY = "manual_repeat_penalty"; // 手动重复惩罚
+    public static final String KEY_PRIORITY_MANUAL_PARAMS = "priority_manual_params"; // 优先手动参数开关
     
     // 文本大小相关的键
     public static final String KEY_GLOBAL_TEXT_SIZE = "global_text_size";
@@ -140,11 +141,11 @@ public class ConfigManager {
     public static final int DEFAULT_LLAMACPP_EMBEDDING_BATCH_SIZE = 32;
     public static final boolean DEFAULT_USE_LLAMACPP = false;
     
-    // 备份推理参数默认值
-    public static final float DEFAULT_BACKUP_TEMPERATURE = 0.8f;
-    public static final float DEFAULT_BACKUP_TOP_P = 0.95f;
-    public static final int DEFAULT_BACKUP_TOP_K = 40;
-    public static final float DEFAULT_BACKUP_REPEAT_PENALTY = 1.1f;
+    // 手动推理参数默认值
+    public static final float DEFAULT_MANUAL_TEMPERATURE = 0.8f;
+    public static final float DEFAULT_MANUAL_TOP_P = 0.95f;
+    public static final int DEFAULT_MANUAL_TOP_K = 40;
+    public static final float DEFAULT_MANUAL_REPEAT_PENALTY = 1.1f;
 
     private static JSONObject configCache = null;
 
@@ -210,8 +211,8 @@ public class ConfigManager {
             String[] requiredKeys = {
                 KEY_MODEL_PATH, KEY_EMBEDDING_MODEL_PATH, KEY_KNOWLEDGE_BASE_PATH,
                 KEY_CHUNK_SIZE, KEY_OVERLAP_SIZE, KEY_SEARCH_DEPTH,
-                KEY_API_URL, KEY_MODEL_NAME, KEY_KNOWLEDGE_BASE,
-                KEY_USE_ONNX_GENAI // 添加推理引擎配置项
+                KEY_API_URL, KEY_MODEL_NAME, KEY_KNOWLEDGE_BASE
+                // ONNX推理引擎配置项已移除
             };
             
             // 创建一个默认配置，仅在需要时使用
@@ -1161,8 +1162,8 @@ public class ConfigManager {
             String[] requiredKeys = {
                 KEY_MODEL_PATH, KEY_EMBEDDING_MODEL_PATH, KEY_KNOWLEDGE_BASE_PATH,
                 KEY_CHUNK_SIZE, KEY_OVERLAP_SIZE, KEY_SEARCH_DEPTH,
-                KEY_API_URL, KEY_MODEL_NAME, KEY_KNOWLEDGE_BASE,
-                KEY_USE_ONNX_GENAI // 添加推理引擎配置项
+                KEY_API_URL, KEY_MODEL_NAME, KEY_KNOWLEDGE_BASE
+                // ONNX推理引擎配置项已移除
             };
             
             for (String key : requiredKeys) {
@@ -1500,75 +1501,93 @@ public class ConfigManager {
     }
 
     /**
-     * 获取备份温度参数
+     * 获取手动温度参数
      * @param context 上下文
-     * @return 备份温度参数
+     * @return 手动温度参数
      */
-    public static float getBackupTemperature(Context context) {
-        return getFloat(context, KEY_BACKUP_TEMPERATURE, DEFAULT_BACKUP_TEMPERATURE);
+    public static float getManualTemperature(Context context) {
+        return getFloat(context, KEY_MANUAL_TEMPERATURE, DEFAULT_MANUAL_TEMPERATURE);
     }
 
     /**
-     * 设置备份温度参数
+     * 设置手动温度参数
      * @param context 上下文
      * @param temperature 温度参数
      */
-    public static void setBackupTemperature(Context context, float temperature) {
-        setFloat(context, KEY_BACKUP_TEMPERATURE, temperature);
+    public static void setManualTemperature(Context context, float temperature) {
+        setFloat(context, KEY_MANUAL_TEMPERATURE, temperature);
     }
 
     /**
-     * 获取备份Top-P参数
+     * 获取手动Top-P参数
      * @param context 上下文
-     * @return 备份Top-P参数
+     * @return 手动Top-P参数
      */
-    public static float getBackupTopP(Context context) {
-        return getFloat(context, KEY_BACKUP_TOP_P, DEFAULT_BACKUP_TOP_P);
+    public static float getManualTopP(Context context) {
+        return getFloat(context, KEY_MANUAL_TOP_P, DEFAULT_MANUAL_TOP_P);
     }
 
     /**
-     * 设置备份Top-P参数
+     * 设置手动Top-P参数
      * @param context 上下文
      * @param topP Top-P参数
      */
-    public static void setBackupTopP(Context context, float topP) {
-        setFloat(context, KEY_BACKUP_TOP_P, topP);
+    public static void setManualTopP(Context context, float topP) {
+        setFloat(context, KEY_MANUAL_TOP_P, topP);
     }
 
     /**
-     * 获取备份Top-K参数
+     * 获取手动Top-K参数
      * @param context 上下文
-     * @return 备份Top-K参数
+     * @return 手动Top-K参数
      */
-    public static int getBackupTopK(Context context) {
-        return getInt(context, KEY_BACKUP_TOP_K, DEFAULT_BACKUP_TOP_K);
+    public static int getManualTopK(Context context) {
+        return getInt(context, KEY_MANUAL_TOP_K, DEFAULT_MANUAL_TOP_K);
     }
 
     /**
-     * 设置备份Top-K参数
+     * 设置手动Top-K参数
      * @param context 上下文
      * @param topK Top-K参数
      */
-    public static void setBackupTopK(Context context, int topK) {
-        setInt(context, KEY_BACKUP_TOP_K, topK);
+    public static void setManualTopK(Context context, int topK) {
+        setInt(context, KEY_MANUAL_TOP_K, topK);
     }
 
     /**
-     * 获取备份重复惩罚参数
+     * 获取手动重复惩罚参数
      * @param context 上下文
-     * @return 备份重复惩罚参数
+     * @return 手动重复惩罚参数
      */
-    public static float getBackupRepeatPenalty(Context context) {
-        return getFloat(context, KEY_BACKUP_REPEAT_PENALTY, DEFAULT_BACKUP_REPEAT_PENALTY);
+    public static float getManualRepeatPenalty(Context context) {
+        return getFloat(context, KEY_MANUAL_REPEAT_PENALTY, DEFAULT_MANUAL_REPEAT_PENALTY);
     }
 
     /**
-     * 设置备份重复惩罚参数
+     * 设置手动重复惩罚参数
      * @param context 上下文
      * @param repeatPenalty 重复惩罚参数
      */
-    public static void setBackupRepeatPenalty(Context context, float repeatPenalty) {
-        setFloat(context, KEY_BACKUP_REPEAT_PENALTY, repeatPenalty);
+    public static void setManualRepeatPenalty(Context context, float repeatPenalty) {
+        setFloat(context, KEY_MANUAL_REPEAT_PENALTY, repeatPenalty);
+    }
+
+    /**
+     * 获取优先手动参数开关状态
+     * @param context 上下文
+     * @return 优先手动参数开关状态
+     */
+    public static boolean getPriorityManualParams(Context context) {
+        return getBoolean(context, KEY_PRIORITY_MANUAL_PARAMS, false);
+    }
+
+    /**
+     * 设置优先手动参数开关状态
+     * @param context 上下文
+     * @param priorityManualParams 优先手动参数开关状态
+     */
+    public static void setPriorityManualParams(Context context, boolean priorityManualParams) {
+        setBoolean(context, KEY_PRIORITY_MANUAL_PARAMS, priorityManualParams);
     }
 
     /**
@@ -1624,7 +1643,7 @@ public class ConfigManager {
             // 调试设置
             config.put(KEY_DEBUG_MODE, false); // 默认关闭调试模式
             config.put(KEY_USE_GPU, false); // 默认不使用GPU加速
-            config.put(KEY_USE_ONNX_GENAI, true); // 默认使用OnnxRuntimeGenAI引擎
+            // ONNX引擎默认配置已移除
             
             // API设置
             config.put(KEY_API_URL, "https://api.deepseek.com");
@@ -1671,11 +1690,11 @@ public class ConfigManager {
             config.put(KEY_LLAMACPP_EMBEDDING_BATCH_SIZE, DEFAULT_LLAMACPP_EMBEDDING_BATCH_SIZE);
             config.put(KEY_USE_LLAMACPP, DEFAULT_USE_LLAMACPP);
             
-            // 备份推理参数配置
-            config.put(KEY_BACKUP_TEMPERATURE, DEFAULT_BACKUP_TEMPERATURE);
-            config.put(KEY_BACKUP_TOP_P, DEFAULT_BACKUP_TOP_P);
-            config.put(KEY_BACKUP_TOP_K, DEFAULT_BACKUP_TOP_K);
-            config.put(KEY_BACKUP_REPEAT_PENALTY, DEFAULT_BACKUP_REPEAT_PENALTY);
+            // 手动推理参数配置
+            config.put(KEY_MANUAL_TEMPERATURE, DEFAULT_MANUAL_TEMPERATURE);
+            config.put(KEY_MANUAL_TOP_P, DEFAULT_MANUAL_TOP_P);
+            config.put(KEY_MANUAL_TOP_K, DEFAULT_MANUAL_TOP_K);
+            config.put(KEY_MANUAL_REPEAT_PENALTY, DEFAULT_MANUAL_REPEAT_PENALTY);
             
             Log.d(TAG, "创建默认配置: " + config.toString(2));
             return config;

@@ -100,9 +100,8 @@ public class LocalLlmAdapter {
         localLlmHandler.inference(prompt, new LocalLlmHandler.StreamingCallback() {
             @Override
             public void onToken(String token) {
-                // 打印详细日志，包括收到的token内容
-                LogManager.logD(TAG, "token[长度" + token.length() + "]: " + 
-                      (token.length() > 20 ? token.substring(0, 20) + "..." : token));
+                // 紧凑打印token内容到控制台并记录到日志文件
+                LogManager.print(token);
                 
                 // 将token发送给UI
                 callback.onStreamingData(token);

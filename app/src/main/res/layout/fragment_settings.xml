@@ -38,7 +38,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="分块大小:"
+                android:text="分块大小 (100~4000):"
                 android:textSize="16sp" />
 
             <EditText
@@ -62,7 +62,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="重叠大小:"
+                android:text="重叠大小 (20~800):"
                 android:textSize="16sp" />
 
             <EditText
@@ -81,12 +81,12 @@
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:layout_marginBottom="16dp">
+            android:layout_marginBottom="8dp">
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="最小分块限制:"
+                android:text="最小分块限制 (10~100):"
                 android:textSize="16sp" />
 
             <EditText
@@ -98,6 +98,27 @@
                 android:layout_marginEnd="8dp"
                 android:inputType="number"
                 android:hint="10-100" />
+        </LinearLayout>
+        
+        <!-- JSON训练集分块优化开关 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="16dp">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="JSON训练集分块优化"
+                android:textSize="16sp" />
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/switchJsonDatasetSplitting"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content" />
         </LinearLayout>
 
         <!-- 目录设置 -->
@@ -215,68 +236,7 @@
                 android:minHeight="36dp" />
         </LinearLayout>
 
-        <!-- 调试模式开关 -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginTop="16dp">
 
-            <TextView
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="调试模式"
-                android:textSize="16sp" />
-
-            <androidx.appcompat.widget.SwitchCompat
-                android:id="@+id/switchDebugMode"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content" />
-        </LinearLayout>
-
-        <!-- GPU加速开关 -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginTop="16dp">
-
-            <TextView
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="使用GPU加速（如果可用）"
-                android:textSize="16sp" />
-
-            <androidx.appcompat.widget.SwitchCompat
-                android:id="@+id/switchUseGpu"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content" />
-        </LinearLayout>
-        
-        <!-- JSON训练集分块优化开关 -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginTop="16dp">
-
-            <TextView
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="JSON训练集分块优化"
-                android:textSize="16sp" />
-
-            <androidx.appcompat.widget.SwitchCompat
-                android:id="@+id/switchJsonDatasetSplitting"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content" />
-        </LinearLayout>
         
         <!-- LLM 推理设置 -->
         <TextView
@@ -299,7 +259,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="最大序列长度:"
+                android:text="最大序列长度 (512~8192):"
                 android:textSize="16sp" />
 
             <EditText
@@ -324,7 +284,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="推理线程数:"
+                android:text="推理线程数 (1~16):"
                 android:textSize="16sp" />
 
             <EditText
@@ -349,7 +309,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="最大输出token数:"
+                android:text="最大输出token数 (512~4096):"
                 android:textSize="16sp" />
 
             <EditText
@@ -363,15 +323,7 @@
                 android:hint="512-4096" />
         </LinearLayout>
 
-        <!-- 备份推理参数设置 -->
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="备份推理参数设置"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            android:layout_marginTop="16dp"
-            android:layout_marginBottom="8dp" />
+        <!-- 备份推理参数（归属于LLM推理设置） -->
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -383,11 +335,11 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="备份温度参数:"
+                android:text="手动温度参数 (0.0~2.0):"
                 android:textSize="16sp" />
 
             <EditText
-                android:id="@+id/editTextBackupTemperature"
+                android:id="@+id/editTextManualTemperature"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
@@ -407,11 +359,11 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="备份Top-P参数:"
+                android:text="手动Top-P参数 (0.0~1.0):"
                 android:textSize="16sp" />
 
             <EditText
-                android:id="@+id/editTextBackupTopP"
+                android:id="@+id/editTextManualTopP"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
@@ -431,11 +383,11 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="备份Top-K参数:"
+                android:text="手动Top-K参数 (1~100):"
                 android:textSize="16sp" />
 
             <EditText
-                android:id="@+id/editTextBackupTopK"
+                android:id="@+id/editTextManualTopK"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
@@ -455,11 +407,11 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="备份重复惩罚参数:"
+                android:text="手动重复惩罚参数 (0.0~2.0):"
                 android:textSize="16sp" />
 
             <EditText
-                android:id="@+id/editTextBackupRepeatPenalty"
+                android:id="@+id/editTextManualRepeatPenalty"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
@@ -469,28 +421,82 @@
                 android:hint="0.0-2.0" />
         </LinearLayout>
         
-        <!-- OnnxRuntimeGenAI引擎开关 -->
+        <!-- 优先备份参数开关 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:layout_marginTop="8dp">
+            android:layout_marginBottom="8dp">
 
             <TextView
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="使用OnnxRuntimeGenAI引擎"
+                android:text="优先手动参数"
                 android:textSize="16sp" />
 
             <androidx.appcompat.widget.SwitchCompat
-                android:id="@+id/switchUseOnnxGenAI"
+                android:id="@+id/switchPriorityManualParams"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content" />
         </LinearLayout>
         
+        <!-- ONNX引擎开关UI已移除 -->
+        
         <!-- 思考模式开关已移动到RAG问答界面 -->
+
+        <!-- 全局设置 -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="全局设置"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="8dp" />
+
+        <!-- 调试模式开关 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="8dp">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="调试模式"
+                android:textSize="16sp" />
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/switchDebugMode"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
+
+        <!-- GPU加速开关 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="8dp">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="使用GPU加速（如果可用）"
+                android:textSize="16sp" />
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/switchUseGpu"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
 
         <!-- 字体大小调整 -->
         <LinearLayout
