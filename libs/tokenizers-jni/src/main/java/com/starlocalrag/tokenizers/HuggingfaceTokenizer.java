@@ -12,8 +12,9 @@ import java.io.File;
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.IOException;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
 
 /**
  * Hugging Face分词器的Java包装类
@@ -135,7 +136,15 @@ public class HuggingfaceTokenizer implements Closeable, Model {
             
             if (isFile) {
                 // 从文件加载
-                nativePtr = TokenizerJNI.loadTokenizerFromFile(path);
+                try {
+                    nativePtr = TokenizerJNI.loadTokenizerFromFile(path);
+                } catch (UnsatisfiedLinkError e) {
+                    e.printStackTrace();
+                    throw e;
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    throw e;
+                }
                 
                 // 加载词汇表
                 try {
@@ -143,22 +152,30 @@ public class HuggingfaceTokenizer implements Closeable, Model {
                     // 加载特殊 token ID
                     loadSpecialTokenIds(new File(path));
                 } catch (Exception e) {
-                    System.err.println("加载词汇表时出错: " + e.getMessage());
+                    e.printStackTrace();
                     // 不抛出异常，因为词汇表加载失败不应影响分词器的基本功能
                 }
             } else {
                 // 使用模型类型创建
-                nativePtr = TokenizerJNI.createTokenizer(path);
+                try {
+                    nativePtr = TokenizerJNI.createTokenizer(path);
+                } catch (UnsatisfiedLinkError e) {
+                    e.printStackTrace();
+                    throw e;
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    throw e;
+                }
             }
             
             if (nativePtr == 0) {
                 throw new IllegalArgumentException("创建分词器失败，可能是文件路径错误或格式不兼容");
             }
         } catch (UnsatisfiedLinkError e) {
-            System.err.println("加载本地库失败: " + e.getMessage());
+            e.printStackTrace();
             throw e;
         } catch (Exception e) {
-            System.err.println("创建分词器失败: " + e.getMessage());
+            e.printStackTrace();
             throw e;
         }
     }
@@ -447,7 +464,9 @@ public class HuggingfaceTokenizer implements Closeable, Model {
         // 处理 special_tokens_map 部分
         if (json.has("special_tokens_map")) {
             JSONObject specialTokensMap = json.getJSONObject("special_tokens_map");
-            for (String key : JSONObject.getNames(specialTokensMap)) {
+            java.util.Iterator<String> keys = specialTokensMap.keys();
+            while (keys.hasNext()) {
+                String key = keys.next();
                 Object value = specialTokensMap.get(key);
                 String tokenContent = null;
                 
@@ -683,18 +702,22 @@ public class HuggingfaceTokenizer implements Closeable, Model {
         String thinkTag = specialTokens.getOrDefault("think_tag", "<think>");
         
         // 处理消息数组
-        for (int i = 0; i < messages.length(); i++) {
-            JSONObject message = messages.getJSONObject(i);
-            String role = message.getString("role");
-            String content = message.getString("content");
-            
-            // 根据角色添加相应的标记
-            result.append(imStart).append(role).append("\n");
-            
-            // 思考模式处理已移至统一的/no_think指令方式
-            
-            result.append(content).append("\n");
-            result.append(imEnd).append("\n");
+        try {
+            for (int i = 0; i < messages.length(); i++) {
+                JSONObject message = messages.getJSONObject(i);
+                String role = message.getString("role");
+                String content = message.getString("content");
+                
+                // 根据角色添加相应的标记
+                result.append(imStart).append(role).append("\n");
+                
+                // 思考模式处理已移至统一的/no_think指令方式
+                
+                result.append(content).append("\n");
+                result.append(imEnd).append("\n");
+            }
+        } catch (JSONException e) {
+            throw new RuntimeException("Error processing messages: " + e.getMessage(), e);
         }
         
         // 如果需要添加生成提示
@@ -705,38 +728,46 @@ public class HuggingfaceTokenizer implements Closeable, Model {
         
         // 如果禁用思考模式，在最后一个用户消息尾部添加/no_think指令
         if (!enableThinking && messages.length() > 0) {
-            // 查找最后一个用户消息
-            for (int i = messages.length() - 1; i >= 0; i--) {
-                JSONObject message = messages.getJSONObject(i);
-                String role = message.getString("role");
-                if ("user".equals(role)) {
-                    // 在结果中查找这个用户消息的位置并添加/no_think指令
-                    String userStart = imStart + "user";
-                    int userIndex = result.lastIndexOf(userStart);
-                    if (userIndex >= 0) {
-                        int userEndIndex = result.indexOf(imEnd, userIndex);
-                        if (userEndIndex >= 0 && !result.substring(userIndex, userEndIndex).contains("/no_think")) {
-                            result.insert(userEndIndex, "\n/no_think");
+            try {
+                // 查找最后一个用户消息
+                for (int i = messages.length() - 1; i >= 0; i--) {
+                    JSONObject message = messages.getJSONObject(i);
+                    String role = message.getString("role");
+                    if ("user".equals(role)) {
+                        // 在结果中查找这个用户消息的位置并添加/no_think指令
+                        String userStart = imStart + "user";
+                        int userIndex = result.lastIndexOf(userStart);
+                        if (userIndex >= 0) {
+                            int userEndIndex = result.indexOf(imEnd, userIndex);
+                            if (userEndIndex >= 0 && !result.substring(userIndex, userEndIndex).contains("/no_think")) {
+                                result.insert(userEndIndex, "\n/no_think");
+                            }
                         }
+                        break;
                     }
-                    break;
                 }
+            } catch (JSONException e) {
+                throw new RuntimeException("Error processing thinking mode: " + e.getMessage(), e);
             }
         }
         
         // 如果需要继续最后一条消息
         if (continueFinalMessage && messages.length() > 0) {
-            // 获取最后一条消息
-            JSONObject lastMessage = messages.getJSONObject(messages.length() - 1);
-            String role = lastMessage.getString("role");
-            
-            // 只有当最后一条消息是助手消息时才继续
-            if ("assistant".equals(role)) {
-                // 移除最后一个 im_end 标记
-                int lastImEndIndex = result.lastIndexOf(imEnd);
-                if (lastImEndIndex >= 0) {
-                    result.delete(lastImEndIndex, result.length());
+            try {
+                // 获取最后一条消息
+                JSONObject lastMessage = messages.getJSONObject(messages.length() - 1);
+                String role = lastMessage.getString("role");
+                
+                // 只有当最后一条消息是助手消息时才继续
+                if ("assistant".equals(role)) {
+                    // 移除最后一个 im_end 标记
+                    int lastImEndIndex = result.lastIndexOf(imEnd);
+                    if (lastImEndIndex >= 0) {
+                        result.delete(lastImEndIndex, result.length());
+                    }
                 }
+            } catch (JSONException e) {
+                throw new RuntimeException("Error processing final message continuation: " + e.getMessage(), e);
             }
         }
         
@@ -774,9 +805,8 @@ public class HuggingfaceTokenizer implements Closeable, Model {
      * @return 格式化后的时间字符串
      */
     private String getCurrentTimeFormatted(String format) {
-        LocalDateTime now = LocalDateTime.now();
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern(format);
-        return now.format(formatter);
+        SimpleDateFormat formatter = new SimpleDateFormat(format, Locale.getDefault());
+        return formatter.format(new Date());
     }
     
     /**
@@ -1002,7 +1032,9 @@ public class HuggingfaceTokenizer implements Closeable, Model {
             vocabReverse.clear();
             
             JSONObject vocabJson = config.getJSONObject("vocab");
-            for (String key : vocabJson.keySet()) {
+            java.util.Iterator<String> keys = vocabJson.keys();
+            while (keys.hasNext()) {
+                String key = keys.next();
                 int id = vocabJson.getInt(key);
                 vocab.put(key, id);
                 vocabReverse.put(id, key);
@@ -1041,7 +1073,9 @@ public class HuggingfaceTokenizer implements Closeable, Model {
             vocabReverse.clear();
             
             int count = 0;
-            for (String key : vocabJson.keySet()) {
+            java.util.Iterator<String> keys = vocabJson.keys();
+            while (keys.hasNext()) {
+                String key = keys.next();
                 int id = vocabJson.getInt(key);
                 vocab.put(key, id);
                 vocabReverse.put(id, key);

@@ -201,7 +201,6 @@ endif()
 # 创建JNI共享库，包含所有源文件
 add_library(llamacpp_jni SHARED
     llama_inference.cpp
-    llama_embedding.cpp
     ggml-backend-opencl-stub.cpp
     ${GGML_SOURCES}
     ${LLAMA_SOURCES}

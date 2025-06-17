@@ -121,10 +121,7 @@
 # OSGi框架相关 - 可选依赖
 -dontwarn org.osgi.framework.**
 
-# Retrofit2相关
--keep class retrofit2.** { *; }
--keep interface retrofit2.** { *; }
--dontwarn retrofit2.**
+# Retrofit2相关规则已移除 - 项目不再使用 Retrofit
 
 # Apache HTTP Client相关 - Android已弃用
 -dontwarn org.apache.http.**

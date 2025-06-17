@@ -75,21 +75,6 @@ android {
         buildConfig true // Enable BuildConfig for custom fields
     }
     
-    // 添加CMake配置
-    externalNativeBuild {
-        cmake {
-            path "src/main/cpp/CMakeLists.txt"
-        }
-    }
-    
-    // 指定支持的ABI
-    defaultConfig {
-        ndk {
-            // 支持 ARM 和 x86 架构，包括模拟器支持
-            abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86_64', 'x86'
-        }
-    }
-    
     lint {
         abortOnError false
         checkReleaseBuilds false
@@ -121,9 +106,7 @@ dependencies {
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
     implementation 'com.squareup.okhttp3:logging-interceptor:4.12.0'
     
-    // 网络请求
-    implementation 'com.squareup.retrofit2:retrofit:2.9.0'
-    implementation 'com.squareup.retrofit2:converter-gson:2.9.0'
+    // 网络请求 - 使用 OkHttp 和 Volley
     
     // Markwon - Markdown渲染库
     implementation 'io.noties.markwon:core:4.6.2'
@@ -145,8 +128,8 @@ dependencies {
     implementation 'com.microsoft.onnxruntime:onnxruntime-extensions-android:0.13.0'
     
     // ONNX Runtime GenAI 0.8.1 (本地AAR文件)
-    implementation files('libs/onnxruntime-genai-android-0.8.1.aar')
-    // Tokenizers JNI
+    //implementation files('libs/onnxruntime-genai-android-0.8.1.aar')
+    // Tokenizers JNI - 现在作为Android库模块
     implementation project(':libs:tokenizers-jni')
     
     // LlamaCpp JNI - 使用项目依赖方式
@@ -234,3 +217,6 @@ dependencies {
         exclude group: "org.apache.tika", module: "tika-parser-webarchive-module"
     }
 }
+
+// 确保在构建app之前先编译Rust库
+preBuild.dependsOn ':libs:tokenizers-jni:copyRustLibrariesArm64', ':libs:tokenizers-jni:copyRustLibrariesArm7'

@@ -8,10 +8,13 @@ import com.example.starlocalrag.ConfigManager;
 import com.example.starlocalrag.LogManager;
 import com.example.starlocalrag.SettingsFragment;
 import com.starlocalrag.llamacpp.LlamaCppInference;
-import com.starlocalrag.llamacpp.LlamaCppEmbedding;
 import com.starlocalrag.llamacpp.NativeLibraryLoader;
+import org.json.JSONObject;
 
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -25,7 +28,7 @@ import java.util.function.Consumer;
  * 负责管理llama.cpp模型的加载、推理和资源释放
  * 
  * 主要特性：
- * 1. 支持GGUF格式模型的文本生成和词嵌入
+ * 1. 支持GGUF格式模型的文本生成
  * 2. 流式文本生成和完整的资源管理
  * 3. 实现token输出总量和速率统计
  * 4. 统一的错误处理和日志记录
@@ -50,7 +53,6 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
     // LlamaCpp推理引擎句柄
     private long modelHandle = 0;
     private long contextHandle = 0;
-    private LlamaCppEmbedding llamaCppEmbedding;
     private ExecutorService executorService;
     
     // 状态管理
@@ -319,8 +321,8 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
             
             LogManager.logI(TAG, "模型目录: " + modelDir.getAbsolutePath());
             
-            // 使用ModelParamsReader读取参数
-            LocalLlmHandler.InferenceParams params = ModelParamsReader.readInferenceParams(modelDir.getAbsolutePath());
+            // 读取推理参数
+            LocalLlmHandler.InferenceParams params = readInferenceParams(modelDir.getAbsolutePath());
             
             if (params != null) {
                 LogManager.logI(TAG, "✓ 成功从模型目录文件提取推理参数");
@@ -331,6 +333,296 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
             }
         } catch (Exception e) {
             LogManager.logE(TAG, "从模型目录提取参数失败", e);
+            return null;
+        }
+    }
+    
+    /**
+     * 从模型目录读取推理参数
+     * @param modelDirPath 模型目录路径
+     * @return 推理参数对象，如果读取失败返回null
+     */
+    private static LocalLlmHandler.InferenceParams readInferenceParams(String modelDirPath) {
+        if (modelDirPath == null || modelDirPath.isEmpty()) {
+            LogManager.logW(TAG, "模型目录路径为空");
+            return null;
+        }
+        
+        File modelDir = new File(modelDirPath);
+        if (!modelDir.exists() || !modelDir.isDirectory()) {
+            LogManager.logW(TAG, "模型目录不存在: " + modelDirPath);
+            return null;
+        }
+        
+        // 尝试读取 params 文件
+        File paramsFile = new File(modelDir, "params");
+        if (paramsFile.exists()) {
+            LogManager.logI(TAG, "找到params文件: " + paramsFile.getAbsolutePath());
+            return readFromParamsFile(paramsFile);
+        }
+        
+        // 尝试读取 generation_config.json 文件
+        File configFile = new File(modelDir, "generation_config.json");
+        if (configFile.exists()) {
+            LogManager.logI(TAG, "找到generation_config.json文件: " + configFile.getAbsolutePath());
+            return readFromJsonFile(configFile);
+        }
+        
+        LogManager.logI(TAG, "模型目录下未找到参数配置文件: " + modelDirPath);
+        return null;
+    }
+    
+    /**
+     * 从params文件读取参数（支持JSON格式和简单键值对格式）
+     */
+    private static LocalLlmHandler.InferenceParams readFromParamsFile(File paramsFile) {
+        try {
+            LogManager.logI(TAG, "开始读取params文件: " + paramsFile.getAbsolutePath());
+            String content = readFileContent(paramsFile);
+            if (content == null || content.trim().isEmpty()) {
+                LogManager.logW(TAG, "params文件内容为空");
+                return null;
+            }
+            
+            LogManager.logI(TAG, "params文件内容长度: " + content.length() + " 字符");
+            
+            // 检测文件格式：如果内容以{开头，尝试作为JSON解析
+            String trimmedContent = content.trim();
+            if (trimmedContent.startsWith("{")) {
+                LogManager.logI(TAG, "检测到JSON格式，使用JSON解析器");
+                return readFromJsonContent(content);
+            } else {
+                LogManager.logI(TAG, "检测到键值对格式，使用键值对解析器");
+                return readFromKeyValueContent(content);
+            }
+            
+        } catch (Exception e) {
+            LogManager.logW(TAG, "读取params文件失败", e);
+            return null;
+        }
+    }
+    
+    /**
+     * 从JSON内容解析参数
+     */
+    private static LocalLlmHandler.InferenceParams readFromJsonContent(String content) {
+        try {
+            JSONObject json = new JSONObject(content);
+            LocalLlmHandler.InferenceParams params = new LocalLlmHandler.InferenceParams();
+            boolean hasParams = false;
+            
+            LogManager.logI(TAG, "开始解析JSON格式参数");
+            
+            // 解析temperature
+            if (json.has("temperature")) {
+                try {
+                    params.setTemperature((float) json.getDouble("temperature"));
+                    hasParams = true;
+                    LogManager.logI(TAG, "✓ 解析temperature: " + json.getDouble("temperature"));
+                } catch (Exception e) {
+                    LogManager.logW(TAG, "解析temperature失败", e);
+                }
+            }
+            
+            // 解析top_p
+            if (json.has("top_p")) {
+                try {
+                    params.setTopP((float) json.getDouble("top_p"));
+                    hasParams = true;
+                    LogManager.logI(TAG, "✓ 解析top_p: " + json.getDouble("top_p"));
+                } catch (Exception e) {
+                    LogManager.logW(TAG, "解析top_p失败", e);
+                }
+            }
+            
+            // 解析top_k
+            if (json.has("top_k")) {
+                try {
+                    params.setTopK(json.getInt("top_k"));
+                    hasParams = true;
+                    LogManager.logI(TAG, "✓ 解析top_k: " + json.getInt("top_k"));
+                } catch (Exception e) {
+                    LogManager.logW(TAG, "解析top_k失败", e);
+                }
+            }
+            
+            // 解析repeat_penalty或repetition_penalty
+            String[] repeatKeys = {"repeat_penalty", "repetition_penalty"};
+            for (String key : repeatKeys) {
+                if (json.has(key)) {
+                    try {
+                        params.setRepetitionPenalty((float) json.getDouble(key));
+                        hasParams = true;
+                        LogManager.logI(TAG, "✓ 解析" + key + ": " + json.getDouble(key));
+                        break;
+                    } catch (Exception e) {
+                        LogManager.logW(TAG, "解析" + key + "失败", e);
+                    }
+                }
+            }
+            
+            LogManager.logI(TAG, "JSON参数解析完成，hasParams: " + hasParams);
+            return hasParams ? params : null;
+            
+        } catch (Exception e) {
+            LogManager.logW(TAG, "JSON解析失败", e);
+            return null;
+        }
+    }
+    
+    /**
+     * 从键值对内容解析参数
+     */
+    private static LocalLlmHandler.InferenceParams readFromKeyValueContent(String content) {
+        try {
+            LocalLlmHandler.InferenceParams params = new LocalLlmHandler.InferenceParams();
+            boolean hasParams = false;
+            
+            String[] lines = content.split("\n");
+            LogManager.logI(TAG, "解析到 " + lines.length + " 行键值对内容");
+            
+            for (int i = 0; i < lines.length; i++) {
+                String line = lines[i].trim();
+                
+                if (line.isEmpty() || line.startsWith("#")) {
+                    continue; // 跳过空行和注释
+                }
+                
+                String[] parts = line.split("=", 2);
+                if (parts.length != 2) {
+                    LogManager.logW(TAG, "行格式不正确，跳过: [" + line + "]");
+                    continue;
+                }
+                
+                String key = parts[0].trim();
+                String value = parts[1].trim();
+                LogManager.logI(TAG, "解析键值对: [" + key + "] = [" + value + "]");
+                
+                try {
+                    switch (key.toLowerCase()) {
+                        case "temperature":
+                        case "temp":
+                            params.setTemperature(Float.parseFloat(value));
+                            hasParams = true;
+                            LogManager.logI(TAG, "✓ 解析temperature: " + value);
+                            break;
+                        case "top_p":
+                        case "topp":
+                            params.setTopP(Float.parseFloat(value));
+                            hasParams = true;
+                            LogManager.logI(TAG, "✓ 解析top_p: " + value);
+                            break;
+                        case "top_k":
+                        case "topk":
+                            params.setTopK(Integer.parseInt(value));
+                            hasParams = true;
+                            LogManager.logI(TAG, "✓ 解析top_k: " + value);
+                            break;
+                        case "repeat_penalty":
+                        case "repetition_penalty":
+                            params.setRepetitionPenalty(Float.parseFloat(value));
+                            hasParams = true;
+                            LogManager.logI(TAG, "✓ 解析repeat_penalty: " + value);
+                            break;
+                        default:
+                            LogManager.logI(TAG, "未识别的参数键: [" + key + "]，跳过");
+                            break;
+                    }
+                } catch (NumberFormatException e) {
+                    LogManager.logW(TAG, "解析参数失败 [" + key + "=" + value + "]", e);
+                }
+            }
+            
+            LogManager.logI(TAG, "键值对参数解析完成，hasParams: " + hasParams);
+            return hasParams ? params : null;
+            
+        } catch (Exception e) {
+            LogManager.logW(TAG, "键值对解析失败", e);
+            return null;
+        }
+    }
+    
+    /**
+     * 从JSON文件读取参数
+     */
+    private static LocalLlmHandler.InferenceParams readFromJsonFile(File jsonFile) {
+        try {
+            String content = readFileContent(jsonFile);
+            if (content == null || content.trim().isEmpty()) {
+                LogManager.logW(TAG, "JSON文件内容为空");
+                return null;
+            }
+            
+            JSONObject json = new JSONObject(content);
+            LocalLlmHandler.InferenceParams params = new LocalLlmHandler.InferenceParams();
+            boolean hasParams = false;
+            
+            // 解析temperature
+            if (json.has("temperature")) {
+                try {
+                    params.setTemperature((float) json.getDouble("temperature"));
+                    hasParams = true;
+                    LogManager.logI(TAG, "✓ 解析temperature: " + json.getDouble("temperature"));
+                } catch (Exception e) {
+                    LogManager.logW(TAG, "解析temperature失败", e);
+                }
+            }
+            
+            // 解析top_p
+            if (json.has("top_p")) {
+                try {
+                    params.setTopP((float) json.getDouble("top_p"));
+                    hasParams = true;
+                    LogManager.logI(TAG, "✓ 解析top_p: " + json.getDouble("top_p"));
+                } catch (Exception e) {
+                    LogManager.logW(TAG, "解析top_p失败", e);
+                }
+            }
+            
+            // 解析top_k
+            if (json.has("top_k")) {
+                try {
+                    params.setTopK(json.getInt("top_k"));
+                    hasParams = true;
+                    LogManager.logI(TAG, "✓ 解析top_k: " + json.getInt("top_k"));
+                } catch (Exception e) {
+                    LogManager.logW(TAG, "解析top_k失败", e);
+                }
+            }
+            
+            // 解析repeat_penalty或repetition_penalty
+            String[] repeatKeys = {"repeat_penalty", "repetition_penalty"};
+            for (String key : repeatKeys) {
+                if (json.has(key)) {
+                    try {
+                        params.setRepetitionPenalty((float) json.getDouble(key));
+                        hasParams = true;
+                        LogManager.logI(TAG, "✓ 解析" + key + ": " + json.getDouble(key));
+                        break;
+                    } catch (Exception e) {
+                        LogManager.logW(TAG, "解析" + key + "失败", e);
+                    }
+                }
+            }
+            
+            return hasParams ? params : null;
+            
+        } catch (Exception e) {
+            LogManager.logW(TAG, "读取JSON文件失败", e);
+            return null;
+        }
+    }
+    
+    /**
+     * 读取文件内容
+     */
+    private static String readFileContent(File file) {
+        try (FileInputStream fis = new FileInputStream(file)) {
+            byte[] data = new byte[(int) file.length()];
+            fis.read(data);
+            return new String(data, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            LogManager.logW(TAG, "读取文件失败: " + file.getAbsolutePath(), e);
             return null;
         }
     }
@@ -951,153 +1243,13 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
         // 方法调试日志已移除
     }
     
-    /**
-     * 初始化词嵌入功能
-     * @param embeddingModelPath 嵌入模型路径
-     * @return 是否初始化成功
-     */
-    public boolean initializeEmbedding(String embeddingModelPath) {
-        try {
-            LogManager.logI(TAG, "初始化LlamaCpp词嵌入功能: " + embeddingModelPath);
-            
-            // 验证模型文件
-            File modelFile = new File(embeddingModelPath);
-            if (!modelFile.exists()) {
-                LogManager.logE(TAG, "嵌入模型文件不存在: " + embeddingModelPath);
-                return false;
-            }
-            
-            // 查找GGUF模型文件
-            File ggufFile = findGgufFile(modelFile);
-            if (ggufFile == null) {
-                LogManager.logE(TAG, "在目录中未找到GGUF嵌入模型文件: " + embeddingModelPath);
-                return false;
-            }
-            
-            // 使用专门的LlamaCppEmbedding类
-            llamaCppEmbedding = new LlamaCppEmbedding(ggufFile.getAbsolutePath());
-            
-            LogManager.logI(TAG, "LlamaCpp词嵌入功能初始化成功");
-            LogManager.logI(TAG, "嵌入模型信息: " + llamaCppEmbedding.getModelInfo());
-            LogManager.logI(TAG, "嵌入维度: " + llamaCppEmbedding.getEmbeddingSize());
-            return true;
-            
-        } catch (Exception e) {
-            LogManager.logE(TAG, "初始化词嵌入功能失败", e);
-            if (llamaCppEmbedding != null) {
-                llamaCppEmbedding.close();
-                llamaCppEmbedding = null;
-            }
-            return false;
-        }
-    }
+
     
-    /**
-     * 计算文本的词嵌入向量
-     * @param text 输入文本
-     * @return 嵌入向量，失败返回null
-     */
-    public float[] getEmbedding(String text) {
-        if (llamaCppEmbedding == null || !llamaCppEmbedding.isInitialized()) {
-            LogManager.logE(TAG, "LlamaCpp嵌入引擎未初始化，无法计算嵌入");
-            return null;
-        }
-        
-        if (text == null || text.trim().isEmpty()) {
-            LogManager.logW(TAG, "输入文本为空");
-            return null;
-        }
-        
-        try {
-            LogManager.logD(TAG, "开始计算文本嵌入，文本长度: " + text.length());
-            
-            // 使用专门的LlamaCppEmbedding计算嵌入
-            float[] embedding = llamaCppEmbedding.getEmbedding(text);
-            
-            if (embedding != null) {
-                LogManager.logD(TAG, "嵌入计算完成，维度: " + embedding.length);
-            } else {
-                LogManager.logW(TAG, "嵌入计算返回null");
-            }
-            
-            return embedding;
-        } catch (Exception e) {
-            LogManager.logE(TAG, "计算词嵌入失败", e);
-            return null;
-        }
-    }
+
     
-    /**
-     * 批量计算文本的词嵌入向量
-     * @param texts 输入文本列表
-     * @return 嵌入向量列表
-     */
-    public CompletableFuture<float[][]> getEmbeddingsAsync(java.util.List<String> texts) {
-        return CompletableFuture.supplyAsync(() -> {
-            if (llamaCppEmbedding == null || !llamaCppEmbedding.isInitialized()) {
-                LogManager.logE(TAG, "LlamaCpp嵌入引擎未初始化，无法计算批量嵌入");
-                return null;
-            }
-            
-            if (texts == null || texts.isEmpty()) {
-                LogManager.logW(TAG, "输入文本列表为空");
-                return new float[0][];
-            }
-            
-            try {
-                LogManager.logD(TAG, "开始计算批量文本嵌入，文本数量: " + texts.size());
-                
-                // 使用专门的LlamaCppEmbedding计算批量嵌入
-                float[][] embeddings = llamaCppEmbedding.getEmbeddings(texts);
-                
-                if (embeddings != null) {
-                    LogManager.logD(TAG, "批量嵌入计算完成，返回 " + embeddings.length + " 个嵌入向量");
-                } else {
-                    LogManager.logW(TAG, "批量嵌入计算返回null");
-                }
-                
-                return embeddings;
-            } catch (Exception e) {
-                LogManager.logE(TAG, "批量计算词嵌入失败: " + e.getMessage(), e);
-                return null;
-            }
-        }, executorService);
-    }
+
     
-    /**
-     * 批量计算文本的词嵌入向量（同步版本）
-     * @param texts 输入文本数组
-     * @return 嵌入向量数组
-     */
-    public float[][] getEmbeddings(String[] texts) {
-        if (llamaCppEmbedding == null || !llamaCppEmbedding.isInitialized()) {
-            LogManager.logE(TAG, "LlamaCpp嵌入引擎未初始化，无法计算批量嵌入");
-            return null;
-        }
-        
-        if (texts == null || texts.length == 0) {
-            LogManager.logW(TAG, "输入文本数组为空");
-            return new float[0][];
-        }
-        
-        try {
-            LogManager.logD(TAG, "开始计算批量文本嵌入，文本数量: " + texts.length);
-            
-            // 使用专门的LlamaCppEmbedding计算批量嵌入
-            float[][] embeddings = llamaCppEmbedding.getEmbeddings(texts);
-            
-            if (embeddings != null) {
-                LogManager.logD(TAG, "批量嵌入计算完成，返回 " + embeddings.length + " 个嵌入向量");
-            } else {
-                LogManager.logW(TAG, "批量嵌入计算返回null");
-            }
-            
-            return embeddings;
-        } catch (Exception e) {
-            LogManager.logE(TAG, "批量计算词嵌入失败: " + e.getMessage(), e);
-            return null;
-        }
-    }
+
     
     /**
      * 获取状态信息
@@ -1110,12 +1262,7 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
         return isGenerating.get();
     }
     
-    /**
-     * 检查词嵌入功能是否可用
-     */
-    public boolean isEmbeddingAvailable() {
-        return llamaCppEmbedding != null && llamaCppEmbedding.isInitialized() && llamaCppEmbedding.supportsEmbedding();
-    }
+
     
     public String getModelInfo() {
         if (modelHandle != 0 && contextHandle != 0) {
@@ -1296,14 +1443,12 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
             "模型路径: %s\n" +
             "是否生成中: %s\n" +
             "总生成tokens: %d\n" +
-            "生成速率: %.2f tokens/s\n" +
-            "词嵌入可用: %s",
+            "生成速率: %.2f tokens/s",
             getEngineType(),
             currentModelPath != null ? currentModelPath : "未设置",
             isGenerating.get() ? "是" : "否",
             tokens,
-            tokensPerSecond,
-            isEmbeddingAvailable() ? "是" : "否"
+            tokensPerSecond
         );
     }
     
@@ -1338,16 +1483,7 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
         // 释放预分配资源
         releasePreallocatedResources();
         
-        // 释放嵌入资源
-        if (llamaCppEmbedding != null) {
-            try {
-                llamaCppEmbedding.close();
-                LogManager.logI(TAG, "LlamaCppEmbedding资源释放完成");
-            } catch (Exception e) {
-                LogManager.logW(TAG, "释放嵌入引擎时发生异常", e);
-            }
-            llamaCppEmbedding = null;
-        }
+
         
         // 关闭线程池
         if (executorService != null && !executorService.isShutdown()) {
@@ -1371,15 +1507,7 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
         return "LlamaCpp";
     }
     
-    // getEmbeddingSize和supportsEmbedding方法已移至LlamaCppEmbedding.java
-    // 请通过getEmbeddingHandler()获取LlamaCppEmbedding实例来使用这些方法
-    
-    // Embedding相关方法已移至LlamaCppEmbedding.java
-    // 如需使用Embedding功能，请直接使用LlamaCppEmbedding实例
-    
-    public LlamaCppEmbedding getEmbeddingHandler() {
-        return llamaCppEmbedding;
-    }
+
     
     /**
      * 释放预分配资源

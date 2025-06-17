@@ -32,9 +32,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 // ONNX Runtime相关导入已移除
 import java.util.Iterator;
 import java.util.Arrays;
-import com.example.starlocalrag.HarmonyOSGPUAdapter;
-import com.example.starlocalrag.MaliGPUOptimizer;
-import com.example.starlocalrag.OpenGLESComputeAccelerator;
 
 /**
  * 本地LLM处理程序

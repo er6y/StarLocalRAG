@@ -1,110 +1,105 @@
 plugins {
-    id 'java-library'
-    id 'cpp'
+    id 'com.android.library'
+}
+
+android {
+    namespace 'com.starlocalrag.tokenizers'
+    compileSdkVersion 34
+
+    defaultConfig {
+        minSdkVersion 24
+        targetSdkVersion 34
+        versionCode 1
+        versionName "1.0"
+
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        consumerProguardFiles "consumer-rules.pro"
+
+        // NDK和CMake配置已移除，使用Rust直接编译JNI库
+    }
+
+    buildTypes {
+        debug {
+            // CMake配置已移除
+        }
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            // CMake配置已移除
+        }
+    }
+
+    // externalNativeBuild配置已移除，使用Rust直接编译
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
 }
 
 group 'com.starlocalrag'
 version '1.0-SNAPSHOT'
 
-// 使用项目级别的仓库配置
-
 dependencies {
-    implementation 'org.json:json:20230227'
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.google.android.material:material:1.10.0'
+    implementation 'org.json:json:20231013'
     testImplementation 'junit:junit:4.13.2'
+    androidTestImplementation 'androidx.test.ext:junit:1.1.5'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
 }
 
-// 创建资源目录
-task createResourceDirs {
-    doLast {
-        mkdir "src/main/resources/native/windows/x86_64"
-        mkdir "src/main/resources/native/linux/x86_64"
-        mkdir "src/main/resources/native/macos/x86_64"
-    }
-}
-
-// 编译Rust FFI库
-task compileRustFFI(type: Exec) {
-    workingDir '../tokenizers-ffi'
+// Rust编译任务
+task compileRustJNIAndroidArm64(type: Exec) {
+    description 'Compile Rust JNI library for ARM64'
+    workingDir file('src/main/rust')
     
     if (System.getProperty('os.name').toLowerCase().contains('windows')) {
-        commandLine 'cmd', '/c', 'cargo', 'build', '--release'
+        commandLine 'cmd', '/c', 'cargo', 'ndk', '-t', 'arm64-v8a', 'build', '--release'
     } else {
-        commandLine 'cargo', 'build', '--release'
+        commandLine 'cargo', 'ndk', '-t', 'arm64-v8a', 'build', '--release'
     }
-}
-
-// 复制编译好的库到资源目录
-task copyNativeLibs(dependsOn: [createResourceDirs, compileRustFFI]) {
-    doLast {
-        def osName = System.getProperty('os.name').toLowerCase()
-        def osArch = System.getProperty('os.arch').toLowerCase()
-        
-        if (osName.contains('windows')) {
-            copy {
-                from '../tokenizers-ffi/target/release/tokenizers_ffi.dll'
-                into "src/main/resources/native/windows/${osArch.contains('amd64') || osArch.contains('x86_64') ? 'x86_64' : osArch}"
-            }
-        } else if (osName.contains('linux')) {
-            copy {
-                from '../tokenizers-ffi/target/release/libtokenizers_ffi.so'
-                into "src/main/resources/native/linux/${osArch.contains('amd64') || osArch.contains('x86_64') ? 'x86_64' : osArch}"
-            }
-        } else if (osName.contains('mac')) {
-            copy {
-                from '../tokenizers-ffi/target/release/libtokenizers_ffi.dylib'
-                into "src/main/resources/native/macos/${osArch.contains('amd64') || osArch.contains('x86_64') ? 'x86_64' : osArch}"
-            }
-        }
-    }
-}
-
-// 编译JNI库
-model {
-    components {
-        tokenizers_jni(NativeLibrarySpec) {
-            sources {
-                cpp {
-                    source {
-                        srcDir "src/main/cpp"
-                        include "**/*.cpp"
-                    }
-                    exportedHeaders {
-                        srcDir "src/main/cpp/include"
-                    }
-                }
-            }
-            
-            binaries.all {
-                if (targetPlatform.operatingSystem.windows) {
-                    cppCompiler.args "/I${System.getenv('JAVA_HOME')}/include"
-                    cppCompiler.args "/I${System.getenv('JAVA_HOME')}/include/win32"
-                    linker.args "/LIBPATH:${project.projectDir}/../tokenizers-ffi/target/release"
-                    linker.args "tokenizers_ffi.lib"
-                } else if (targetPlatform.operatingSystem.macOsX) {
-                    cppCompiler.args "-I${System.getenv('JAVA_HOME')}/include"
-                    cppCompiler.args "-I${System.getenv('JAVA_HOME')}/include/darwin"
-                    linker.args "-L${project.projectDir}/../tokenizers-ffi/target/release"
-                    linker.args "-ltokenizers_ffi"
-                } else {
-                    cppCompiler.args "-I${System.getenv('JAVA_HOME')}/include"
-                    cppCompiler.args "-I${System.getenv('JAVA_HOME')}/include/linux"
-                    linker.args "-L${project.projectDir}/../tokenizers-ffi/target/release"
-                    linker.args "-ltokenizers_ffi"
-                }
-            }
-        }
-    }
-}
-
-// 在编译Java代码前先编译本地库
-compileJava.dependsOn copyNativeLibs
-
-// 打包时包含本地库
-jar {
-    // 设置重复处理策略
-    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     
-    from("src/main/resources") {
-        include "native/**/*"
-    }
+    inputs.files fileTree(dir: 'src/main/rust/src', include: '**/*.rs')
+    inputs.file 'src/main/rust/Cargo.toml'
+    outputs.file '../../app/src/main/jniLibs/arm64-v8a/libtokenizers_jni.so'
 }
+
+task compileRustJNIAndroidArm7(type: Exec) {
+    description 'Compile Rust JNI library for ARMv7'
+    workingDir file('src/main/rust')
+    
+    if (System.getProperty('os.name').toLowerCase().contains('windows')) {
+        commandLine 'cmd', '/c', 'cargo', 'ndk', '-t', 'armeabi-v7a', 'build', '--release'
+    } else {
+        commandLine 'cargo', 'ndk', '-t', 'armeabi-v7a', 'build', '--release'
+    }
+    
+    inputs.files fileTree(dir: 'src/main/rust/src', include: '**/*.rs')
+    inputs.file 'src/main/rust/Cargo.toml'
+    outputs.file '../../app/src/main/jniLibs/armeabi-v7a/libtokenizers_jni.so'
+}
+
+// 添加复制任务，将编译好的Rust库复制到app的jniLibs目录
+task copyRustLibrariesArm64(type: Copy) {
+    dependsOn compileRustJNIAndroidArm64
+    from 'src/main/rust/target/aarch64-linux-android/release/libtokenizers_jni.so'
+    into '../../app/src/main/jniLibs/arm64-v8a/'
+}
+
+task copyRustLibrariesArm7(type: Copy) {
+    dependsOn compileRustJNIAndroidArm7
+    from 'src/main/rust/target/armv7-linux-androideabi/release/libtokenizers_jni.so'
+    into '../../app/src/main/jniLibs/armeabi-v7a/'
+}
+
+// 确保在构建时执行复制任务
+preBuild.dependsOn copyRustLibrariesArm64, copyRustLibrariesArm7
+
+// 清理任务
+task cleanRust(type: Delete) {
+    description 'Clean Rust build artifacts'
+    delete 'src/main/rust/target'
+}
+
+clean.dependsOn cleanRust

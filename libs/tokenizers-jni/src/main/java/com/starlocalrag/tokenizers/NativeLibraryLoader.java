@@ -3,9 +3,7 @@ package com.starlocalrag.tokenizers;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
+
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -22,7 +20,10 @@ public class NativeLibraryLoader {
      * @throws IOException if loading fails
      */
     public static synchronized void load() throws IOException {
+
+        
         if (loaded) {
+
             LOGGER.fine("Native library already loaded, skipping");
             return;
         }
@@ -30,6 +31,7 @@ public class NativeLibraryLoader {
         String os = System.getProperty("os.name").toLowerCase();
         String arch = System.getProperty("os.arch").toLowerCase();
         
+
         LOGGER.fine("Operating system: " + os + ", architecture: " + arch);
         
         // Check if running in Android environment
@@ -37,6 +39,7 @@ public class NativeLibraryLoader {
                           System.getProperty("java.vendor", "").contains("Android") ||
                           System.getProperty("java.vm.name", "").contains("Android");
         
+
         LOGGER.fine("Is Android environment: " + isAndroid);
         
         String libName;
@@ -45,7 +48,7 @@ public class NativeLibraryLoader {
         
         if (isAndroid) {
             // Android platform uses specific library name and path
-            libName = "libtokenizers_ffi.so";
+            libName = "libtokenizers_jni.so";
             
             // Select the correct library path based on CPU architecture
             if (arch.contains("arm64") || arch.contains("aarch64")) {
@@ -62,17 +65,19 @@ public class NativeLibraryLoader {
                 throw new UnsupportedOperationException(errorMsg);
             }
             
+            
             LOGGER.fine("Detected Android architecture: " + androidArch);
             resourcePath = "/native/android/" + androidArch + "/" + libName;
+
             LOGGER.fine("Resource path: " + resourcePath);
         } else if (os.contains("win")) {
-            libName = "tokenizers_ffi.dll";
+            libName = "tokenizers_jni.dll";
             resourcePath = "/native/windows/" + arch + "/" + libName;
         } else if (os.contains("linux")) {
-            libName = "libtokenizers_ffi.so";
+            libName = "libtokenizers_jni.so";
             resourcePath = "/native/linux/" + arch + "/" + libName;
         } else if (os.contains("mac")) {
-            libName = "libtokenizers_ffi.dylib";
+            libName = "libtokenizers_jni.dylib";
             resourcePath = "/native/macos/" + arch + "/" + libName;
         } else {
             throw new UnsupportedOperationException("Unsupported operating system: " + os);
@@ -83,13 +88,19 @@ public class NativeLibraryLoader {
             if (isAndroid) {
                 try {
                     // Try to load the library directly (system will automatically look in the app's jniLibs directory)
-                    LOGGER.fine("Attempting to load library directly: tokenizers_ffi");
-                    System.loadLibrary("tokenizers_ffi");
+        
+                    LOGGER.fine("Attempting to load library directly: tokenizers_jni");
+                    
+                    System.loadLibrary("tokenizers_jni");
+                    
+    
                     LOGGER.fine("Successfully loaded library directly");
                     loaded = true;
                     return;
                 } catch (UnsatisfiedLinkError e) {
                     // If direct loading fails, log the error and continue with other methods
+                    System.err.println("[DEBUG] NativeLibraryLoader: 直接加载库失败: " + e.getMessage());
+                    e.printStackTrace();
                     LOGGER.warning("Failed to load library directly: " + e.getMessage());
                     
                     // Try to list possible library paths for debugging
@@ -138,9 +149,13 @@ public class NativeLibraryLoader {
             
             // If not Android platform or direct loading fails, try to load from resources
             LOGGER.fine("Attempting to load library from resources");
-            Path tempDir = Files.createTempDirectory("tokenizers-jni");
-            Path tempLib = tempDir.resolve(libName);
-            LOGGER.fine("Temporary library path: " + tempLib.toString());
+            // Create temporary directory using API level 24 compatible method
+            File tempDirFile = new File(System.getProperty("java.io.tmpdir"), "tokenizers-jni-" + System.currentTimeMillis());
+            if (!tempDirFile.mkdirs()) {
+                throw new IOException("Failed to create temporary directory: " + tempDirFile.getAbsolutePath());
+            }
+            File tempLibFile = new File(tempDirFile, libName);
+            LOGGER.fine("Temporary library path: " + tempLibFile.getAbsolutePath());
             
             try (InputStream in = NativeLibraryLoader.class.getResourceAsStream(resourcePath)) {
                 if (in == null) {
@@ -164,7 +179,13 @@ public class NativeLibraryLoader {
                     }
                 } else {
                     LOGGER.fine("Library found in resources, copying to temporary directory");
-                    Files.copy(in, tempLib, StandardCopyOption.REPLACE_EXISTING);
+                    try (java.io.FileOutputStream out = new java.io.FileOutputStream(tempLibFile)) {
+                        byte[] buffer = new byte[8192];
+                        int bytesRead;
+                        while ((bytesRead = in.read(buffer)) != -1) {
+                            out.write(buffer, 0, bytesRead);
+                        }
+                    }
                 }
             }
             
@@ -173,7 +194,14 @@ public class NativeLibraryLoader {
             LOGGER.fine("Attempting to load from local file system: " + localLib.getAbsolutePath());
             if (localLib.exists()) {
                 LOGGER.fine("Local library file exists, copying to temporary directory");
-                Files.copy(localLib.toPath(), tempLib, StandardCopyOption.REPLACE_EXISTING);
+                try (java.io.FileInputStream fis = new java.io.FileInputStream(localLib);
+                     java.io.FileOutputStream fos = new java.io.FileOutputStream(tempLibFile)) {
+                    byte[] buffer = new byte[8192];
+                    int bytesRead;
+                    while ((bytesRead = fis.read(buffer)) != -1) {
+                        fos.write(buffer, 0, bytesRead);
+                    }
+                }
             } else {
                 // Try to find in other possible locations
                 String[] possiblePaths = {
@@ -188,7 +216,14 @@ public class NativeLibraryLoader {
                     LOGGER.fine("Checking possible library path: " + possibleLib.getAbsolutePath() + " - " + (possibleLib.exists() ? "exists" : "does not exist"));
                     if (possibleLib.exists()) {
                         LOGGER.fine("Found library file, copying to temporary directory");
-                        Files.copy(possibleLib.toPath(), tempLib, StandardCopyOption.REPLACE_EXISTING);
+                        try (java.io.FileInputStream fis = new java.io.FileInputStream(possibleLib);
+                             java.io.FileOutputStream fos = new java.io.FileOutputStream(tempLibFile)) {
+                            byte[] buffer = new byte[8192];
+                            int bytesRead;
+                            while ((bytesRead = fis.read(buffer)) != -1) {
+                                fos.write(buffer, 0, bytesRead);
+                            }
+                        }
                         found = true;
                         break;
                     }
@@ -201,12 +236,12 @@ public class NativeLibraryLoader {
                 }
             }
             
-            String libPath = tempLib.toAbsolutePath().toString();
+            String libPath = tempLibFile.getAbsolutePath();
             LOGGER.fine("Loading temporary library: " + libPath);
             System.load(libPath);
             LOGGER.fine("Library loaded successfully");
-            tempDir.toFile().deleteOnExit();
-            tempLib.toFile().deleteOnExit();
+            tempDirFile.deleteOnExit();
+            tempLibFile.deleteOnExit();
             
             loaded = true;
         } catch (IOException e) {

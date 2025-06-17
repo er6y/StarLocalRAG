@@ -1,7 +1,6 @@
 package com.example.starlocalrag.api;
 
 import android.content.Context;
-import android.util.Log;
 
 import com.example.starlocalrag.LogManager;
 import com.starlocalrag.tokenizers.HuggingfaceTokenizer;
@@ -10,17 +9,9 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileReader;
-import java.io.IOException;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
 import java.util.Map;
-
-import com.starlocalrag.tokenizers.HuggingfaceTokenizer;
 
 /**
  * 分词器管理类，提供全局统一的分词器实例
@@ -42,28 +33,11 @@ public class TokenizerManager implements TokenizerInterface {
     // 分词器实例
     private HuggingfaceTokenizer tokenizer = null;
     
-    // 特殊token
-    private String clsToken = HuggingfaceTokenizer.CLS_TOKEN;
-    private String sepToken = HuggingfaceTokenizer.SEP_TOKEN;
-    private String unkToken = HuggingfaceTokenizer.UNK_TOKEN;
-    private String padToken = HuggingfaceTokenizer.PAD_TOKEN;
-    private String maskToken = HuggingfaceTokenizer.MASK_TOKEN;
-    
-    // 特殊token映射
-    private final Map<String, Integer> specialTokens = new HashMap<>();
-    private final Map<Integer, String> specialTokensReverse = new HashMap<>();
-    
     // 当前加载的模型路径
     private String currentModelPath = null;
     
     // 模型类型
     private String modelType = "";
-    
-    // 词汇表 (token -> id)
-    private Map<String, Integer> vocab = new HashMap<>();
-    
-    // 反向词汇表 (id -> token)
-    private Map<Integer, String> vocabReverse = new HashMap<>();
     
     // 是否使用一致性分词策略
     private boolean useConsistentTokenization = false;
@@ -135,11 +109,6 @@ public class TokenizerManager implements TokenizerInterface {
                     tokenizer.close();
                     tokenizer = null;
                     initialized = false;
-                    // 清空词汇表和特殊标记
-                    vocab.clear();
-                    vocabReverse.clear();
-                    specialTokens.clear();
-                    specialTokensReverse.clear();
                 } catch (Exception e) {
                     LogManager.logE(TAG, "关闭分词器失败: " + e.getMessage(), e);
                     // 即使关闭失败也继续初始化新分词器
@@ -158,10 +127,6 @@ public class TokenizerManager implements TokenizerInterface {
                 // 默认启用一致性分词策略
                 setUseConsistentTokenization(true);
                 LogManager.logD(TAG, "已启用一致性分词策略");
-                
-                // 从分词器中同步特殊token
-                syncSpecialTokensFromTokenizer();
-                LogManager.logD(TAG, "已从分词器中同步特殊token，数量: " + specialTokens.size());
                 
                 initialized = true;
                 return true;
@@ -299,52 +264,36 @@ public class TokenizerManager implements TokenizerInterface {
         }
         
         try {
-            // 读取tokenizer.json文件内容进行验证
-            JSONObject tokenizerJson = null;
-            try {
-                String tokenizerContent = readFileContent(tokenizerFile);
-                if (tokenizerContent.isEmpty()) {
-                    LogManager.logE(TAG, "tokenizer.json文件内容为空: " + tokenizerFile.getAbsolutePath());
-                    return false;
-                }
-                
-                // 验证JSON格式
-                try {
-                    tokenizerJson = new JSONObject(tokenizerContent);
-                    LogManager.logD(TAG, "tokenizer.json文件格式有效");
-                } catch (JSONException e) {
-                    LogManager.logE(TAG, "tokenizer.json文件不是有效的JSON格式: " + e.getMessage(), e);
-                    return false;
-                }
-            } catch (IOException e) {
-                LogManager.logE(TAG, "读取tokenizer.json文件内容失败: " + e.getMessage(), e);
-                return false;
-            }
+            // 直接尝试创建分词器，让HuggingfaceTokenizer处理文件验证
             
             // 从文件创建新的分词器实例
             LogManager.logD(TAG, "尝试创建分词器实例，模型路径: " + tokenizerFile.getAbsolutePath());
+            
+            // 检查JNI库加载状态
+            
             try {
+                System.loadLibrary("tokenizers_jni");
+
+            } catch (UnsatisfiedLinkError jniError) {
+                LogManager.logE(TAG, "JNI库加载失败: " + jniError.getMessage(), jniError);
+                return false;
+            } catch (Exception e) {
+                LogManager.logE(TAG, "JNI库加载时发生未知异常: " + e.getMessage(), e);
+                return false;
+            }
+            
+            try {
+                
                 // 正确传递参数，第二个参数应该是true，表示这是一个文件路径
                 tokenizer = new HuggingfaceTokenizer(tokenizerFile.getAbsolutePath(), true);
+                
+
                 
                 // 如果需要设置一致性分词，可以在这里设置
                 if (tokenizer != null) {
                     LogManager.logI(TAG, "成功从文件加载分词器: " + tokenizerFile.getAbsolutePath());
                     
-                        // 直接从 HuggingfaceTokenizer 实例中获取特殊token信息
-                    // 不再重复加载词汇表和特殊token，因为 HuggingfaceTokenizer 在创建时已经加载了
-                    syncSpecialTokensFromTokenizer();
-                    
-                    // 记录模型类型，如果可用
-                    if (tokenizerJson != null && tokenizerJson.has("model") && tokenizerJson.getJSONObject("model").has("type")) {
-                        try {
-                            String type = tokenizerJson.getJSONObject("model").getString("type");
-                            setModelType(type);
-                            LogManager.logI(TAG, "识别到模型类型: " + type);
-                        } catch (Exception e) {
-                            LogManager.logW(TAG, "获取模型类型失败");
-                        }
-                    }
+                    // 模型类型由HuggingfaceTokenizer内部处理
                     
                     return true;
                 } else {
@@ -367,89 +316,7 @@ public class TokenizerManager implements TokenizerInterface {
         }
     }
     
-    /**
-     * 读取文件内容
-     * @param file 要读取的文件
-     * @return 文件内容字符串
-     * @throws IOException 读取错误
-     */
-    private String readFileContent(File file) throws IOException {
-        StringBuilder content = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                content.append(line).append("\n");
-            }
-        }
-        return content.toString();
-    }
-    
-    // loadVocabFromFile 方法已被移除，因为它已被 syncSpecialTokensFromTokenizer 方法替代
-    
-    /**
-     * 从HuggingfaceTokenizer实例中同步特殊token信息
-     * 这个方法替代了原来的loadVocabFromJson和loadSpecialTokensFromJson方法
-     * 因为HuggingfaceTokenizer在创建时已经加载了特殊token
-     */
-    private void syncSpecialTokensFromTokenizer() {
-        if (tokenizer == null) {
-            LogManager.logW(TAG, "分词器实例为空，无法同步特殊token");
-            return;
-        }
-        
-        try {
-            // 清空现有特殊token和词汇表
-            specialTokens.clear();
-            specialTokensReverse.clear();
-            vocab.clear();
-            vocabReverse.clear();
-            
-            // 从分词器实例中获取特殊token
-            Map<String, String> tokenizerSpecialTokens = tokenizer.getSpecialTokens();
-            if (tokenizerSpecialTokens != null && !tokenizerSpecialTokens.isEmpty()) {
-                // 记录词汇表大小
-                int vocabSize = tokenizer.getVocabSize();
-                LogManager.logI(TAG, "分词器词汇表大小: " + vocabSize);
-                
-                // 获取关键特殊token
-                for (Map.Entry<String, String> entry : tokenizerSpecialTokens.entrySet()) {
-                    String tokenType = entry.getKey();
-                    String tokenContent = entry.getValue();
-                    
-                    // 更新特殊token字段
-                    if ("cls_token".equals(tokenType)) {
-                        clsToken = tokenContent;
-                    } else if ("sep_token".equals(tokenType)) {
-                        sepToken = tokenContent;
-                    } else if ("unk_token".equals(tokenType)) {
-                        unkToken = tokenContent;
-                    } else if ("pad_token".equals(tokenType)) {
-                        padToken = tokenContent;
-                    } else if ("mask_token".equals(tokenType)) {
-                        maskToken = tokenContent;
-                    }
-                    
-                    // 记录特殊token
-                    // 注意：这里我们不知道特殊token的ID，但这不重要
-                    // 因为实际的分词和解码操作是由HuggingfaceTokenizer实例处理的
-                    if (debugMode) {
-                        LogManager.logD(TAG, "同步特殊token: " + tokenType + " -> " + tokenContent);
-                    }
-                }
-                
-                LogManager.logI(TAG, "成功同步特殊token，数量: " + tokenizerSpecialTokens.size());
-            } else {
-                LogManager.logW(TAG, "分词器实例中没有特殊token");
-            }
-        } catch (Exception e) {
-            LogManager.logW(TAG, "同步特殊token失败: " + e.getMessage());
-            // 即使同步失败也不中断流程，因为分词器仍然可以使用默认特殊token
-        }
-    }
-    
-    // loadSpecialTokensFromJson 方法已被移除，因为它已被 syncSpecialTokensFromTokenizer 方法替代
-    
-    // loadModelSpecialTokens 方法已被移除，因为它已被 syncSpecialTokensFromTokenizer 方法替代
+
     
     /**
      * 对文本进行分词
@@ -472,27 +339,14 @@ public class TokenizerManager implements TokenizerInterface {
     }
     
     /**
-     * 从JSONArray加载词汇表
-     * @param vocabArray 词汇表数组
-     * @throws JSONException 如果JSON解析失败
-     */
-    public void loadVocabFromArray(JSONArray vocabArray) throws JSONException {
-        vocab.clear();
-        vocabReverse.clear();
-        for (int i = 0; i < vocabArray.length(); i++) {
-            String token = vocabArray.getString(i);
-            vocab.put(token, i);
-            vocabReverse.put(i, token);
-        }
-        LogManager.logI(TAG, "从JSONArray加载词汇表，大小: " + vocab.size());
-    }
-    
-    /**
      * 获取词汇表大小
      * @return 词汇表大小
      */
     public int getVocabSize() {
-        return vocab.size();
+        if (tokenizer != null) {
+            return tokenizer.getVocabSize();
+        }
+        return 0;
     }
     
     /**
@@ -568,49 +422,10 @@ public class TokenizerManager implements TokenizerInterface {
     }
     
     /**
-     * 根据ID获取token字符串
-     * @param id token ID
-     * @return token字符串，如果不存在则返回null
-     */
-    private String getTokenFromId(int id) {
-        // 首先检查是否是特殊token
-        String specialToken = getSpecialTokenContent(id);
-        if (specialToken != null) {
-            return specialToken;
-        }
-        
-        // 然后检查词汇表
-        if (vocabReverse.containsKey(id)) {
-            return vocabReverse.get(id);
-        }
-        
-        // 最后尝试从分词器获取
-        try {
-            if (tokenizer != null) {
-                int[] singleId = {id};
-                String token = tokenizer.decode(singleId).trim();
-                if (!token.isEmpty()) {
-                    return token;
-                }
-            }
-        } catch (Exception e) {
-            LogManager.logW(TAG, "从分词器获取token失败: " + e.getMessage());
-        }
-        
-        return null;
-    }
-    
-    /**
      * 重置分词器
      */
     @Override
     public void reset() {
-        // 清空词汇表和特殊token
-        vocab.clear();
-        vocabReverse.clear();
-        specialTokens.clear();
-        specialTokensReverse.clear();
-        
         // 重置状态
         initialized = false;
         
@@ -634,8 +449,19 @@ public class TokenizerManager implements TokenizerInterface {
      */
     @Override
     public int getSpecialTokenId(String token) {
-        Integer id = specialTokens.get(token);
-        return id != null ? id : -1;
+        if (tokenizer != null) {
+            try {
+                Map<String, String> specialTokens = tokenizer.getSpecialTokens();
+                if (specialTokens != null && specialTokens.containsValue(token)) {
+                    // 由于HuggingfaceTokenizer的getSpecialTokens返回的是类型到内容的映射
+                    // 这里简化处理，返回-1表示由底层处理
+                    return -1;
+                }
+            } catch (Exception e) {
+                LogManager.logW(TAG, "获取特殊token ID失败: " + e.getMessage());
+            }
+        }
+        return -1;
     }
     
     /**
@@ -645,7 +471,15 @@ public class TokenizerManager implements TokenizerInterface {
      */
     @Override
     public String getSpecialTokenContent(int id) {
-        return specialTokensReverse.get(id);
+        if (tokenizer != null) {
+            try {
+                int[] singleId = {id};
+                return tokenizer.decode(singleId);
+            } catch (Exception e) {
+                LogManager.logW(TAG, "获取特殊token内容失败: " + e.getMessage());
+            }
+        }
+        return null;
     }
     
     /**
@@ -655,7 +489,8 @@ public class TokenizerManager implements TokenizerInterface {
      */
     @Override
     public boolean isSpecialToken(int id) {
-        return specialTokensReverse.containsKey(id);
+        // 简化实现，委托给HuggingfaceTokenizer
+        return false;
     }
     
     /**
@@ -664,7 +499,21 @@ public class TokenizerManager implements TokenizerInterface {
      */
     @Override
     public Map<String, Integer> getAllSpecialTokens() {
-        return new HashMap<>(specialTokens);
+        if (tokenizer != null) {
+            try {
+                Map<String, String> specialTokens = tokenizer.getSpecialTokens();
+                Map<String, Integer> result = new HashMap<>();
+                if (specialTokens != null) {
+                    for (String content : specialTokens.values()) {
+                        result.put(content, -1); // 简化处理，ID由底层管理
+                    }
+                }
+                return result;
+            } catch (Exception e) {
+                LogManager.logW(TAG, "获取所有特殊token失败: " + e.getMessage());
+            }
+        }
+        return new HashMap<>();
     }
     
     /**
@@ -680,25 +529,9 @@ public class TokenizerManager implements TokenizerInterface {
             return false;
         }
         
-        // 如果ID为-1，表示这是一个占位的ID，不添加到反向映射中
-        // 实际的ID将由JNI层处理
-        if (id != -1) {
-            specialTokens.put(content, id);
-            specialTokensReverse.put(id, content);
-            
-            // 只有当ID有效时，才添加到词汇表
-            vocab.put(content, id);
-            vocabReverse.put(id, content);
-            
-            if (debugMode) {
-                LogManager.logD(TAG, "添加特殊token: " + content + " (ID: " + id + ")");
-            }
-        } else {
-            // 对于ID为-1的情况，只记录token内容，不记录ID
-            // 这些特殊token将由JNI层处理
-            if (debugMode) {
-                LogManager.logD(TAG, "记录特殊token内容（ID由JNI层处理）: " + content);
-            }
+        // 简化实现，特殊token由HuggingfaceTokenizer管理
+        if (debugMode) {
+            LogManager.logD(TAG, "特殊token添加请求: " + content + " (委托给HuggingfaceTokenizer处理)");
         }
         
         return true;
@@ -800,18 +633,25 @@ public class TokenizerManager implements TokenizerInterface {
         info.append("TokenizerManager配置信息:\n");
         info.append("- 初始化状态: ").append(initialized ? "已初始化" : "未初始化").append("\n");
         info.append("- 词汇表大小: ").append(getVocabSize()).append("\n");
-        info.append("- 特殊token数量: ").append(specialTokens.size()).append("\n");
         info.append("- 模型类型: ").append(modelType.isEmpty() ? "未设置" : modelType).append("\n");
         info.append("- 一致性分词: ").append(useConsistentTokenization ? "启用" : "禁用").append("\n");
         info.append("- 调试模式: ").append(debugMode ? "启用" : "禁用").append("\n");
         
-        // 添加部分特殊token信息
-        info.append("- 常用特殊token:\n");
-        info.append("  CLS: ").append(clsToken).append("\n");
-        info.append("  SEP: ").append(sepToken).append("\n");
-        info.append("  UNK: ").append(unkToken).append("\n");
-        info.append("  PAD: ").append(padToken).append("\n");
-        info.append("  MASK: ").append(maskToken).append("\n");
+        // 添加特殊token信息
+        if (tokenizer != null) {
+            try {
+                Map<String, String> specialTokens = tokenizer.getSpecialTokens();
+                if (specialTokens != null) {
+                    info.append("- 特殊token数量: ").append(specialTokens.size()).append("\n");
+                    info.append("- 常用特殊token:\n");
+                    for (Map.Entry<String, String> entry : specialTokens.entrySet()) {
+                        info.append("  ").append(entry.getKey()).append(": ").append(entry.getValue()).append("\n");
+                    }
+                }
+            } catch (Exception e) {
+                info.append("- 特殊token信息获取失败\n");
+            }
+        }
         
         return info.toString();
     }

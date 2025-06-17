@@ -104,3 +104,4 @@ test_onnx.py
 !**/*.so
 /log.ini
 /app/debug
+/Rerankers

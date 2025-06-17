@@ -636,44 +636,7 @@ public class ConfigManager {
             }
         }
         
-        // 兼容旧版本：如果无法从SQLite数据库和metadata.json中获取，尝试从metadata.dat文件中读取
-        File metadataFile = new File(knowledgeBaseDir, "metadata.dat");
-        if (metadataFile.exists()) {
-            LogManager.logD(TAG, "找到metadata.dat文件，尝试读取嵌入模型信息（兼容旧版本）");
-            try (ObjectInputStream ois = new ObjectInputStream(new FileInputStream(metadataFile))) {
-                Object obj = ois.readObject();
-                if (obj instanceof VectorDatabaseHandler.DatabaseMetadata) {
-                    VectorDatabaseHandler.DatabaseMetadata metadata = (VectorDatabaseHandler.DatabaseMetadata) obj;
-                    String embeddingModel = metadata.getEmbeddingModel();
-                    LogManager.logD(TAG, "从metadata.dat中读取到嵌入模型: " + embeddingModel);
-                    
-                    if (embeddingModel != null && !embeddingModel.isEmpty()) {
-                        // 获取设置中的嵌入模型路径
-                        String embeddingModelPath = SettingsFragment.getEmbeddingModelPath(context);
-                        
-                        // 检查嵌入模型文件是否存在
-                        File modelFile = new File(embeddingModel);
-                        if (!modelFile.exists()) {
-                            // 尝试在设置的嵌入模型路径中查找
-                            modelFile = new File(embeddingModelPath, embeddingModel);
-                            LogManager.logD(TAG, "尝试在设置的嵌入模型路径中查找: " + modelFile.getAbsolutePath());
-                        }
-                        
-                        if (modelFile.exists()) {
-                            LogManager.logD(TAG, "找到嵌入模型文件: " + modelFile.getAbsolutePath());
-                            return modelFile.getAbsolutePath();
-                        } else {
-                            LogManager.logE(TAG, "嵌入模型文件不存在: " + embeddingModel);
-                            return null; // 直接返回null，让调用者处理模型不存在的情况
-                        }
-                    }
-                }
-            } catch (IOException | ClassNotFoundException e) {
-                LogManager.logE(TAG, "读取metadata.dat文件失败", e);
-            }
-        } else {
-            LogManager.logD(TAG, "metadata.dat文件不存在（这是正常的，使用新版本数据库格式）");
-        }
+        // 已移除对旧版本metadata.dat文件的兼容性支持
         
         // 如果无法从元数据中获取，尝试查找知识库目录中的任何嵌入模型文件
         LogManager.logD(TAG, "尝试在知识库目录中查找嵌入模型文件");

@@ -466,7 +466,7 @@ public class TextChunkProcessor {
      * @param chunkOverlap 块重叠大小
      * @return 分割后的文本块列表
      */
-    private List<String> splitTextIntoChunks(String text, int chunkSize, int chunkOverlap) {
+    public List<String> splitTextIntoChunks(String text, int chunkSize, int chunkOverlap) {
         if (text == null || text.isEmpty()) {
             return new ArrayList<>();
         }

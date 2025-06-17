@@ -153,7 +153,28 @@ SQLiteVectorDatabaseHandler 存储向量到数据库
 
 ### 3.2 编译与构建优化
 
-1. **编译错误修复最佳实践**
+1. **代码清理与依赖优化**
+   - **死代码清理**：定期清理未使用的代码文件和类，减少项目复杂度和维护成本
+   - **依赖管理优化**：移除不再使用的第三方库依赖，如已删除的 Retrofit 相关依赖
+   - **ProGuard规则清理**：同步清理混淆配置中对应的规则，保持配置文件的简洁性
+   - **架构简化**：统一网络请求架构，使用 OkHttp + Volley 替代多套网络库方案
+
+2. **Tokenizers JNI架构优化**
+   - **FFI层消除**：将原有的 `tokenizers-ffi` 中间层直接合并到 `tokenizers-jni` 中，消除C++ FFI桥接层
+   - **直接JNI实现**：使用Rust JNI crate直接实现Java Native Interface，提高性能并简化架构
+   - **交叉编译配置**：配置Rust交叉编译支持Android ARM架构（aarch64-linux-android, armv7-linux-androideabi）
+   - **构建流程优化**：
+     * 添加Android特定的编译任务（compileRustJNIAndroidArm64, compileRustJNIAndroidArm7）
+     * 自动复制对应架构的.so文件到app/src/main/jniLibs目录
+     * 更新CMakeLists.txt配置，使用新的libtokenizers_jni.so库
+     * 清理旧的libtokenizers_ffi.so文件
+   - **库文件管理**：
+     * Windows平台生成tokenizers_jni.dll用于开发测试
+     * Android平台生成libtokenizers_jni.so用于实际部署
+     * 支持arm64-v8a和armeabi-v7a两种主要Android架构
+   - **依赖关系简化**：移除对tokenizers-ffi模块的依赖，统一到tokenizers-jni模块中
+
+2. **编译错误修复最佳实践**
    - **特殊字符处理**：移除代码中的特殊Unicode字符（如✓、✗等），这些字符可能导致编译器无法正确解析代码
    - **类型转换优化**：
      - 对于必要的未检查类型转换，使用`@SuppressWarnings("unchecked")`注解抑制警告
@@ -1618,6 +1639,61 @@ implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.21.0'
       - 华为设备检测范围：华为(huawei)、荣耀(honor)品牌设备
     - **性能统计报告优化**：
       - 简化统计报告输出格式：将复杂的多行emoji装饰格式改为简洁的单行格式
+
+22. **TokenizerManager架构简化与性能优化**：
+    - **内部状态管理简化**：
+      - 移除了内部词汇表管理：删除了`vocab`、`vocabReverse`、`specialTokens`、`specialTokensReverse`等Map结构
+      - 简化了初始化流程：移除了`initialize`方法中的词汇表清理和特殊token同步逻辑
+      - 优化了加载流程：移除了`loadFromDirectory`中的`syncSpecialTokensFromTokenizer`调用和`readFileContent`方法
+      - 删除了冗余方法：移除了`syncSpecialTokensFromTokenizer`、`loadVocabFromArray`、`readFileContent`等方法
+    - **功能委托优化**：
+      - 词汇表大小查询：`getVocabSize`方法直接委托给底层`HuggingfaceTokenizer`实例
+      - 特殊token操作：所有特殊token相关方法（`getSpecialTokenId`、`getSpecialTokenContent`、`isSpecialToken`、`getAllSpecialTokens`、`addSpecialToken`）都委托给底层tokenizer
+      - token解码：`getTokenFromId`方法被移除，解码功能完全由底层tokenizer处理
+      - 重置操作：`reset`方法简化为只重置初始化状态，不再清理内部Map结构
+    - **代码规模优化**：
+      - 代码行数减少：从818行优化到630行，减少了188行代码（23%的减少）
+      - 内存占用降低：移除了大量内部Map结构，显著减少内存使用
+      - 维护复杂度降低：简化的代码结构使得维护和调试更加容易
+    - **性能提升**：
+      - 加载速度提升：移除了词汇表和特殊token的重复加载过程
+      - 内存效率提升：避免了Java层和JNI层的数据重复存储
+      - 响应速度提升：直接委托给底层tokenizer，减少了中间层的处理开销
+    - **接口兼容性保持**：
+      - 公共接口不变：所有公共方法签名保持不变，确保向后兼容
+      - 功能完整性：虽然内部实现简化，但所有原有功能都得到保留
+      - 错误处理优化：简化了错误处理逻辑，但保持了异常处理的完整性
+    - **动态信息获取**：
+      - `toString`方法优化：改为动态从底层tokenizer获取特殊token信息，而不是使用缓存的静态数据
+      - 实时状态反映：所有状态查询都反映tokenizer的实时状态，提高了数据的准确性
+    - 这次优化显著提升了TokenizerManager的性能和可维护性：
+      - **简化架构**：移除了不必要的中间层数据结构，直接使用底层tokenizer的功能
+      - **减少冗余**：避免了Java层和JNI层之间的数据重复，提高了内存效率
+      - **提升性能**：减少了方法调用层次和数据转换开销，提高了执行效率
+      - **增强可维护性**：更简洁的代码结构使得后续维护和功能扩展更加容易
+
+23. **LlamaCpp模块代码整合优化**：
+    - **ModelParamsReader类合并**：
+      - 将独立的`ModelParamsReader.java`工具类合并到`LocalLLMLlamaCppHandler.java`中
+      - 原因：`ModelParamsReader`专门为LlamaCpp支持解析GGUF参数文件，功能单一且仅被`LocalLLMLlamaCppHandler`使用
+      - 合并后减少了一个独立的类文件，简化了项目结构
+    - **功能整合细节**：
+      - 将`ModelParamsReader.readInferenceParams()`方法改为`LocalLLMLlamaCppHandler`的私有静态方法
+      - 保留了所有原有功能：支持JSON格式和键值对格式的参数文件解析
+      - 支持读取`params`文件和`generation_config.json`文件
+      - 支持解析`temperature`、`top_p`、`top_k`、`repeat_penalty`等推理参数
+    - **代码结构优化**：
+      - 添加了必要的import语句：`org.json.JSONObject`、`java.io.FileInputStream`、`java.io.IOException`、`java.nio.charset.StandardCharsets`
+      - 将所有参数解析相关的私有方法集中在一个类中，提高了代码的内聚性
+      - 保持了原有的错误处理和日志记录机制
+    - **项目结构简化**：
+      - 减少了一个独立的工具类文件，降低了项目复杂度
+      - 相关功能集中管理，便于维护和调试
+      - 避免了跨类的依赖关系，提高了代码的可读性
+    - 这次整合优化体现了"高内聚、低耦合"的设计原则：
+      - **高内聚**：将相关的参数解析功能集中在使用它们的类中
+      - **低耦合**：减少了类之间的依赖关系，简化了模块结构
+      - **可维护性**：相关功能的修改和扩展更加集中和便捷
       - 统一格式：`tokens计数: XX • 耗时: XXXs • 速率: XXX token/s • JVM内存最大消耗: XXXMB • LLM内存最大消耗: XXXXMB • 系统最大内存消耗: XXXXMB`
       - 修复内存监控问题：提高监控频率从500ms到200ms，增强内存峰值捕获精度
       - 优化内存基线测量：推理前强制垃圾回收，确保准确的内存基线
@@ -2407,17 +2483,18 @@ Fatal signal 6 (SIGABRT), code -1 (SI_QUEUE) in tid 4904
 
 #### 重构实现
 
-1. **LlamaCpp.java 方法废弃**：
-   - 将 `getEmbedding()` 和 `getEmbeddings()` 方法标记为 `@Deprecated`
-   - 将 `getEmbeddingSize()` 和 `supportsEmbedding()` 方法标记为 `@Deprecated`
-   - 添加日志提示用户直接使用 `LlamaCppEmbedding` 类
-   - 保持向后兼容性，现有调用仍然有效
+1. **LlamaCpp.java 完全删除**：
+   - 删除了冗余的 `LlamaCpp.java` 文件
+   - 将有用的功能（`getModelInfo()`, `generateText()`, `getVersion()`）合并到 `LlamaCppInference.java`
+   - 简化了架构，减少了代码重复
+   - 统一使用 `LlamaCppInference.java` 作为唯一的 JNI 接口
 
-2. **LlamaCppInference.java 方法补充**：
-   - 添加缺失的 Embedding 相关方法：`getEmbedding()`, `getEmbeddings()`, `getEmbeddingSize()`, `supportsEmbedding()`
-   - 添加缺失的 `getModelInfo()` 方法
-   - 这些方法目前作为框架存在，需要重新设计接口来实现具体功能
-   - 解决了编译错误，确保代码能够正常构建
+2. **LlamaCppInference.java 功能整合**：
+   - 合并了 `LlamaCpp.java` 中的 `getModelInfo()` 方法，提供完整的模型元数据信息
+   - 合并了 `generateText()` 方法，支持同步文本生成
+   - 添加了 `getVersion()` 方法，提供版本信息
+   - 保持了所有原有的 JNI native 方法声明
+   - 成为项目中唯一的 LlamaCpp JNI 接口类
 
 3. **LocalLLMLlamaCppHandler.java 重构**：
    - 添加独立的 `LlamaCppEmbedding` 成员变量
@@ -2435,19 +2512,23 @@ Fatal signal 6 (SIGABRT), code -1 (SI_QUEUE) in tid 4904
 
 #### 架构优势
 
-1. **清晰的职责分离**：
-   - `LlamaCppInference` 专注于文本生成和推理
-   - `LlamaCppEmbedding` 专注于嵌入向量计算
-   - `LocalLLMLlamaCppHandler` 作为协调器管理两个专门的组件
+1. **简化的架构设计**：
+   - `LlamaCppInference` 作为唯一的 JNI 接口，统一管理所有 LlamaCpp 功能
+   - 删除了冗余的 `LlamaCpp.java`，减少了代码重复和维护负担
+   - 清晰的单一职责：`LlamaCppInference` 负责所有底层 JNI 调用
+   - `LocalLLMLlamaCppHandler` 作为高级封装，提供业务逻辑和资源管理
 
-2. **独立的资源管理**：
-   - Embedding 功能有独立的初始化和释放流程
-   - 避免了推理和嵌入功能之间的资源冲突
-   - 支持独立的配置和优化
+2. **统一的资源管理**：
+   - 所有 JNI 资源通过 `LlamaCppInference` 统一管理
+   - 避免了多个接口类之间的资源冲突
+   - 简化了初始化和释放流程
+   - 更好的内存管理和错误处理
 
-3. **更好的错误处理**：
-   - 针对 Embedding 功能的专门错误检查
-   - 更精确的状态管理和日志记录
+3. **代码维护性提升**：
+   - 减少了接口层的复杂性
+   - 统一的方法命名和参数规范
+   - 更容易进行功能扩展和bug修复
+   - 降低了学习和使用成本
    - 独立的故障恢复机制
 
 4. **扩展性改善**：

@@ -78,7 +78,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
-import com.example.starlocalrag.VectorDatabaseHandler;
+
 import com.example.starlocalrag.EmbeddingModelHandler;
 import com.example.starlocalrag.EmbeddingModelManager;
 import com.example.starlocalrag.EmbeddingModelUtils;

@@ -278,4 +278,117 @@ public class LlamaCppInference {
     public interface StreamCallback {
         void onText(String text, boolean isComplete);
     }
+    
+    // ========== 工具函数 ==========
+    
+    /**
+     * 获取模型信息
+     * @param model 模型句柄
+     * @return 模型信息字符串，包含模型元数据
+     */
+    public static String getModelInfo(long model) {
+        StringBuilder info = new StringBuilder();
+        info.append("模型信息:\n");
+        
+        try {
+            // 获取元数据数量
+            int metaCount = model_meta_count(model);
+            info.append("元数据数量: ").append(metaCount).append("\n");
+            
+            // 获取所有元数据
+            info.append("元数据:\n");
+            for (int i = 0; i < metaCount; i++) {
+                String key = model_meta_key_by_index(model, i);
+                String value = model_meta_val_str_by_index(model, i);
+                if (key != null && value != null) {
+                    info.append("  ").append(key).append(": ").append(value).append("\n");
+                }
+            }
+            
+            // 尝试获取一些常见的元数据
+            String[] commonKeys = {"general.architecture", "general.name", "llama.context_length", 
+                                  "llama.embedding_length", "llama.block_count", "llama.feed_forward_length", 
+                                  "llama.attention.head_count", "llama.attention.head_count_kv", 
+                                  "llama.rope.dimension_count", "tokenizer.ggml.model", "tokenizer.ggml.tokens"};
+            
+            info.append("\n常用参数:\n");
+            for (String key : commonKeys) {
+                String value = model_meta_val_str(model, key);
+                if (value != null) {
+                    info.append("  ").append(key).append(": ").append(value).append("\n");
+                }
+            }
+        } catch (Exception e) {
+            info.append("获取模型元数据失败: ").append(e.getMessage());
+        }
+        
+        return info.toString();
+    }
+    
+    /**
+     * 生成文本（同步方式）
+     * @param ctx 上下文句柄
+     * @param prompt 输入提示
+     * @param maxTokens 最大生成token数
+     * @param temperature 温度参数
+     * @param topP top-p采样参数
+     * @param topK top-k采样参数
+     * @return 生成的文本，失败返回null
+     */
+    public static String generateText(long ctx, String prompt, int maxTokens, 
+                                           float temperature, float topP, int topK) {
+        try {
+            // 动态创建批处理大小，支持超长prompt
+            // 首先估算prompt的token数量（粗略估算：字符数/4）
+            int estimatedTokens = Math.max(512, prompt.length() / 4 + 100);
+            // 限制最大batch大小避免内存问题
+            int batchSize = Math.min(estimatedTokens, 2048);
+            
+            Log.i("LlamaCppInference", "动态batch大小 - 估算tokens: " + estimatedTokens + ", 使用batch大小: " + batchSize);
+            
+            // 创建批处理和采样器
+            long batch = new_batch(batchSize, 0, 1);
+            long sampler = new_sampler_with_params(temperature, topP, topK);
+            
+            // 清空KV缓存
+            kv_cache_clear(ctx);
+            
+            // 初始化完成
+            int tokenCount = completion_init(ctx, batch, prompt, maxTokens, false);
+            if (tokenCount < 0) {
+                free_batch(batch);
+                free_sampler(sampler);
+                return null;
+            }
+            
+            // 生成循环
+            StringBuilder result = new StringBuilder();
+            IntVar currentPos = new IntVar(tokenCount);
+            
+            for (int i = 0; i < maxTokens; i++) {
+                String token = completion_loop(ctx, batch, sampler, maxTokens, currentPos);
+                if (token == null || token.isEmpty()) {
+                    break;
+                }
+                result.append(token);
+            }
+            
+            // 清理资源
+            free_batch(batch);
+            free_sampler(sampler);
+            
+            return result.toString();
+        } catch (Exception e) {
+            Log.e("LlamaCppInference", "Text generation failed", e);
+            return null;
+        }
+    }
+    
+    /**
+     * 获取库版本信息
+     * @return 版本信息
+     */
+    public static String getVersion() {
+        return "LlamaCpp JNI v1.0";
+    }
 }

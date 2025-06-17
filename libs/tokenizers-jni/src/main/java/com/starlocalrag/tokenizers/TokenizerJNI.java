@@ -8,8 +8,9 @@ public class TokenizerJNI {
     static {
         try {
             NativeLibraryLoader.load();
+        } catch (UnsatisfiedLinkError e) {
+            e.printStackTrace();
         } catch (Exception e) {
-            System.err.println("无法加载本地库: " + e.getMessage());
             e.printStackTrace();
         }
     }
@@ -26,7 +27,20 @@ public class TokenizerJNI {
      * @param path 分词器文件路径
      * @return 分词器指针
      */
-    public static native long loadTokenizerFromFile(String path);
+    public static long loadTokenizerFromFile(String path) {
+        try {
+            long result = loadTokenizerFromFileNative(path);
+            return result;
+        } catch (UnsatisfiedLinkError e) {
+            e.printStackTrace();
+            throw e;
+        } catch (Exception e) {
+            e.printStackTrace();
+            throw e;
+        }
+    }
+    
+    private static native long loadTokenizerFromFileNative(String path);
     
     /**
      * 分词

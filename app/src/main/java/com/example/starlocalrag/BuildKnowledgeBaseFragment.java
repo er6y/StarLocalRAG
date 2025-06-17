@@ -54,7 +54,6 @@ import com.example.starlocalrag.EmbeddingModelManager.ModelCallback;
 import com.example.starlocalrag.SQLiteVectorDatabaseHandler;
 import com.example.starlocalrag.SettingsFragment;
 import com.example.starlocalrag.TextChunkProcessor.ProgressCallback;
-import com.example.starlocalrag.TextProcessor;
 import com.example.starlocalrag.api.TokenizerManager;
 import com.example.starlocalrag.Utils;
 

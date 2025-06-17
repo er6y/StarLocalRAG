@@ -217,7 +217,7 @@ public class EmbeddingModelManager {
                     new File(modelPath).getName());
                 LogManager.getInstance(applicationContext).i(TAG, loadMsg);
                 
-                currentModel = loadModelWithGpuFallback(modelPath, currentGpuSetting);
+                currentModel = loadModel(modelPath, currentGpuSetting);
                 currentModelPath = modelPath;
                 this.useGpu = currentGpuSetting;
                 
@@ -365,7 +365,7 @@ public class EmbeddingModelManager {
                         new File(modelPath).getName());
                     LogManager.getInstance(applicationContext).i(TAG, loadMsg);
                     
-                    currentModel = loadModelWithGpuFallback(modelPath, finalGpuSetting);
+                    currentModel = loadModel(modelPath, finalGpuSetting);
                     currentModelPath = modelPath;
                     useGpu = finalGpuSetting;
                     
@@ -399,69 +399,35 @@ public class EmbeddingModelManager {
     }
     
     /**
-     * 使用GPU回退机制加载模型
-     * 如果GPU加载失败，会自动降级到CPU模式
-     * @param modelPath 模型路径
-     * @param useGpu 是否使用GPU
-     * @return 加载的模型
+     * 加载嵌入模型
+     * @param modelPath 模型文件路径
+     * @param useGpu 是否使用GPU加速
+     * @return 加载的模型处理器
      * @throws Exception 如果加载失败
      */
-    private EmbeddingModelHandler loadModelWithGpuFallback(String modelPath, boolean useGpu) throws Exception {
-        EmbeddingModelHandler model = null;
+    private EmbeddingModelHandler loadModel(String modelPath, boolean useGpu) throws Exception {
+        LogManager.logD(TAG, "开始加载模型: " + modelPath + ", 使用GPU: " + useGpu);
         
         // 通知加载开始
         notifyLoadStarted(modelPath);
         
         try {
-            // 根据设置决定是否使用GPU
-            if (useGpu) {
-                String loadMsg = String.format("尝试使用GPU加速设置加载模型: %s", new File(modelPath).getName());
-                LogManager.logD(TAG, loadMsg);
-                notifyLoadProgress(modelPath, "尝试使用GPU加载模型...");
-                LogManager.getInstance(applicationContext).i(TAG, loadMsg);
-                
-                try {
-                    // 使用GPU加载模型，传递Context参数
-                    model = new EmbeddingModelHandler(applicationContext, modelPath, true);
-                    LogManager.logD(TAG, "模型加速: GPU模式加载成功");
-                    LogManager.getInstance(applicationContext).i(TAG, "模型加速: GPU模式加载成功 - " + new File(modelPath).getName());
-                    notifyLoadComplete(modelPath);
-                    return model;
-                } catch (Exception e) {
-                    LogManager.logW(TAG, "GPU加载失败，降级到CPU模式: " + e.getMessage(), e);
-                    LogManager.getInstance(applicationContext).w(TAG, "GPU加载失败，降级到CPU模式: " + e.getMessage());
-                    notifyLoadProgress(modelPath, "GPU加载失败，降级到CPU模式...");
-                }
-            } else {
-                // 如果不使用GPU，则直接使用CPU加载
-                String loadMsg = String.format("尝试使用CPU加速设置加载模型: %s", new File(modelPath).getName());
-                LogManager.logD(TAG, loadMsg);
-                notifyLoadProgress(modelPath, "使用CPU加载模型...");
-                LogManager.getInstance(applicationContext).i(TAG, loadMsg);
-                
-                // 传递Context参数
-                model = new EmbeddingModelHandler(applicationContext, modelPath, false);
-                notifyLoadComplete(modelPath);
-                return model;
-            }
-            
-            // 如果GPU加载失败，则使用CPU加载
-            String loadMsg = String.format("尝试使用CPU加速设置加载模型: %s", new File(modelPath).getName());
+            String loadMsg = String.format("加载模型: %s (GPU: %s)", new File(modelPath).getName(), useGpu ? "启用" : "禁用");
             LogManager.logD(TAG, loadMsg);
-            notifyLoadProgress(modelPath, "使用CPU加载模型...");
+            notifyLoadProgress(modelPath, "正在加载模型...");
             LogManager.getInstance(applicationContext).i(TAG, loadMsg);
             
-            // 传递Context参数
-            model = new EmbeddingModelHandler(applicationContext, modelPath, false);
+            // 直接使用EmbeddingModelHandler，它内部会处理GPU回退逻辑
+            EmbeddingModelHandler model = new EmbeddingModelHandler(applicationContext, modelPath, useGpu);
+            
+            LogManager.logD(TAG, "模型加载成功: " + new File(modelPath).getName());
+            LogManager.getInstance(applicationContext).i(TAG, "模型加载成功 - " + new File(modelPath).getName());
             notifyLoadComplete(modelPath);
+            return model;
         } catch (Exception e) {
             notifyLoadError(modelPath, e);
             throw e;
         }
-        
-        LogManager.logD(TAG, "模型加速: CPU模式加载成功");
-        LogManager.getInstance(applicationContext).i(TAG, "模型加速: CPU模式加载成功 - " + new File(modelPath).getName());
-        return model;
     }
     
     /**

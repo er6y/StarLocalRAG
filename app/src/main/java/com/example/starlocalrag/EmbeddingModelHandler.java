@@ -444,8 +444,19 @@ public class EmbeddingModelHandler {
             }
             
             // 创建ONNX运行时环境
-            ortEnvironment = OrtEnvironment.getEnvironment();
-            LogManager.logD(TAG, "成功创建ONNX运行时环境");
+            
+            try {
+                ortEnvironment = OrtEnvironment.getEnvironment();
+                
+                if (ortEnvironment == null) {
+                    LogManager.logE(TAG, "ortEnvironment为null");
+                    throw new RuntimeException("ONNX运行时环境创建失败，返回null");
+                }
+            } catch (Exception e) {
+                LogManager.logE(TAG, "创建ONNX运行时环境失败: " + e.getMessage(), e);
+                e.printStackTrace();
+                throw e;
+            }
             
             // 配置会话选项
             OrtSession.SessionOptions sessionOptions = new OrtSession.SessionOptions();
@@ -559,11 +570,36 @@ public class EmbeddingModelHandler {
         }
             
             // 加载模型
+            
+            // 检查模型文件是否存在
+            File modelFileCheck = new File(modelPath);
+            if (!modelFileCheck.exists()) {
+                LogManager.logE(TAG, "模型文件不存在: " + modelPath);
+                return false;
+            }
+            
+            if (!modelFileCheck.canRead()) {
+                LogManager.logE(TAG, "模型文件无法读取: " + modelPath);
+                return false;
+            }
+            
+
+            
             try {
                 onnxSession = ortEnvironment.createSession(modelPath, sessionOptions);
-                LogManager.logD(TAG, "ONNX模型加载成功: " + modelPath);
+                
+                if (onnxSession == null) {
+                    LogManager.logE(TAG, "onnxSession为null");
+                    return false;
+                }
+                
             } catch (OrtException e) {
                 LogManager.logE(TAG, "加载ONNX模型失败: " + e.getMessage(), e);
+                e.printStackTrace();
+                return false;
+            } catch (Exception e) {
+                LogManager.logE(TAG, "创建会话时发生未知异常: " + e.getMessage(), e);
+                e.printStackTrace();
                 return false;
             }
             
@@ -578,6 +614,7 @@ public class EmbeddingModelHandler {
                 }
             } catch (IOException e) {
                 LogManager.logE(TAG, "加载tokenizer和配置失败: " + e.getMessage(), e);
+                e.printStackTrace();
                 return false;
             }
             
@@ -809,24 +846,35 @@ public class EmbeddingModelHandler {
                 
                 // 获取tokenizer.json文件所在的目录
                 File tokenizerDir = tokenizerFile.getParentFile();
-                LogManager.logD(TAG, "使用tokenizer所在目录初始化TokenizerManager: " + tokenizerDir.getAbsolutePath());
+                
+                // 检查目录是否存在和可读
+                if (!tokenizerDir.exists()) {
+                    LogManager.logE(TAG, "tokenizer目录不存在: " + tokenizerDir.getAbsolutePath());
+                    throw new IOException("tokenizer目录不存在: " + tokenizerDir.getAbsolutePath());
+                }
+                
+                if (!tokenizerDir.canRead()) {
+                    LogManager.logE(TAG, "tokenizer目录无法读取: " + tokenizerDir.getAbsolutePath());
+                    throw new IOException("tokenizer目录无法读取: " + tokenizerDir.getAbsolutePath());
+                }
                 
                 // 直接传递目录路径给TokenizerManager.initialize
                 boolean success = tokenizerManager.initialize(tokenizerDir);
                 
                 if (success) {
                     this.tokenizer = tokenizerManager;
+                    
                     // 设置模型类型，用于正确处理特殊token
                     if (modelName != null && !modelName.isEmpty()) {
                         tokenizerManager.setModelType(modelName);
-                        LogManager.logD(TAG, "设置模型类型: " + modelName);
                     }
-                    LogManager.logD(TAG, "成功初始化TokenizerManager");
                 } else {
+                    LogManager.logE(TAG, "TokenizerManager初始化失败，无法加载tokenizer");
                     throw new IOException("TokenizerManager初始化失败，无法加载tokenizer");
                 }
             } catch (Exception e) {
                 LogManager.logE(TAG, "TokenizerManager初始化异常: " + e.getMessage(), e);
+                e.printStackTrace();
                 throw new IOException("初始化TokenizerManager失败: " + e.getMessage(), e);
             }
         } else {
@@ -1379,6 +1427,17 @@ public class EmbeddingModelHandler {
      */
     public String getEmbeddingModel() {
         return modelName != null ? modelName : extractModelNameFromPath(modelPath);
+    }
+    
+    /**
+     * 判断文件是否为模型文件
+     * @param file 要检查的文件
+     * @return 如果是模型文件返回true，否则返回false
+     */
+    public static boolean isModelFile(File file) {
+        return file.isFile() && (file.getName().endsWith(".pt") || 
+                                file.getName().endsWith(".pth") || 
+                                file.getName().endsWith(".onnx"));
     }
     
     /**

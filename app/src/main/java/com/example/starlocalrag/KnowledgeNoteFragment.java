@@ -52,7 +52,7 @@ import com.example.starlocalrag.EmbeddingModelHandler; // 导入 EmbeddingModelH
 import com.example.starlocalrag.SQLiteVectorDatabaseHandler; // 导入 SQLiteVectorDatabaseHandler
 import com.example.starlocalrag.EmbeddingModelUtils; // 导入词嵌入模型工具类
 import com.example.starlocalrag.api.TokenizerManager; // 导入分词器管理器
-import com.example.starlocalrag.TextProcessor; // 导入文本处理器
+import com.example.starlocalrag.TextChunkProcessor; // 导入文本处理器
 
 public class KnowledgeNoteFragment extends Fragment {
     private static final String TAG = "KnowledgeNoteFragment";
@@ -500,9 +500,6 @@ public class KnowledgeNoteFragment extends Fragment {
                         return;
                     }
                     
-                    // 使用TextProcessor进行文本处理，确保与构建知识库使用相同的分块算法
-                    TextProcessor textProcessor = new TextProcessor(requireContext());
-                    
                     // 获取分块大小和重叠大小
                     int chunkSize = ConfigManager.getChunkSize(requireContext());
                     int chunkOverlap = ConfigManager.getInt(requireContext(), ConfigManager.KEY_OVERLAP_SIZE, ConfigManager.DEFAULT_OVERLAP_SIZE);
@@ -513,7 +510,10 @@ public class KnowledgeNoteFragment extends Fragment {
                     // 如果内容长度超过分块大小，需要进行分块处理
                     if (content.length() > chunkSize) {
                         updateProgress("内容长度(" + content.length() + ")超过分块大小(" + chunkSize + ")，进行分块处理...");
-                        List<String> chunks = textProcessor.splitTextIntoChunks(content, chunkSize, chunkOverlap);
+                        
+                        // 使用TextChunkProcessor的分块方法，确保与构建知识库使用相同的分块算法
+                        TextChunkProcessor textChunkProcessor = new TextChunkProcessor(requireContext());
+                        List<String> chunks = textChunkProcessor.splitTextIntoChunks(content, chunkSize, chunkOverlap);
                         updateProgress("分块完成，共生成" + chunks.size() + "个文本块");
                         
                         // 获取添加前的文本块数量

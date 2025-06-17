@@ -286,9 +286,7 @@ public class EmbeddingModelUtils {
      * 判断文件是否为模型文件
      */
     private static boolean isModelFile(File file) {
-        return file.isFile() && (file.getName().endsWith(".pt") || 
-                                file.getName().endsWith(".pth") || 
-                                file.getName().endsWith(".onnx"));
+        return EmbeddingModelHandler.isModelFile(file);
     }
     
     /**
