@@ -1177,8 +1177,21 @@ public class EmbeddingModelHandler {
             long endTime = System.currentTimeMillis();
             LogManager.logD(TAG, "生成嵌入向量耗时: " + (endTime - startTime) + "ms");
             
-            // 对向量进行L2归一化
-            embedding = normalizeVector(embedding);
+            // 检查配置是否启用归一化
+            boolean shouldNormalize = true; // 默认启用
+            if (context != null) {
+                shouldNormalize = ConfigManager.getBoolean(context, 
+                    ConfigManager.KEY_LLAMACPP_NORMALIZE_EMBEDDINGS, 
+                    ConfigManager.DEFAULT_LLAMACPP_NORMALIZE_EMBEDDINGS);
+            }
+            
+            // 对向量进行L2归一化（如果配置启用）
+            if (shouldNormalize) {
+                embedding = normalizeVector(embedding);
+                LogManager.logD(TAG, "已启用向量归一化");
+            } else {
+                LogManager.logD(TAG, "已禁用向量归一化，保持原始向量");
+            }
             
             // 打印前5个和后5个向量值，帮助调试
             if (embedding != null && embedding.length > 10) {
@@ -1254,8 +1267,21 @@ public class EmbeddingModelHandler {
             long endTime = System.currentTimeMillis();
             LogManager.logD(TAG, "生成嵌入向量耗时: " + (endTime - startTime) + "ms");
             
-            // 对向量进行L2归一化
-            embedding = normalizeVector(embedding);
+            // 检查配置是否启用归一化
+            boolean shouldNormalize = true; // 默认启用
+            if (context != null) {
+                shouldNormalize = ConfigManager.getBoolean(context, 
+                    ConfigManager.KEY_LLAMACPP_NORMALIZE_EMBEDDINGS, 
+                    ConfigManager.DEFAULT_LLAMACPP_NORMALIZE_EMBEDDINGS);
+            }
+            
+            // 对向量进行L2归一化（如果配置启用）
+            if (shouldNormalize) {
+                embedding = normalizeVector(embedding);
+                LogManager.logD(TAG, "已启用向量归一化");
+            } else {
+                LogManager.logD(TAG, "已禁用向量归一化，保持原始向量");
+            }
             
             // 打印前5个和后5个向量值，帮助调试
             if (embedding != null && embedding.length > 10) {

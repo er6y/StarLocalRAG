@@ -137,7 +137,7 @@ public class ConfigManager {
     public static final int DEFAULT_LLAMACPP_SEED = -1; // -1表示随机种子
     public static final boolean DEFAULT_LLAMACPP_USE_MMAP = true;
     public static final boolean DEFAULT_LLAMACPP_USE_MLOCK = false;
-    public static final boolean DEFAULT_LLAMACPP_NORMALIZE_EMBEDDINGS = true;
+    public static final boolean DEFAULT_LLAMACPP_NORMALIZE_EMBEDDINGS = true; // 归一化控制
     public static final int DEFAULT_LLAMACPP_EMBEDDING_BATCH_SIZE = 32;
     public static final boolean DEFAULT_USE_LLAMACPP = false;
     
