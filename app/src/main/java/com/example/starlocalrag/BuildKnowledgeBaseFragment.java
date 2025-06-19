@@ -68,6 +68,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
     private Button buttonBrowseFiles;
     private Button buttonClearFiles;
     private Spinner spinnerEmbeddingModel;
+    private Spinner spinnerRerankerModel;
     private TextView textViewFileList;
     private TextView textViewProgress;
     private Button buttonCreateKnowledgeBase;
@@ -100,6 +101,12 @@ public class BuildKnowledgeBaseFragment extends Fragment {
     private final Runnable timerRunnable = new Runnable() {
         @Override
         public void run() {
+            // 检查Fragment是否仍然附加到Context，避免崩溃
+            if (!isAdded() || getContext() == null) {
+                LogManager.logD(TAG, "Fragment已分离，停止定时器更新");
+                return;
+            }
+            
             if (isProcessing && startTime > 0) {
                 updateProgressStatus();
                 timerHandler.postDelayed(this, 1000); // 每秒更新一次
@@ -148,6 +155,11 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                 public void onProgressUpdate(int progress, String status) {
                     // 在UI线程更新进度
                     mainHandler.post(() -> {
+                        // 检查Fragment是否仍然附加到Context，避免崩溃
+                        if (!isAdded() || getContext() == null) {
+                            LogManager.logD(TAG, "Fragment已分离，跳过进度更新");
+                            return;
+                        }
                         // 如果状态不为空，则更新进度标签和处理进度信息
                         if (status != null) {
                             // 更新进度标签
@@ -291,6 +303,11 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                 public void onBuildCompleted(boolean success) {
                     // 在UI线程处理知识库构建完成事件
                     mainHandler.post(() -> {
+                        // 检查Fragment是否仍然附加到Context，避免崩溃
+                        if (!isAdded() || getContext() == null) {
+                            LogManager.logD(TAG, "Fragment已分离，跳过构建完成处理");
+                            return;
+                        }
                         // 恢复电池优化设置
                         if (batteryOptimizationDisabled && getActivity() instanceof MainActivity) {
                             ((MainActivity) getActivity()).restoreBatteryOptimization();
@@ -310,6 +327,11 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                 public void onTaskCompleted(boolean success, String message) {
                     // 在UI线程处理任务完成
                     mainHandler.post(() -> {
+                        // 检查Fragment是否仍然附加到Context，避免崩溃
+                        if (!isAdded() || getContext() == null) {
+                            LogManager.logD(TAG, "Fragment已分离，跳过任务完成处理");
+                            return;
+                        }
                         handleTaskCompletion(success, message);
                     });
                 }
@@ -338,6 +360,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
         buttonBrowseFiles = view.findViewById(R.id.buttonBrowseFiles);
         buttonClearFiles = view.findViewById(R.id.buttonClearFiles);
         spinnerEmbeddingModel = view.findViewById(R.id.spinnerEmbeddingModel);
+        spinnerRerankerModel = view.findViewById(R.id.spinnerRerankerModel);
         textViewFileList = view.findViewById(R.id.textViewFileList);
         textViewProgress = view.findViewById(R.id.textViewProgress);
         buttonCreateKnowledgeBase = view.findViewById(R.id.buttonCreateKnowledgeBase);
@@ -373,7 +396,14 @@ public class BuildKnowledgeBaseFragment extends Fragment {
         spinnerEmbeddingModel.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-                LogManager.logD(TAG, "选择了词嵌入模型: " + parent.getItemAtPosition(position).toString());
+                String selectedModel = parent.getItemAtPosition(position).toString();
+                LogManager.logD(TAG, "选择了词嵌入模型: " + selectedModel);
+                
+                // 保存用户选择的模型到ConfigManager
+                if (!selectedModel.equals("加载中...") && !selectedModel.equals("无可用模型")) {
+                    ConfigManager.setLastSelectedEmbeddingModel(requireContext(), selectedModel);
+                    LogManager.logD(TAG, "已保存词嵌入模型选择: " + selectedModel);
+                }
             }
 
             @Override
@@ -382,8 +412,31 @@ public class BuildKnowledgeBaseFragment extends Fragment {
             }
         });
         
+        // 设置重排模型下拉框监听器
+        spinnerRerankerModel.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                String selectedModel = parent.getItemAtPosition(position).toString();
+                LogManager.logD(TAG, "选择了重排模型: " + selectedModel);
+                
+                // 保存用户选择的重排模型到ConfigManager
+                if (!selectedModel.equals("加载中...")) {
+                    ConfigManager.setLastSelectedRerankerModel(requireContext(), selectedModel);
+                    LogManager.logD(TAG, "已保存重排模型选择: " + selectedModel);
+                }
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
+                LogManager.logD(TAG, "未选择重排模型");
+            }
+        });
+        
         // 加载词嵌入模型
         loadEmbeddingModels();
+        
+        // 初始化重排模型下拉框（仅用于用户选择）
+        initializeRerankerSpinner();
         
         // 加载知识库名称列表
         loadKnowledgeBaseNames();
@@ -469,6 +522,11 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                 // 如果外部目录创建失败，回退到内部存储
                 if (!created) {
                     LogManager.logD(TAG, "回退到应用内部存储");
+                    // 检查Fragment是否仍然附加，避免在Fragment分离后调用requireContext()
+                    if (!isAdded() || getContext() == null) {
+                        LogManager.logD(TAG, "Fragment已分离，停止加载嵌入模型");
+                        return;
+                    }
                     embeddingsDir = new File(requireContext().getFilesDir(), "embeddings");
                     if (!embeddingsDir.exists()) {
                         embeddingsDir.mkdirs();
@@ -482,6 +540,12 @@ public class BuildKnowledgeBaseFragment extends Fragment {
             
             // 在主线程更新UI
             mainHandler.post(() -> {
+                // 检查Fragment是否仍然附加到Context，避免崩溃
+                if (!isAdded() || getContext() == null) {
+                    LogManager.logD(TAG, "Fragment已分离，跳过UI更新");
+                    return;
+                }
+                
                 if (files != null && files.length > 0) {
                     String[] models = new String[files.length];
                     for (int i = 0; i < files.length; i++) {
@@ -490,6 +554,19 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                     ArrayAdapter<String> modelsAdapter = new ArrayAdapter<>(requireContext(), android.R.layout.simple_spinner_item, models);
                     modelsAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
                     spinnerEmbeddingModel.setAdapter(modelsAdapter);
+                    
+                    // 尝试选择上次保存的模型
+                    String lastSelectedModel = ConfigManager.getLastSelectedEmbeddingModel(requireContext());
+                    if (!lastSelectedModel.isEmpty()) {
+                        for (int i = 0; i < models.length; i++) {
+                            if (models[i].equals(lastSelectedModel)) {
+                                spinnerEmbeddingModel.setSelection(i);
+                                LogManager.logD(TAG, "自动选择上次使用的词嵌入模型: " + lastSelectedModel);
+                                break;
+                            }
+                        }
+                    }
+                    
                     LogManager.logD(TAG, "已加载 " + models.length + " 个词嵌入模型");
                 } else {
                     String[] noModels = {"无可用模型"};
@@ -502,9 +579,81 @@ public class BuildKnowledgeBaseFragment extends Fragment {
         });
     }
     
+    // 初始化重排模型下拉框（仅用于用户选择）
+    private void initializeRerankerSpinner() {
+        LogManager.logD(TAG, "初始化重排模型选择器");
+        
+        // 显示加载状态
+        String[] loadingState = {"加载中..."};
+        final ArrayAdapter<String> initialAdapter = new ArrayAdapter<>(requireContext(), android.R.layout.simple_spinner_item, loadingState);
+        initialAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinnerRerankerModel.setAdapter(initialAdapter);
+        
+        // 在后台线程扫描重排模型目录
+        executor.execute(() -> {
+            // 检查Fragment是否仍然附加，避免在Fragment分离后调用requireContext()
+            if (!isAdded() || getContext() == null) {
+                LogManager.logD(TAG, "Fragment已分离，停止加载重排模型");
+                return;
+            }
+            
+            // 从ConfigManager获取重排模型目录
+            String rerankerModelPath = ConfigManager.getRerankerModelPath(requireContext());
+            LogManager.logD(TAG, "重排模型目录路径: " + rerankerModelPath);
+            
+            List<String> rerankerOptions = new ArrayList<>();
+            rerankerOptions.add("无"); // 默认选项
+            
+            // 获取reranker目录
+            File rerankerDir = new File(rerankerModelPath);
+            if (rerankerDir.exists() && rerankerDir.isDirectory()) {
+                File[] modelDirs = rerankerDir.listFiles(File::isDirectory);
+                if (modelDirs != null) {
+                    for (File modelDir : modelDirs) {
+                        rerankerOptions.add(modelDir.getName());
+                    }
+                }
+            }
+            
+            // 在主线程更新UI
+            mainHandler.post(() -> {
+                // 检查Fragment是否仍然附加到Context，避免崩溃
+                if (!isAdded() || getContext() == null) {
+                    LogManager.logD(TAG, "Fragment已分离，跳过重排模型UI更新");
+                    return;
+                }
+                
+                String[] optionsArray = rerankerOptions.toArray(new String[0]);
+                ArrayAdapter<String> adapter = new ArrayAdapter<>(requireContext(), android.R.layout.simple_spinner_item, optionsArray);
+                adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+                spinnerRerankerModel.setAdapter(adapter);
+                
+                // 尝试选择上次保存的重排模型
+                String lastSelectedReranker = ConfigManager.getLastSelectedRerankerModel(requireContext());
+                if (!lastSelectedReranker.isEmpty()) {
+                    for (int i = 0; i < optionsArray.length; i++) {
+                        if (optionsArray[i].equals(lastSelectedReranker)) {
+                            spinnerRerankerModel.setSelection(i);
+                            LogManager.logD(TAG, "自动选择上次使用的重排模型: " + lastSelectedReranker);
+                            break;
+                        }
+                    }
+                }
+                
+                LogManager.logD(TAG, "重排模型选择器初始化完成，找到 " + (optionsArray.length - 1) + " 个模型");
+            });
+        });
+    }
+    
     // 加载知识库名称列表
     private void loadKnowledgeBaseNames() {
         LogManager.logD(TAG, "开始加载知识库名称列表");
+        
+        // 检查Fragment是否仍然附加，避免在Fragment分离后调用requireContext()
+        if (!isAdded() || getContext() == null) {
+            LogManager.logD(TAG, "Fragment已分离，停止加载知识库名称");
+            return;
+        }
         
         knowledgeBaseNames.clear();
         
@@ -522,6 +671,11 @@ public class BuildKnowledgeBaseFragment extends Fragment {
             // 如果外部目录创建失败，回退到内部存储
             if (!created) {
                 LogManager.logD(TAG, "回退到应用内部存储");
+                // 再次检查Fragment是否仍然附加
+                if (!isAdded() || getContext() == null) {
+                    LogManager.logD(TAG, "Fragment已分离，停止加载知识库名称");
+                    return;
+                }
                 knowledgeBaseDir = new File(requireContext().getFilesDir(), "knowledge_bases");
                 if (!knowledgeBaseDir.exists()) {
                     knowledgeBaseDir.mkdirs();
@@ -541,6 +695,12 @@ public class BuildKnowledgeBaseFragment extends Fragment {
         }
         
         // 设置下拉框适配器
+        // 最后再次检查Fragment是否仍然附加
+        if (!isAdded() || getContext() == null) {
+            LogManager.logD(TAG, "Fragment已分离，跳过知识库名称UI更新");
+            return;
+        }
+        
         ArrayAdapter<String> adapter = new ArrayAdapter<>(requireContext(), 
                 android.R.layout.simple_spinner_item, knowledgeBaseNames);
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
@@ -832,7 +992,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                 // 检查现有知识库的向量维度和模型
                 SQLiteVectorDatabaseHandler existingDb = new SQLiteVectorDatabaseHandler(knowledgeBaseDir, embeddingModel);
                 int existingDimension = existingDb.getMetadata().getEmbeddingDimension();
-                String existingModel = existingDb.getMetadata().getEmbeddingModel();
+                String existingModel = existingDb.getMetadata().getModeldir();
                 existingDb.close();
                 
                 if (existingDimension > 0 && existingDimension != modelDimension) {
@@ -903,8 +1063,11 @@ public class BuildKnowledgeBaseFragment extends Fragment {
         // 等待服务绑定完成
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
             if (isServiceBound && builderService != null) {
+                // 获取选中的重排模型
+                String selectedRerankerModel = spinnerRerankerModel.getSelectedItem().toString();
+                
                 // 使用前台服务开始构建知识库
-                builderService.startBuildKnowledgeBase(knowledgeBaseName, embeddingModel, selectedFiles);
+                builderService.startBuildKnowledgeBase(knowledgeBaseName, embeddingModel, selectedRerankerModel, selectedFiles);
                 
                 LogManager.logD(TAG, "已通过前台服务开始构建知识库: " + knowledgeBaseName);
             } else {
@@ -922,6 +1085,10 @@ public class BuildKnowledgeBaseFragment extends Fragment {
      * 使用传统方式处理知识库创建/更新（在后台线程中执行，但没有前台服务保护）
      */
     private void processKnowledgeBaseTraditional(String knowledgeBaseName, String embeddingModel, boolean overwrite) {
+        // 获取选中的重排模型（在UI线程中获取）
+        String selectedRerankerModel = spinnerRerankerModel.getSelectedItem() != null ? 
+            spinnerRerankerModel.getSelectedItem().toString() : "无";
+        
         // 在后台线程中执行
         executor.execute(() -> {
             try {
@@ -1041,7 +1208,8 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                 // 处理文件并构建知识库
                 boolean success = textChunkProcessor.processFilesAndBuildKnowledgeBase(
                     knowledgeBaseName, 
-                    embeddingModel, 
+                    embeddingModel,
+                    selectedRerankerModel,
                     selectedFiles,
                     chunkSize,
                     chunkOverlap
@@ -1133,6 +1301,11 @@ public class BuildKnowledgeBaseFragment extends Fragment {
             isTaskCancelledAtomic.set(true);
             appendToProgress("正在中断处理...");
             
+            // 如果服务已绑定，通知服务取消任务
+            if (isServiceBound && builderService != null) {
+                builderService.cancelTask();
+            }
+            
             // 恢复电池优化设置
             if (batteryOptimizationDisabled) {
                 MainActivity activity = (MainActivity) getActivity();
@@ -1146,6 +1319,15 @@ public class BuildKnowledgeBaseFragment extends Fragment {
             if (isKeepScreenOn) {
                 enableKeepScreenOn(false);
             }
+            
+            // 更新按钮状态
+            mainHandler.post(() -> {
+                if (isAdded() && getActivity() != null) {
+                    buttonCreateKnowledgeBase.setText("新建知识库");
+                }
+            });
+            
+            isProcessing = false;
         }
     }
     
@@ -1269,6 +1451,12 @@ public class BuildKnowledgeBaseFragment extends Fragment {
      */
     private void appendToProgress(String message) {
         mainHandler.post(() -> {
+            // 检查Fragment是否仍然附加到Context，避免崩溃
+            if (!isAdded() || getContext() == null) {
+                LogManager.logD(TAG, "Fragment已分离，跳过进度消息追加");
+                return;
+            }
+            
             if (textViewProgress != null) {
                 // 获取当前文本
                 String currentText = textViewProgress.getText().toString();

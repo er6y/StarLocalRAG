@@ -79,6 +79,7 @@ public class SQLiteVectorDatabaseHandler {
         private String modelType;
         private String vectorStoreType;
         private String modeldir;
+        private String rerankerdir;
         
         public DatabaseMetadata(String embeddingModel) {
             this.embeddingModel = embeddingModel;
@@ -93,6 +94,7 @@ public class SQLiteVectorDatabaseHandler {
             this.modelType = "local";
             this.vectorStoreType = "sqlite";
             this.modeldir = "";
+            this.rerankerdir = "";
         }
         
         public String getEmbeddingModel() {
@@ -186,6 +188,14 @@ public class SQLiteVectorDatabaseHandler {
         
         public void setModeldir(String modeldir) {
             this.modeldir = modeldir;
+        }
+        
+        public String getRerankerdir() {
+            return rerankerdir;
+        }
+        
+        public void setRerankerdir(String rerankerdir) {
+            this.rerankerdir = rerankerdir;
         }
     }
     
@@ -491,6 +501,10 @@ public class SQLiteVectorDatabaseHandler {
                 metadata.modeldir = json.getString("modeldir");
             }
             
+            if (json.has("rerankerdir")) {
+                metadata.rerankerdir = json.getString("rerankerdir");
+            }
+            
             // 解析创建时间
             if (json.has("created_at")) {
                 String createdAtStr = json.getString("created_at");
@@ -539,7 +553,7 @@ public class SQLiteVectorDatabaseHandler {
                 }
             }
             
-            LogManager.logD(TAG, "元数据加载成功，嵌入模型: " + metadata.getEmbeddingModel() +
+            LogManager.logD(TAG, "元数据加载成功，嵌入模型目录: " + metadata.getModeldir() +
                     ", 维度: " + metadata.getEmbeddingDimension() +
                     ", 文本块数量: " + metadata.getChunkCount());
             
@@ -582,6 +596,7 @@ public class SQLiteVectorDatabaseHandler {
             json.put("created_at", formattedCreationTime);
             json.put("vector_store_type", metadata.vectorStoreType);
             json.put("modeldir", metadata.modeldir);
+            json.put("rerankerdir", metadata.rerankerdir);
             
             // 添加嵌入维度信息，确保与PC端兼容
             if (metadata.getEmbeddingDimension() > 0) {

@@ -262,8 +262,8 @@ public class KnowledgeNoteFragment extends Fragment {
                     if (vectorDb.loadDatabase()) {
                         SQLiteVectorDatabaseHandler.DatabaseMetadata metadata = vectorDb.getMetadata();
                         if (metadata != null) {
-                            String embeddingModel = metadata.getEmbeddingModel();
-                            LogManager.logD(TAG, "从SQLite数据库中读取到嵌入模型: " + embeddingModel);
+                            String embeddingModel = metadata.getModeldir();
+                            LogManager.logD(TAG, "从SQLite数据库中读取到嵌入模型目录: " + embeddingModel);
                             
                             // 使用EmbeddingModelUtils检查并加载嵌入模型
                             CountDownLatch modelLatch = new CountDownLatch(1);

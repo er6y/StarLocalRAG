@@ -698,7 +698,7 @@ public class TextChunkProcessor {
      * @param chunkOverlap 重叠大小
      * @return 是否成功完成（未被取消）
      */
-    public boolean processFilesAndBuildKnowledgeBase(String knowledgeBaseName, String embeddingModel, 
+    public boolean processFilesAndBuildKnowledgeBase(String knowledgeBaseName, String embeddingModel, String rerankerModel,
                                                   List<Uri> files, int chunkSize, int chunkOverlap) {
         try {
             LogManager.logD(TAG, "开始处理文件并构建知识库，线程ID: " + Thread.currentThread().getId() + 
@@ -777,6 +777,12 @@ public class TextChunkProcessor {
             // 初始化向量数据库
             SQLiteVectorDatabaseHandler vectorDB = new SQLiteVectorDatabaseHandler(
                     new File(fullKnowledgeBasePath), model.getEmbeddingModel(), embeddingDimension);
+            
+            // 设置重排模型信息到元数据
+            if (rerankerModel != null && !rerankerModel.isEmpty() && !"无".equals(rerankerModel)) {
+                vectorDB.getMetadata().setRerankerdir(rerankerModel);
+                logMessage("已设置重排模型: " + rerankerModel);
+            }
             
             // 提取文本并分块
             List<TextChunk> chunks = extractTextFromFiles(fullKnowledgeBasePath, files, chunkSize, chunkOverlap);

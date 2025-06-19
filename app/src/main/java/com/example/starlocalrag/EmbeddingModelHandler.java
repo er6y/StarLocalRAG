@@ -1125,6 +1125,10 @@ public class EmbeddingModelHandler {
         long[] attentionMask = new long[inputIds.length];
         Arrays.fill(attentionMask, 1L);
         
+        // 创建token_type_ids数组，对于单句文本全部填充为0
+        long[] tokenTypeIds = new long[inputIds.length];
+        Arrays.fill(tokenTypeIds, 0L);
+        
         // 记录输入张量形状和示例
         LogManager.logD(TAG, "输入张量形状: [1, " + inputIds.length + "]");
         LogManager.logD(TAG, "输入ID示例: " + Arrays.toString(Arrays.copyOfRange(inputIds, 0, Math.min(10, inputIds.length))));
@@ -1143,20 +1147,26 @@ public class EmbeddingModelHandler {
             attentionMaskBuffer.put(attentionMask);
             attentionMaskBuffer.rewind();
             
+            LongBuffer tokenTypeIdsBuffer = LongBuffer.allocate(tokenTypeIds.length);
+            tokenTypeIdsBuffer.put(tokenTypeIds);
+            tokenTypeIdsBuffer.rewind();
+            
             // 设置输入形状
             long[] inputShape = new long[]{1, inputIds.length};
             
             // 创建输入张量 - 确保使用INT64类型
             OnnxTensor inputIdsTensor = OnnxTensor.createTensor(ortEnvironment, inputIdsBuffer, inputShape);
             OnnxTensor attentionMaskTensor = OnnxTensor.createTensor(ortEnvironment, attentionMaskBuffer, inputShape);
+            OnnxTensor tokenTypeIdsTensor = OnnxTensor.createTensor(ortEnvironment, tokenTypeIdsBuffer, inputShape);
             
             // 记录输入张量信息
-            LogManager.logD(TAG, "输入张量类型 - input_ids: " + inputIdsTensor.getInfo().type + ", attention_mask: " + attentionMaskTensor.getInfo().type);
+            LogManager.logD(TAG, "输入张量类型 - input_ids: " + inputIdsTensor.getInfo().type + ", attention_mask: " + attentionMaskTensor.getInfo().type + ", token_type_ids: " + tokenTypeIdsTensor.getInfo().type);
             
             // 准备输入数据
             Map<String, OnnxTensor> inputs = new HashMap<>();
             inputs.put("input_ids", inputIdsTensor);
             inputs.put("attention_mask", attentionMaskTensor);
+            inputs.put("token_type_ids", tokenTypeIdsTensor);
             
             // 执行模型推理
             OrtSession.Result result = onnxSession.run(inputs);
@@ -1164,9 +1174,30 @@ public class EmbeddingModelHandler {
             // 获取输出张量，通常是embedding
             OnnxTensor outputTensor = (OnnxTensor) result.get(0);
             
-            // 提取嵌入向量数据
-            float[][] embeddingData = (float[][]) outputTensor.getValue();
-            float[] embedding = embeddingData[0]; // 获取第一个（也是唯一的）样本的向量
+            // 提取嵌入向量数据 - 处理不同维度的输出
+            Object outputValue = outputTensor.getValue();
+            float[] embedding;
+            
+            if (outputValue instanceof float[][][]) {
+                // 三维输出：[batch_size, sequence_length, hidden_size]
+                float[][][] embeddingData3D = (float[][][]) outputValue;
+                LogManager.logD(TAG, "检测到三维输出，形状: [" + embeddingData3D.length + ", " + 
+                    embeddingData3D[0].length + ", " + embeddingData3D[0][0].length + "]");
+                
+                // 对于BERT类模型，通常取[CLS] token的向量（第一个token）
+                // 或者可以取平均池化
+                embedding = embeddingData3D[0][0]; // 取第一个batch的第一个token（[CLS]）
+                
+            } else if (outputValue instanceof float[][]) {
+                // 二维输出：[batch_size, hidden_size]
+                float[][] embeddingData2D = (float[][]) outputValue;
+                LogManager.logD(TAG, "检测到二维输出，形状: [" + embeddingData2D.length + ", " + 
+                    embeddingData2D[0].length + "]");
+                embedding = embeddingData2D[0]; // 获取第一个（也是唯一的）样本的向量
+                
+            } else {
+                throw new IllegalStateException("不支持的输出张量类型: " + outputValue.getClass().getName());
+            }
             
             // 记录向量信息
             LogManager.logD(TAG, "原始嵌入向量维度: " + embedding.length);

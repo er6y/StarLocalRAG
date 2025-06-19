@@ -32,10 +32,11 @@
     <!-- 词嵌入模型标签 -->
     <TextView
         android:id="@+id/textViewEmbeddingModelLabel"
-        android:layout_width="wrap_content"
+        android:layout_width="100dp"
         android:layout_height="wrap_content"
         android:text="词嵌入模型:"
         android:layout_marginTop="16dp"
+        android:gravity="start|center_vertical"
         app:layout_constraintTop_toBottomOf="@+id/buttonBrowseFiles"
         app:layout_constraintStart_toStartOf="parent" />
 
@@ -50,6 +51,28 @@
         app:layout_constraintStart_toEndOf="@+id/textViewEmbeddingModelLabel"
         app:layout_constraintEnd_toEndOf="parent" />
 
+    <!-- 重排模型标签 -->
+    <TextView
+        android:id="@+id/textViewRerankerModelLabel"
+        android:layout_width="100dp"
+        android:layout_height="wrap_content"
+        android:text="重排模型:"
+        android:layout_marginTop="12dp"
+        android:gravity="start|center_vertical"
+        app:layout_constraintTop_toBottomOf="@+id/spinnerEmbeddingModel"
+        app:layout_constraintStart_toStartOf="parent" />
+
+    <!-- 重排模型下拉框 -->
+    <Spinner
+        android:id="@+id/spinnerRerankerModel"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        app:layout_constraintTop_toTopOf="@+id/textViewRerankerModelLabel"
+        app:layout_constraintBottom_toBottomOf="@+id/textViewRerankerModelLabel"
+        app:layout_constraintStart_toEndOf="@+id/textViewRerankerModelLabel"
+        app:layout_constraintEnd_toEndOf="parent" />
+
     <!-- 文件列表标签 -->
     <TextView
         android:id="@+id/textViewFileListLabel"
@@ -57,7 +80,7 @@
         android:layout_height="wrap_content"
         android:text="已选择文件:"
         android:layout_marginTop="16dp"
-        app:layout_constraintTop_toBottomOf="@+id/spinnerEmbeddingModel"
+        app:layout_constraintTop_toBottomOf="@+id/spinnerRerankerModel"
         app:layout_constraintStart_toStartOf="parent" />
 
     <!-- 文件列表 -->
@@ -73,7 +96,7 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintHeight_default="percent"
-        app:layout_constraintHeight_percent="0.25">
+        app:layout_constraintHeight_percent="0.18">
 
         <TextView
             android:id="@+id/textViewFileList"

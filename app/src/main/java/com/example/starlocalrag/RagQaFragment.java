@@ -1188,8 +1188,8 @@ public class RagQaFragment extends Fragment {
                 LogManager.logD(TAG, dbInfo);
                 updateProgressOnUiThread(dbInfo);
 
-                // 获取嵌入模型
-                String embModelName = vectorDbRef[0].getMetadata().getEmbeddingModel();
+                // 获取嵌入模型目录名
+                String embModelName = vectorDbRef[0].getMetadata().getModeldir();
                 String embeddingModelPath = ConfigManager.getEmbeddingModelPath(requireContext());
                 String foundModelPath = null;
                 
@@ -2454,7 +2454,7 @@ public class RagQaFragment extends Fragment {
         }
         
         // 保存模型映射
-        ConfigManager.setModelMapping(requireContext(), "model_" + vectorDb.getMetadata().getEmbeddingModel(), selectedModel);
+        ConfigManager.setModelMapping(requireContext(), "model_" + vectorDb.getMetadata().getModeldir(), selectedModel);
         
         // 显示模型信息
         String modelInfo = "使用嵌入模型: " + selectedModel + ", 路径: " + foundModelPath;

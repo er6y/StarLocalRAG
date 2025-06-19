@@ -288,7 +288,7 @@ public class KnowledgeBaseBuilderService extends Service {
      * @param embeddingModel 嵌入模型路径
      * @param selectedFiles 选中的文件列表
      */
-    public void startBuildKnowledgeBase(String knowledgeBaseName, String embeddingModel, List<Uri> selectedFiles) {
+    public void startBuildKnowledgeBase(String knowledgeBaseName, String embeddingModel, String rerankerModel, List<Uri> selectedFiles) {
         // 重置取消标志
         isTaskCancelled.set(false);
         
@@ -311,7 +311,7 @@ public class KnowledgeBaseBuilderService extends Service {
             LogManager.logD(TAG, "开始执行知识库构建任务，线程ID: " + Thread.currentThread().getId());
             try {
                 // 执行知识库构建逻辑
-                boolean success = buildKnowledgeBase(knowledgeBaseName, embeddingModel, selectedFiles);
+                boolean success = buildKnowledgeBase(knowledgeBaseName, embeddingModel, rerankerModel, selectedFiles);
                 
                 // 任务完成回调
                 if (progressCallback != null) {
@@ -396,7 +396,7 @@ public class KnowledgeBaseBuilderService extends Service {
      * 实际构建知识库的逻辑
      * @return 是否成功完成（未被取消）
      */
-    private boolean buildKnowledgeBase(String knowledgeBaseName, String embeddingModel, List<Uri> selectedFiles) {
+    private boolean buildKnowledgeBase(String knowledgeBaseName, String embeddingModel, String rerankerModel, List<Uri> selectedFiles) {
         LogManager.logD(TAG, "开始构建知识库: " + knowledgeBaseName + ", 模型: " + embeddingModel + ", 文件数: " + selectedFiles.size());
         
         // 这里实现知识库构建的核心逻辑
@@ -477,6 +477,7 @@ public class KnowledgeBaseBuilderService extends Service {
             boolean result = textChunkProcessor.processFilesAndBuildKnowledgeBase(
                 knowledgeBaseName,
                 embeddingModel,
+                rerankerModel,
                 selectedFiles,
                 ConfigManager.getChunkSize(this),
                 ConfigManager.getInt(this, ConfigManager.KEY_OVERLAP_SIZE, ConfigManager.DEFAULT_OVERLAP_SIZE)

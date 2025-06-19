@@ -53,10 +53,12 @@ public class ConfigManager {
     public static final String KEY_CHUNK_SIZE = "chunk_size"; // 分块设置键
     public static final String KEY_LAST_SELECTED_KB = "last_selected_kb"; // 知识库相关键
     public static final String KEY_LAST_SELECTED_EMBEDDING_MODEL = "last_selected_embedding_model"; // 知识库相关键
+    public static final String KEY_LAST_SELECTED_RERANKER_MODEL = "last_selected_reranker_model"; // 重排模型相关键
     
     // 设置相关的键
     public static final String KEY_MODEL_PATH = "model_path";
     public static final String KEY_EMBEDDING_MODEL_PATH = "embedding_model_path";
+    public static final String KEY_RERANKER_MODEL_PATH = "reranker_model_path";
     public static final String KEY_KNOWLEDGE_BASE_PATH = "knowledge_base_path";
     public static final String KEY_SEARCH_DEPTH = "search_depth";
     public static final String KEY_RETRIEVAL_COUNT = "retrieval_count";
@@ -111,6 +113,7 @@ public class ConfigManager {
     public static final int DEFAULT_MIN_CHUNK_SIZE = 200; // 修改为200，与PC端保持一致
     public static final String DEFAULT_MODEL_PATH = "files/models";
     public static final String DEFAULT_EMBEDDING_MODEL_PATH = "files/embeddings";
+    public static final String DEFAULT_RERANKER_MODEL_PATH = "files/rerankers";
     public static final String DEFAULT_KNOWLEDGE_BASE_PATH = "files/knowledge_bases";
     public static final int DEFAULT_SEARCH_DEPTH = 10;
     public static final int DEFAULT_RETRIEVAL_COUNT = 5;
@@ -559,8 +562,8 @@ public class ConfigManager {
                 if (vectorDb.loadDatabase()) {
                     SQLiteVectorDatabaseHandler.DatabaseMetadata metadata = vectorDb.getMetadata();
                     if (metadata != null) {
-                        String embeddingModel = metadata.getEmbeddingModel();
-                        LogManager.logD(TAG, "从SQLite数据库中读取到嵌入模型: " + embeddingModel);
+                        String embeddingModel = metadata.getModeldir();
+                        LogManager.logD(TAG, "从SQLite数据库中读取到嵌入模型目录: " + embeddingModel);
                         
                         if (embeddingModel != null && !embeddingModel.isEmpty()) {
                             // 获取设置中的嵌入模型路径
@@ -825,6 +828,60 @@ public class ConfigManager {
      */
     public static void setEmbeddingModelPath(Context context, String embeddingModelPath) {
         setString(context, KEY_EMBEDDING_MODEL_PATH, embeddingModelPath);
+    }
+
+    /**
+     * 获取重排模型路径
+     * @param context 上下文
+     * @return 重排模型路径
+     */
+    public static String getRerankerModelPath(Context context) {
+        return getString(context, KEY_RERANKER_MODEL_PATH, DEFAULT_RERANKER_MODEL_PATH);
+    }
+
+    /**
+     * 设置重排模型路径
+     * @param context 上下文
+     * @param rerankerModelPath 重排模型路径
+     */
+    public static void setRerankerModelPath(Context context, String rerankerModelPath) {
+        setString(context, KEY_RERANKER_MODEL_PATH, rerankerModelPath);
+    }
+
+    /**
+     * 获取最后选择的词嵌入模型
+     * @param context 上下文
+     * @return 最后选择的词嵌入模型名称
+     */
+    public static String getLastSelectedEmbeddingModel(Context context) {
+        return getString(context, KEY_LAST_SELECTED_EMBEDDING_MODEL, "");
+    }
+
+    /**
+     * 设置最后选择的词嵌入模型
+     * @param context 上下文
+     * @param modelName 词嵌入模型名称
+     */
+    public static void setLastSelectedEmbeddingModel(Context context, String modelName) {
+        setString(context, KEY_LAST_SELECTED_EMBEDDING_MODEL, modelName);
+    }
+
+    /**
+     * 获取最后选择的重排模型
+     * @param context 上下文
+     * @return 最后选择的重排模型名称
+     */
+    public static String getLastSelectedRerankerModel(Context context) {
+        return getString(context, KEY_LAST_SELECTED_RERANKER_MODEL, "");
+    }
+
+    /**
+     * 设置最后选择的重排模型
+     * @param context 上下文
+     * @param modelName 重排模型名称
+     */
+    public static void setLastSelectedRerankerModel(Context context, String modelName) {
+        setString(context, KEY_LAST_SELECTED_RERANKER_MODEL, modelName);
     }
 
     /**
@@ -1592,6 +1649,7 @@ public class ConfigManager {
             // 基本路径设置 - 使用绝对路径而非相对路径
             config.put(KEY_MODEL_PATH, "/storage/emulated/0/Download/starragdata/models");
             config.put(KEY_EMBEDDING_MODEL_PATH, "/storage/emulated/0/Download/starragdata/embeddings");
+            config.put(KEY_RERANKER_MODEL_PATH, "/storage/emulated/0/Download/starragdata/rerankers");
             config.put(KEY_KNOWLEDGE_BASE_PATH, "/storage/emulated/0/Download/starragdata/knowledge_bases");
             
             // 分块设置

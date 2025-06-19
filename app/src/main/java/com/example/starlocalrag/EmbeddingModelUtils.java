@@ -37,8 +37,8 @@ public class EmbeddingModelUtils {
             Consumer<String> callback,
             ModelSelectedCallback modelSelectedCallback) {
         
-        // 获取嵌入模型
-        String embeddingModel = vectorDb.getMetadata().getEmbeddingModel();
+        // 获取嵌入模型目录名
+        String embeddingModel = vectorDb.getMetadata().getModeldir();
         String embeddingModelPath = ConfigManager.getEmbeddingModelPath(context);
         String modelPath = null;
         boolean needModelSelection = false;
@@ -270,7 +270,7 @@ public class EmbeddingModelUtils {
         
         if (modelFound && callback != null) {
             // 保存模型映射
-            ConfigManager.setModelMapping(context, "model_" + vectorDb.getMetadata().getEmbeddingModel(), selectedModel);
+            ConfigManager.setModelMapping(context, "model_" + vectorDb.getMetadata().getModeldir(), selectedModel);
             
             // 调用回调函数
             callback.onModelSelected(selectedModel, modelPath);

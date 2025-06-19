@@ -201,6 +201,41 @@
                 android:minHeight="36dp" />
         </LinearLayout>
 
+        <!-- 重排模型目录设置 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="8dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="重排模型目录:"
+                android:textSize="16sp" />
+
+            <EditText
+                android:id="@+id/editTextRerankerModelPath"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:layout_marginEnd="8dp"
+                android:inputType="text"
+                android:hint="重排模型目录路径" />
+
+            <Button
+                android:id="@+id/buttonSelectRerankerModelPath"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="选择"
+                android:textSize="14sp"
+                android:padding="4dp"
+                android:minWidth="60dp"
+                android:minHeight="36dp" />
+        </LinearLayout>
+
         <!-- 知识库目录设置 -->
         <LinearLayout
             android:layout_width="match_parent"

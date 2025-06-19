@@ -29,11 +29,18 @@ StarLocalRAG 是一个安卓本地 RAG（检索增强生成）应用，允许用
 - 创建新知识库
 - 选择现有知识库进行更新
 - 选择嵌入模型
+- 选择重排模型
 - 浏览并添加文件到知识库
 - 处理多种文档格式（文本、PDF、Word、Excel等）
 - 显示处理进度
 - 支持取消处理任务
 - 支持防锁屏模式
+- 支持模型选择持久化保存
+
+**UI优化：**
+- 词嵌入模型和重排模型标签使用固定宽度（100dp）确保下拉框对齐
+- 标签添加居中对齐属性提升视觉效果
+- 下拉框选择会自动保存到ConfigManager，下次启动时自动恢复选择
 
 #### 1.2.3 知识笔记页面 (KnowledgeNoteFragment)
 
@@ -56,9 +63,43 @@ StarLocalRAG 应用采用模块化设计，主要包括以下核心组件：
 3. **数据处理层**：文本处理、向量化和数据库操作
 4. **工具类**：配置管理、文件操作等
 
-### 2.2 核心流程
+### 2.2 配置管理系统
 
-#### 2.2.1 知识库构建流程
+#### 2.2.1 重排模型路径配置
+
+**功能描述**：
+为了支持重排模型（Reranker Model）功能，在配置管理系统中新增了重排模型路径的配置项。重排模型用于对检索到的文档片段进行重新排序，提高RAG系统的检索质量。
+
+**实现细节**：
+
+1. **ConfigManager配置项**：
+   - 新增常量：`KEY_RERANKER_MODEL_PATH = "reranker_model_path"`
+   - 新增默认值：`DEFAULT_RERANKER_MODEL_PATH = "/storage/emulated/0/StarLocalRAG/reranker_models"`
+   - 新增方法：`getRerankerModelPath(Context context)` 和 `setRerankerModelPath(Context context, String path)`
+
+2. **UI界面支持**：
+   - 在设置页面（SettingsFragment）中添加重排模型目录选择UI
+   - 包含EditText输入框、选择按钮和目录选择器
+   - 支持通过文件选择器选择重排模型目录
+
+3. **数据库元数据支持**：
+   - 在SQLiteVectorDatabaseHandler的DatabaseMetadata类中新增`rerankerdir`字段
+   - 在loadMetadata和saveMetadata方法中添加重排模型目录的读写逻辑
+   - 确保知识库元数据中包含重排模型路径信息
+
+4. **配置验证**：
+   - 在设置保存时验证重排模型路径不能为空
+   - 确保路径配置的完整性和有效性
+
+**技术要点**：
+- 遵循现有配置管理模式，保持代码一致性
+- 支持默认路径配置，提供良好的用户体验
+- 与知识库元数据系统集成，确保配置信息的持久化
+- 提供完整的UI交互支持，方便用户配置管理
+
+### 2.3 核心流程
+
+#### 2.3.1 知识库构建流程
 
 ```
 用户选择知识库名称和嵌入模型
@@ -76,7 +117,7 @@ EmbeddingModelHandler 生成文本嵌入向量
 SQLiteVectorDatabaseHandler 存储向量到数据库
 ```
 
-#### 2.2.2 RAG问答流程
+#### 2.3.2 RAG问答流程
 
 ```
 用户选择知识库和API设置
@@ -96,7 +137,7 @@ SQLiteVectorDatabaseHandler 检索相关文本块
 显示回答结果
 ```
 
-#### 2.2.3 知识笔记添加流程
+#### 2.3.3 知识笔记添加流程
 
 ```
 用户输入笔记内容
