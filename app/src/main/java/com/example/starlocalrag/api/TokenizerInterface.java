@@ -57,10 +57,10 @@ public interface TokenizerInterface extends Closeable {
     void setDebugMode(boolean debug);
     
     /**
-     * 获取词汇表大小
-     * @return 词汇表大小
+     * 获取特殊token数量
+     * @return 特殊token数量
      */
-    int getVocabSize();
+    int getSpecialTokensSize();
     
     /**
      * 重置分词器

@@ -190,15 +190,31 @@ public class HuggingfaceTokenizer implements Closeable, Model {
      */
     public TokenizerResult tokenize(String text) {
         checkClosed();
+        
+        // System.out.println("[INFO] HuggingfaceTokenizer.tokenize 调用JNI");
+        // System.out.println("[INFO] nativePtr: " + nativePtr);
+        // System.out.println("[INFO] 输入文本: '" + (text.length() > 50 ? text.substring(0, 50) + "..." : text) + "'");
+        
+        long startTime = System.currentTimeMillis();
         String jsonResult = TokenizerJNI.tokenize(nativePtr, text);
+        long jniCallTime = System.currentTimeMillis();
+        
+        // System.out.println("[INFO] JNI调用耗时: " + (jniCallTime - startTime) + " ms");
+        
         if (jsonResult == null) {
+            System.out.println("[ERROR] JNI返回null，分词失败");
             throw new IllegalStateException("分词失败");
         }
+        
+        // System.out.println("[INFO] JNI返回JSON长度: " + jsonResult.length());
+        // System.out.println("[INFO] JNI返回JSON前200字符: " + (jsonResult.length() > 200 ? jsonResult.substring(0, 200) + "..." : jsonResult));
         
         try {
             JSONObject json = new JSONObject(jsonResult);
             JSONArray idsArray = json.getJSONArray("ids");
             JSONArray tokensArray = json.getJSONArray("tokens");
+            
+            // System.out.println("[INFO] 解析JSON成功，ids数组长度: " + idsArray.length() + ", tokens数组长度: " + tokensArray.length());
             
             List<Integer> ids = new ArrayList<>();
             List<String> tokens = new ArrayList<>();
@@ -211,8 +227,12 @@ public class HuggingfaceTokenizer implements Closeable, Model {
                 tokens.add(tokensArray.getString(i));
             }
             
+            long endTime = System.currentTimeMillis();
+            // System.out.println("[INFO] tokenize方法完成，总耗时: " + (endTime - startTime) + " ms");
+            
             return new TokenizerResult(ids, tokens);
         } catch (JSONException e) {
+            System.out.println("[ERROR] 解析JSON失败: " + e.getMessage());
             throw new IllegalStateException("解析分词结果失败: " + e.getMessage());
         }
     }
@@ -455,7 +475,7 @@ public class HuggingfaceTokenizer implements Closeable, Model {
                         System.out.println("添加需要保留的特殊 token: " + tokenContent + ", ID: " + id);
                     } else {
                         specialTokenIds[specialTokenIndex++] = id;
-                        System.out.println("添加需要过滤的特殊 token: " + tokenContent + ", ID: " + id);
+                        // System.out.println("添加需要过滤的特殊 token: " + tokenContent + ", ID: " + id);
                     }
                 }
             }
@@ -488,7 +508,7 @@ public class HuggingfaceTokenizer implements Closeable, Model {
                         System.out.println("添加需要保留的特殊 token: " + tokenContent + ", ID: " + id);
                     } else {
                         specialTokenIds[specialTokenIndex++] = id;
-                        System.out.println("添加需要过滤的特殊 token: " + tokenContent + ", ID: " + id);
+                        // System.out.println("添加需要过滤的特殊 token: " + tokenContent + ", ID: " + id);
                     }
                 }
             }
@@ -919,10 +939,34 @@ public class HuggingfaceTokenizer implements Closeable, Model {
     public long[][] tokenizeToLongArray(String text) {
         checkClosed();
         
+        // System.out.println("[INFO] HuggingfaceTokenizer.tokenizeToLongArray 开始分词");
+        // System.out.println("[INFO] 输入文本长度: " + text.length());
+        // System.out.println("[INFO] 当前特殊token数量: " + vocab.size());
+        
         try {
-            // 使用现有的tokenize方法
+            long startTime = System.currentTimeMillis();
+            
+            // 使用现有的tokenize方法（调用JNI）
+            // System.out.println("[INFO] 调用JNI tokenize方法");
             TokenizerResult result = tokenize(text);
             List<Integer> ids = result.getIds();
+            List<String> tokens = result.getTokens();
+            
+            long jniTime = System.currentTimeMillis();
+            // System.out.println("[INFO] JNI分词完成，耗时: " + (jniTime - startTime) + " ms");
+            // System.out.println("[INFO] JNI返回token数量: " + ids.size());
+            
+            // 打印前5个token用于调试
+            if (ids.size() > 0) {
+                StringBuilder tokenInfo = new StringBuilder();
+                int printCount = Math.min(5, ids.size());
+                for (int i = 0; i < printCount; i++) {
+                    tokenInfo.append(String.format("[%d:'%s']", ids.get(i), tokens.get(i)));
+                    if (i < printCount - 1) tokenInfo.append(", ");
+                }
+                if (ids.size() > 5) tokenInfo.append("...");
+                // System.out.println("[INFO] 前" + printCount + "个token: " + tokenInfo.toString());
+            }
             
             // 将List<Integer>转换为long[][]格式
             long[][] longResult = new long[1][ids.size()];
@@ -930,11 +974,13 @@ public class HuggingfaceTokenizer implements Closeable, Model {
                 longResult[0][i] = ids.get(i);
             }
             
-            // 不打印分词结果，避免日志过大
+            long endTime = System.currentTimeMillis();
+            // System.out.println("[INFO] tokenizeToLongArray完成，总耗时: " + (endTime - startTime) + " ms");
             
             return longResult;
         } catch (Exception e) {
-            // 不打印错误信息，避免日志过大
+            System.out.println("[ERROR] tokenizeToLongArray异常: " + e.getMessage());
+            e.printStackTrace();
             return new long[1][0]; // 返回空结果
         }
     }
@@ -1011,13 +1057,17 @@ public class HuggingfaceTokenizer implements Closeable, Model {
     }
     
     /**
-     * 获取词汇表大小（实现Model接口）
-     * @return 词汇表大小
+     * 获取特殊token数量（实现Model接口）
+     * 注意：这里返回的是特殊token的数量，不是完整词汇表大小
+     * @return 特殊token数量
      */
     @Override
-    public int getVocabSize() {
+    public int getSpecialTokensSize() {
+        System.out.println("获取特殊token数量: " + vocab.size());
         return vocab.size();
     }
+    
+
     
     /**
      * 加载配置（实现TokenizerComponent接口）

@@ -250,7 +250,7 @@ public class SQLiteVectorDatabaseHandler {
         @Override
         public void onOpen(SQLiteDatabase db) {
             super.onOpen(db);
-            LogManager.logD(TAG, "数据库已打开，路径: " + db.getPath() + ", 是否只读: " + db.isReadOnly());
+            //LogManager.logD(TAG, "数据库已打开，路径: " + db.getPath() + ", 是否只读: " + db.isReadOnly());
         }
     }
     

@@ -113,7 +113,8 @@ public class RagQaFragment extends Fragment {
     private EditText editTextUserPrompt;
     private Button buttonSendStop;
     private Button buttonNewChat;
-    private EditText editTextSearchDepth; // 近似深度输入框
+    private Spinner spinnerSearchDepth; // 检索数下拉框
+    private Spinner spinnerRerankCount; // 重排数下拉框
     private TextView textViewResponse; // 回答文本框
     private CheckBox checkBoxThinkingMode; // 思考模式复选框
     
@@ -154,8 +155,9 @@ public class RagQaFragment extends Fragment {
         editTextUserPrompt = view.findViewById(R.id.editTextUserPrompt);
         buttonSendStop = view.findViewById(R.id.buttonSendStop);
         buttonNewChat = view.findViewById(R.id.buttonNewChat);
-        editTextSearchDepth = view.findViewById(R.id.editTextSearchDepth); // 初始化近似深度输入框
-        checkBoxThinkingMode = view.findViewById(R.id.checkBoxThinkingMode); // 初始化思考模式复选框
+        spinnerSearchDepth = view.findViewById(R.id.spinnerSearchDepth); // 初始化检索数下拉框
+        spinnerRerankCount = view.findViewById(R.id.spinnerRerankCount); // 初始化重排数下拉框
+        checkBoxThinkingMode = view.findViewById(R.id.checkBoxThinkingModeKey); // 初始化思考模式复选框
         
         // 为用户提问文本框添加回车键监听
         editTextUserPrompt.setOnEditorActionListener((v, actionId, event) -> {
@@ -166,8 +168,11 @@ public class RagQaFragment extends Fragment {
             return false;
         });
         
-        // 加载配置和设置UI
-        loadConfig();
+        // 初始化检索数下拉框
+        initializeSearchDepthSpinner();
+        
+        // 初始化重排数下拉框
+        initializeRerankCountSpinner();
         
         // 加载API URL列表，包括从配置中获取的自定义URL
         loadApiUrlList();
@@ -227,7 +232,7 @@ public class RagQaFragment extends Fragment {
             @Override
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
                 String selectedModel = parent.getItemAtPosition(position).toString();
-                if (!selectedModel.equals("加载中...")) {
+                if ( !selectedModel.contains("加载") && !selectedModel.contains("获取") && !selectedModel.contains("失败") && !selectedModel.contains("无可用")) {
                     ConfigManager.setString(requireContext(), ConfigManager.KEY_MODEL_NAME, selectedModel);
                     LogManager.logD(TAG, "已保存模型名称: " + selectedModel);
                 }
@@ -252,9 +257,11 @@ public class RagQaFragment extends Fragment {
             @Override
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
                 String selectedKnowledgeBase = parent.getItemAtPosition(position).toString();
-                if (!selectedKnowledgeBase.equals("加载中...")) {
-                    ConfigManager.setString(requireContext(), ConfigManager.KEY_KNOWLEDGE_BASE, selectedKnowledgeBase);
-                    LogManager.logD(TAG, "已保存知识库名称: " + selectedKnowledgeBase);
+                if (!selectedKnowledgeBase.contains("加载")) {
+                    // 当选择提示文本或无效选项时，保存空字符串到配置中
+                    String configValue = (selectedKnowledgeBase.contains("无") || selectedKnowledgeBase.contains("请先") || selectedKnowledgeBase.contains("创建")) ? "" : selectedKnowledgeBase;
+                    ConfigManager.setString(requireContext(), ConfigManager.KEY_KNOWLEDGE_BASE, configValue);
+                    LogManager.logD(TAG, "已保存知识库名称: " + selectedKnowledgeBase + " (配置值: " + configValue + ")");
                 }
             }
 
@@ -275,19 +282,38 @@ public class RagQaFragment extends Fragment {
             }
         });
         
-        // 为近似深度添加焦点变化监听器，当失去焦点时保存近似深度
-        editTextSearchDepth.setOnFocusChangeListener((v, hasFocus) -> {
-            if (!hasFocus) {
-                String searchDepthStr = editTextSearchDepth.getText().toString();
-                if (!searchDepthStr.isEmpty()) {
-                    try {
-                        int searchDepth = Integer.parseInt(searchDepthStr);
-                        ConfigManager.setInt(requireContext(), ConfigManager.KEY_SEARCH_DEPTH, searchDepth);
-                        LogManager.logD(TAG, "已保存近似深度: " + searchDepth);
-                    } catch (NumberFormatException e) {
-                        LogManager.logE(TAG, "近似深度格式错误: " + searchDepthStr, e);
-                    }
-                }
+        // 初始化检索数下拉框
+        initializeSearchDepthSpinner();
+        
+        // 为检索数下拉框添加选择监听器
+        spinnerSearchDepth.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                String selectedDepth = parent.getItemAtPosition(position).toString();
+                int searchDepth = Integer.parseInt(selectedDepth);
+                ConfigManager.setInt(requireContext(), ConfigManager.KEY_SEARCH_DEPTH, searchDepth);
+                LogManager.logD(TAG, "已保存检索数: " + searchDepth);
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
+                // 不做任何操作
+            }
+        });
+        
+        // 为重排数下拉框添加选择监听器
+        spinnerRerankCount.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                String selectedCount = parent.getItemAtPosition(position).toString();
+                int rerankCount = Integer.parseInt(selectedCount);
+                ConfigManager.setRerankCount(requireContext(), rerankCount);
+                LogManager.logD(TAG, "已保存重排数: " + rerankCount);
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
+                // 不做任何操作
             }
         });
         
@@ -389,7 +415,77 @@ public class RagQaFragment extends Fragment {
         spinner.setAdapter(adapter);
     }
     
-    // 加载配置文件
+    /**
+     * 初始化检索数下拉框
+     */
+    private void initializeSearchDepthSpinner() {
+        // 创建检索数选项列表
+        List<String> searchDepthOptions = Arrays.asList(
+            "0", "1", "2", "5", "6", "8", "10", "15", "20", "25", "30", "35", "40"
+        );
+        
+        // 创建适配器
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(requireContext(), 
+            android.R.layout.simple_spinner_item, searchDepthOptions);
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        
+        // 设置适配器
+        spinnerSearchDepth.setAdapter(adapter);
+        
+        // 设置默认选中项
+        int currentSearchDepth = ConfigManager.getSearchDepth(requireContext());
+        String currentDepthStr = String.valueOf(currentSearchDepth);
+        int position = searchDepthOptions.indexOf(currentDepthStr);
+        if (position >= 0) {
+            spinnerSearchDepth.setSelection(position);
+        } else {
+            // 如果当前值不在选项中，默认选择"10"
+            int defaultPosition = searchDepthOptions.indexOf("10");
+            if (defaultPosition >= 0) {
+                spinnerSearchDepth.setSelection(defaultPosition);
+            }
+        }
+        
+        LogManager.logD(TAG, "已初始化检索数下拉框，当前值: " + currentSearchDepth);
+    }
+    
+    /**
+     * 初始化重排数下拉框
+     */
+    private void initializeRerankCountSpinner() {
+        // 创建重排数选项列表
+        List<String> rerankCountOptions = Arrays.asList(
+            "0", "1", "2", "3", "4", "5", "6", "8", "10", "12", "15", "20", "25", "30"
+        );
+        
+        // 创建适配器
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(requireContext(), 
+            android.R.layout.simple_spinner_item, rerankCountOptions);
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        
+        // 设置适配器
+        spinnerRerankCount.setAdapter(adapter);
+        
+        // 设置默认选中项
+        int currentRerankCount = ConfigManager.getRerankCount(requireContext());
+        String currentCountStr = String.valueOf(currentRerankCount);
+        int position = rerankCountOptions.indexOf(currentCountStr);
+        if (position >= 0) {
+            spinnerRerankCount.setSelection(position);
+        } else {
+            // 如果当前值不在选项中，默认选择"5"
+            int defaultPosition = rerankCountOptions.indexOf("5");
+            if (defaultPosition >= 0) {
+                spinnerRerankCount.setSelection(defaultPosition);
+            }
+        }
+        
+        LogManager.logD(TAG, "已初始化重排数下拉框，当前值: " + currentRerankCount);
+    }
+    
+    /**
+     * 加载配置文件
+     */
     private void loadConfig() {
         try {
             // 使用ConfigManager加载配置
@@ -430,10 +526,9 @@ public class RagQaFragment extends Fragment {
                 }
             }
             
-            // 加载近似深度
-            int searchDepth = ConfigManager.getSearchDepth(requireContext());
-            editTextSearchDepth.setText(String.valueOf(searchDepth));
-            LogManager.logD(TAG, "已加载近似深度: " + searchDepth);
+            // 检索数已在initializeSearchDepthSpinner中加载
+            
+            // 重排数已在initializeRerankCountSpinner中加载
             
             // 加载思考模式设置
             // 注意：no_thinking=TRUE 取消复选，false则复选
@@ -473,17 +568,8 @@ public class RagQaFragment extends Fragment {
             ConfigManager.setSystemPrompt(requireContext(), systemPrompt);
             LogManager.logD(TAG, "已保存系统提示词: " + (systemPrompt.isEmpty() ? "[空]" : systemPrompt));
             
-            // 保存近似深度
-            String searchDepthStr = editTextSearchDepth.getText().toString();
-            if (!searchDepthStr.isEmpty()) {
-                try {
-                    int searchDepth = Integer.parseInt(searchDepthStr);
-                    ConfigManager.setInt(requireContext(), ConfigManager.KEY_SEARCH_DEPTH, searchDepth);
-                    LogManager.logD(TAG, "已保存近似深度: " + searchDepth);
-                } catch (NumberFormatException e) {
-                    LogManager.logE(TAG, "近似深度格式错误: " + searchDepthStr, e);
-                }
-            }
+            // 检索数通过spinner选择监听器自动保存
+            // 重排数通过spinner选择监听器自动保存
             
             LogManager.logD(TAG, "配置已保存到 .config 文件");
             Toast.makeText(requireContext(), "设置已保存", Toast.LENGTH_SHORT).show();
@@ -747,7 +833,7 @@ public class RagQaFragment extends Fragment {
             }
             
             if (apiUrl.trim().isEmpty() || 
-                model.equals("加载中...") || model.equals("获取模型失败")) {
+                model.contains("加载") || model.contains("获取") || model.contains("失败") || model.contains("无可用")) {
                 Toast.makeText(requireContext(), "请确保API地址和模型都已正确设置", Toast.LENGTH_SHORT).show();
                 return;
             }
@@ -845,8 +931,8 @@ public class RagQaFragment extends Fragment {
         // 记录开始时间
         final long startTime = System.currentTimeMillis();
         
-        // 获取近似深度
-        final int searchDepth = Integer.parseInt(editTextSearchDepth.getText().toString());
+        // 获取检索数
+        final int searchDepth = Integer.parseInt(spinnerSearchDepth.getSelectedItem().toString());
         
         // 更新UI，显示开始查询
         mainHandler.post(() -> {
@@ -867,7 +953,7 @@ public class RagQaFragment extends Fragment {
                         "API URL: " + apiUrl + "\n" +
                         "模型: " + model + "\n" +
                         "知识库: " + knowledgeBase + "\n" +
-                        "近似深度: " + searchDepth + "\n" +
+                        "检索数: " + searchDepth + "\n" +
                         "系统提示词: " + systemPrompt + "\n" +
                         "用户提问: " + userPrompt;
                 LogManager.logD(TAG, logMessage);
@@ -876,12 +962,13 @@ public class RagQaFragment extends Fragment {
                 mainHandler.post(() -> {
                     //updateProgressOnUiThread("开始查询知识库...");
                     //updateProgressOnUiThread("知识库: " + knowledgeBase);
-                    //updateProgressOnUiThread("近似深度: " + searchDepth);
+                    //updateProgressOnUiThread("检索数: " + searchDepth);
                     updateProgressOnUiThread("\n ##--- 调试信息 ---\n\n用户提问: " + userPrompt);
                 });
                 
                 // 检查是否需要查询知识库
-                if (!knowledgeBase.equals("无") && !knowledgeBase.equals("无可用知识库")) {
+                String configKnowledgeBase = ConfigManager.getKnowledgeBase(requireContext());
+                if (!configKnowledgeBase.isEmpty() && searchDepth > 0) {
                     String kbInfo = "使用知识库进行查询: " + knowledgeBase;
                     LogManager.logD(TAG, kbInfo);
                     //updateProgressOnUiThread(kbInfo);
@@ -889,11 +976,10 @@ public class RagQaFragment extends Fragment {
                     // 查询知识库获取相关内容 - 只调用queryKnowledgeBase，不使用返回值
                     queryKnowledgeBase(knowledgeBase, userPrompt);
                     
-                    // 等待查询结果 - 从relevantDocuments成员变量中获取
-                    int waitCount = 0;
+                    // 等待查询结果 - 从relevantDocuments成员变量中获取（移除超时机制）
                     List<String> relevantDocs = new ArrayList<>();
                     
-                    while (waitCount < 300) { // 最多等待30秒
+                    while (true) {
                         if (isTaskCancelled) {
                             String cancelMsg = "RAG查询被用户取消";
                             LogManager.logD(TAG, cancelMsg);
@@ -909,18 +995,12 @@ public class RagQaFragment extends Fragment {
                             }
                         }
                         
-                        // 如果等待超过25秒，退出循环
-                        if (waitCount >= 250) {
-                            LogManager.logW(TAG, "等待查询结果超时");
-                            break;
-                        }
-                        
                         // 等待100毫秒
                         try {
                             Thread.sleep(100);
-                            waitCount++;
                         } catch (InterruptedException e) {
                             LogManager.logE(TAG, "等待查询结果时被中断", e);
+                            break;
                         }
                     }
                     
@@ -997,8 +1077,8 @@ public class RagQaFragment extends Fragment {
                         callLLMApi(apiUrl, apiKey, model, fullPrompt);
                     }
                 } else {
-                    // 不使用知识库，直接调用大模型API
-                    String directMsg = "不使用知识库，直接调用大模型";
+                    // 不使用知识库或检索数为0，直接调用大模型API
+                    String directMsg = searchDepth == 0 ? "检索数为0，跳过知识库查询，直接调用大模型" : "未配置知识库，直接调用大模型";
                     LogManager.logD(TAG, directMsg);
                     updateProgressOnUiThread(directMsg);
                     updateProgressOnUiThread("正在生成回答...");
@@ -1048,9 +1128,9 @@ public class RagQaFragment extends Fragment {
             LogManager.logD(TAG, "开始查询知识库: " + knowledgeBase + ", 查询关键词: " + query);
             //updateProgressOnUiThread("开始查询知识库: " + knowledgeBase);
 
-            // 获取近似深度（从界面输入框获取）
-            int searchDepth = Integer.parseInt(editTextSearchDepth.getText().toString());
-            LogManager.logD(TAG, "使用界面设置的近似深度: " + searchDepth);
+            // 获取检索数（从界面输入框获取）
+            int searchDepth = Integer.parseInt(spinnerSearchDepth.getSelectedItem().toString());
+            LogManager.logD(TAG, "使用界面设置的检索数: " + searchDepth);
             
             // 检查知识库名称是否有效
             if (knowledgeBase == null || knowledgeBase.trim().isEmpty()) {
@@ -1164,7 +1244,7 @@ public class RagQaFragment extends Fragment {
                     //updateProgressOnUiThread("正在加载SQLite向量数据库...");
 
                     // 加载向量数据库
-                    LogManager.logI(TAG, "开始加载SQLite向量数据库...");
+                    //LogManager.logI(TAG, "开始加载SQLite向量数据库...");
                     
                     if (!vectorDbRef[0].loadDatabase()) {
                         String errorMsg = "错误: 加载SQLite向量数据库失败";
@@ -2229,38 +2309,33 @@ public class RagQaFragment extends Fragment {
                 updateProgressOnUiThread("正在搜索相似文本块...");
                 
                 // 获取检索数量设置
-                int retrievalCount = Integer.parseInt(editTextSearchDepth.getText().toString());
+                int retrievalCount = Integer.parseInt(spinnerSearchDepth.getSelectedItem().toString());
                 
                 // 搜索相似文本块
                 List<SQLiteVectorDatabaseHandler.SearchResult> searchResults = vectorDb.searchSimilar(queryVector, retrievalCount);
                 
-                // 提取相关文档
-                List<String> relevantDocs = new ArrayList<>();
-                StringBuilder similarityInfoBuilder = new StringBuilder();
-                
-                for (int i = 0; i < searchResults.size(); i++) {
-                    SQLiteVectorDatabaseHandler.SearchResult result = searchResults.get(i);
-                    relevantDocs.add(result.text);
-                    
-                    // 记录详细信息到日志
-                    String resultInfo = "相似度: " + result.similarity + ", 文本: " + result.text.substring(0, Math.min(50, result.text.length())) + "...";
-                    LogManager.logD(TAG, resultInfo);
-
-                    // 添加到进度显示 - 只显示匹配序号和相似度值，不显示文本内容
-                    similarityInfoBuilder.append("匹配").append(i + 1).append(": ").append(String.format("%.4f", result.similarity));
-                    if (i < searchResults.size() - 1) {
-                        similarityInfoBuilder.append(", ");
+                // 显示检索结果的相似度
+                if (!searchResults.isEmpty()) {
+                    StringBuilder similarityInfo = new StringBuilder("检索相似度: ");
+                    for (int i = 0; i < searchResults.size(); i++) {
+                        similarityInfo.append(String.format("%.3f", searchResults.get(i).similarity));
+                        if (i < searchResults.size() - 1) {
+                            similarityInfo.append(", ");
+                        }
                     }
-                    
-                    // 记录详细信息到日志
-                    String resultInfo2 = "相似度: " + result.similarity + ", 文本: " + result.text.substring(0, Math.min(50, result.text.length())) + "...";
-                    LogManager.logD(TAG, resultInfo2);
+                    updateProgressOnUiThread(similarityInfo.toString());
                 }
-
-                // 保存相似度信息
-                synchronized (this) {
-                    this.similarityInfo = similarityInfoBuilder.toString();
-                    this.relevantDocuments = relevantDocs;
+                
+                // 检查是否需要重排
+                String rerankerModelPath = getRerankerModelPath(vectorDb);
+                if (rerankerModelPath != null && !rerankerModelPath.isEmpty()) {
+                    // 使用重排模型
+                    updateProgressOnUiThread("正在使用重排模型优化结果...");
+                    processWithReranker(userQuery, searchResults, rerankerModelPath, vectorDb);
+                } else {
+                    // 不使用重排，直接处理向量检索结果
+                    LogManager.logD(TAG, "未配置重排模型，使用向量检索结果");
+                    processVectorSearchResults(searchResults);
                 }
 
                 // 标记模型使用结束
@@ -2293,6 +2368,200 @@ public class RagQaFragment extends Fragment {
             } catch (Exception ex) {
                 LogManager.logE(TAG, "关闭向量数据库失败: " + ex.getMessage(), ex);
             }
+        }
+    }
+    
+    /**
+     * 获取重排模型路径
+     */
+    private String getRerankerModelPath(SQLiteVectorDatabaseHandler vectorDb) {
+        try {
+            // 从数据库元数据获取重排模型目录
+            String rerankerDir = vectorDb.getMetadata().getRerankerdir();
+            if (rerankerDir == null || rerankerDir.trim().isEmpty()) {
+                LogManager.logD(TAG, "数据库元数据中未配置重排模型目录");
+                return null;
+            }
+            
+            // 获取重排模型根路径
+            String rerankerBasePath = ConfigManager.getRerankerModelPath(requireContext());
+            
+            // 构建完整的重排模型路径
+            File rerankerModelDir = new File(rerankerBasePath, rerankerDir);
+            if (!rerankerModelDir.exists() || !rerankerModelDir.isDirectory()) {
+                LogManager.logW(TAG, "重排模型目录不存在: " + rerankerModelDir.getAbsolutePath());
+                return null;
+            }
+            
+            // 查找ONNX模型文件
+            File[] modelFiles = rerankerModelDir.listFiles(file -> 
+                file.isFile() && file.getName().toLowerCase().endsWith(".onnx"));
+            
+            if (modelFiles == null || modelFiles.length == 0) {
+                LogManager.logW(TAG, "重排模型目录中未找到ONNX模型文件: " + rerankerModelDir.getAbsolutePath());
+                return null;
+            }
+            
+            // 返回第一个找到的模型文件路径
+            String modelPath = modelFiles[0].getAbsolutePath();
+            LogManager.logD(TAG, "找到重排模型: " + modelPath);
+            return modelPath;
+            
+        } catch (Exception e) {
+            LogManager.logE(TAG, "获取重排模型路径失败: " + e.getMessage(), e);
+            return null;
+        }
+    }
+    
+    /**
+     * 使用重排模型处理搜索结果
+     */
+    private void processWithReranker(String query, List<SQLiteVectorDatabaseHandler.SearchResult> searchResults, 
+                                   String rerankerModelPath, SQLiteVectorDatabaseHandler vectorDb) {
+        try {
+            // 获取重排模型管理器
+            RerankerModelManager rerankerManager = RerankerModelManager.getInstance(requireContext());
+            
+            // 提取文档文本
+            List<String> documents = new ArrayList<>();
+            for (SQLiteVectorDatabaseHandler.SearchResult result : searchResults) {
+                documents.add(result.text);
+            }
+            
+            // 计算topK值 - 使用全部检索结果数量用于重排打印，但实际使用时仍限制为rerank_count
+            int rerankCount = ConfigManager.getRerankCount(requireContext());
+            int retrievalCount = ConfigManager.getSearchDepth(requireContext());
+            int topK = Math.min(searchResults.size(), retrievalCount); // 使用全部检索结果进行重排
+            
+            LogManager.logI(TAG, "开始异步重排: query=" + query + ", documents.size()=" + documents.size() + ", topK=" + topK + ", rerankCount=" + rerankCount);
+            
+            // 使用新的rerankAsync方法，避免嵌套线程池
+            rerankerManager.rerankAsync(rerankerModelPath, query, documents, topK, new RerankerModelManager.RerankerCallback() {
+                @Override
+                public void onRerankProgress(String message) {
+                    LogManager.logI(TAG, "重排进度: " + message);
+                    updateProgressOnUiThread(message);
+                }
+                
+                @Override
+                public void onRerankComplete(List<RerankerModelHandler.RerankResult> rerankedResults) {
+                    LogManager.logI(TAG, "重排成功，结果数: " + rerankedResults.size());
+                    
+                    try {
+                        processRerankedResults(rerankedResults);
+                    } catch (Exception e) {
+                        LogManager.logE(TAG, "处理重排结果失败: " + e.getMessage(), e);
+                        updateProgressOnUiThread("处理重排结果失败，使用向量检索结果");
+                        processVectorSearchResults(searchResults);
+                    }
+                }
+                
+                @Override
+                public void onRerankError(String error) {
+                    LogManager.logE(TAG, "重排失败: " + error);
+                    updateProgressOnUiThread("重排失败，使用向量检索结果");
+                    // 回退到向量检索结果
+                    processVectorSearchResults(searchResults);
+                }
+            });
+            
+        } catch (Exception e) {
+            LogManager.logE(TAG, "重排处理异常: " + e.getMessage(), e);
+            updateProgressOnUiThread("重排处理异常，使用向量检索结果");
+            // 回退到向量检索结果
+            processVectorSearchResults(searchResults);
+        }
+    }
+    
+    /**
+     * 处理向量检索结果（不使用重排）
+     */
+    private void processVectorSearchResults(List<SQLiteVectorDatabaseHandler.SearchResult> searchResults) {
+        try {
+            // 提取相关文档
+            List<String> relevantDocs = new ArrayList<>();
+            StringBuilder similarityInfoBuilder = new StringBuilder();
+            
+            for (int i = 0; i < searchResults.size(); i++) {
+                SQLiteVectorDatabaseHandler.SearchResult result = searchResults.get(i);
+                relevantDocs.add(result.text);
+                
+                // 记录详细信息到日志
+                String resultInfo = "相似度: " + result.similarity + ", 文本: " + result.text.substring(0, Math.min(50, result.text.length())) + "...";
+                LogManager.logD(TAG, resultInfo);
+
+                // 添加到进度显示 - 只显示匹配序号和相似度值，不显示文本内容
+                similarityInfoBuilder.append("匹配").append(i + 1).append(": ").append(String.format("%.4f", result.similarity));
+                if (i < searchResults.size() - 1) {
+                    similarityInfoBuilder.append(", ");
+                }
+            }
+
+            // 保存相似度信息
+            synchronized (this) {
+                this.similarityInfo = similarityInfoBuilder.toString();
+                this.relevantDocuments = relevantDocs;
+            }
+            
+            LogManager.logD(TAG, "向量检索结果处理完成，文档数: " + relevantDocs.size());
+            
+        } catch (Exception e) {
+            LogManager.logE(TAG, "处理向量检索结果失败: " + e.getMessage(), e);
+            updateProgressOnUiThread("处理检索结果失败: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * 处理重排结果
+     */
+    private void processRerankedResults(List<RerankerModelHandler.RerankResult> rerankedResults) {
+        try {
+            // 详细打印重排结果 - 显示全部结果而不限制数量
+            LogManager.logI(TAG, "=== 重排结果详情 ===");
+            for (int i = 0; i < rerankedResults.size(); i++) {
+                RerankerModelHandler.RerankResult result = rerankedResults.get(i);
+                LogManager.logI(TAG, String.format("重排第%d名: 分数=%.6f, 原始索引=%d, 文本预览=%s", 
+                    i + 1, result.score, result.originalIndex, 
+                    result.text.substring(0, Math.min(100, result.text.length())) + "..."));
+            }
+            LogManager.logI(TAG, "=== 重排结果详情结束 ===");
+            
+            // 获取实际使用的重排数量限制
+            int rerankCount = ConfigManager.getRerankCount(requireContext());
+            int actualResultCount = Math.min(rerankedResults.size(), rerankCount);
+            LogManager.logI(TAG, "实际使用前 " + actualResultCount + " 个重排结果进行回答生成");
+            
+            // 提取重排后的文档 - 只使用前rerankCount个结果
+            List<String> relevantDocs = new ArrayList<>();
+            StringBuilder similarityInfoBuilder = new StringBuilder();
+            
+            for (int i = 0; i < actualResultCount; i++) {
+                RerankerModelHandler.RerankResult result = rerankedResults.get(i);
+                relevantDocs.add(result.text);
+
+                // 添加到进度显示 - 显示重排序号和分数
+                similarityInfoBuilder.append("重排").append(i + 1).append(": ").append(String.format("%.4f", result.score));
+                if (i < actualResultCount - 1) {
+                    similarityInfoBuilder.append(", ");
+                }
+            }
+
+            // 保存重排信息
+            synchronized (this) {
+                this.similarityInfo = "重排结果 - " + similarityInfoBuilder.toString();
+                this.relevantDocuments = relevantDocs;
+            }
+            
+            LogManager.logD(TAG, "重排结果处理完成，实际使用文档数: " + relevantDocs.size());
+            
+            updateProgressOnUiThread("重排优化完成，找到 " + relevantDocs.size() + " 个相关内容");
+            
+            // 重排完成后，继续执行RAG查询流程 - 调用LLM API生成回答
+            continueRagQueryAfterReranking();
+            
+        } catch (Exception e) {
+            LogManager.logE(TAG, "处理重排结果失败: " + e.getMessage(), e);
+            updateProgressOnUiThread("处理重排结果失败: " + e.getMessage());
         }
     }
     
@@ -2543,7 +2812,7 @@ public class RagQaFragment extends Fragment {
             updateProgressOnUiThread("正在搜索相似文本块...");
             
             // 获取检索数量设置
-            int retrievalCount = Integer.parseInt(editTextSearchDepth.getText().toString());
+            int retrievalCount = Integer.parseInt(spinnerSearchDepth.getSelectedItem().toString());
             
             // 搜索相似文本块
             List<SQLiteVectorDatabaseHandler.SearchResult> searchResults = vectorDb.searchSimilar(queryVector, retrievalCount);
@@ -2899,6 +3168,83 @@ public class RagQaFragment extends Fragment {
                 public void onDestroyActionMode(ActionMode mode) {
                     // 不需要特殊处理
                 }
+            });
+        }
+    }
+    
+    // 重排完成后继续RAG查询流程
+    private void continueRagQueryAfterReranking() {
+        try {
+            // 获取保存的查询参数
+            String apiUrl = lastApiUrl;
+            String apiKey = lastApiKey;
+            String model = lastModel;
+            String systemPrompt = lastSystemPrompt;
+            String userPrompt = lastUserPrompt;
+            
+            // 获取重排后的相关文档
+            List<String> relevantDocs = new ArrayList<>();
+            String simInfo = "";
+            synchronized (this) {
+                if (relevantDocuments != null) {
+                    relevantDocs = new ArrayList<>(relevantDocuments);
+                }
+                simInfo = this.similarityInfo;
+            }
+            
+            if (relevantDocs.isEmpty()) {
+                LogManager.logW(TAG, "重排后没有相关文档，使用无知识库模式");
+                updateProgressOnUiThread("重排后没有相关文档，直接生成回答");
+                
+                // 构建不包含知识库内容的提示词
+                String fullPrompt = buildPromptWithoutKnowledgeBase(systemPrompt, userPrompt);
+                
+                // 调用大模型API获取回答
+                updateProgressOnUiThread("正在调用大模型API...");
+                callLLMApi(apiUrl, apiKey, model, fullPrompt);
+            } else {
+                // 显示相似度信息
+                if (!TextUtils.isEmpty(simInfo)) {
+                    updateProgressOnUiThread("相似度信息: " + simInfo);
+                }
+                
+                // 构建包含知识库内容的提示词
+                String fullPrompt = buildPromptWithKnowledgeBase(systemPrompt, userPrompt, relevantDocs);
+                
+                // 记录提示词信息
+                int promptLength = fullPrompt.length();
+                String promptInfo = "构建提示词长度: " + promptLength + " 字符";
+                LogManager.logD(TAG, promptInfo);
+                updateProgressOnUiThread(promptInfo);
+                
+                // 详细打印发送给LLM的完整文本
+                LogManager.logI(TAG, "=== 发送给LLM的完整提示词 ===");
+                LogManager.logI(TAG, "提示词长度: " + promptLength + " 字符");
+                LogManager.logI(TAG, "提示词内容:");
+                LogManager.logI(TAG, fullPrompt);
+                LogManager.logI(TAG, "=== LLM提示词结束 ===");
+                
+                // 如果提示词太长，记录警告
+                if (promptLength > 4000) {
+                    String warnMsg = "警告: 提示词长度超过4000字符，可能被模型截断";
+                    LogManager.logW(TAG, warnMsg);
+                    updateProgressOnUiThread(warnMsg);
+                }
+                
+                // 调用大模型API获取回答
+                updateProgressOnUiThread("正在调用大模型API...");
+                callLLMApi(apiUrl, apiKey, model, fullPrompt);
+            }
+            
+        } catch (Exception e) {
+            LogManager.logE(TAG, "重排后继续RAG查询失败: " + e.getMessage(), e);
+            updateProgressOnUiThread("重排后继续查询失败: " + e.getMessage());
+            
+            // 恢复UI状态
+            mainHandler.post(() -> {
+                buttonSendStop.setText("发送 ▶");
+                isSending = false;
+                isTaskRunning = false;
             });
         }
     }

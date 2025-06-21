@@ -52,7 +52,7 @@ public class TokenizerManager implements TokenizerInterface {
         this.context = context.getApplicationContext();
         
         // 先不创建分词器实例，等待初始化时创建
-        LogManager.logI(TAG, "分词器管理器已创建，等待初始化");
+        //LogManager.logI(TAG, "分词器管理器已创建，等待初始化");
     }
     
     /**
@@ -82,17 +82,36 @@ public class TokenizerManager implements TokenizerInterface {
      * @return 是否初始化成功
      */
     public boolean initialize(File modelPath) {
+       // LogManager.logI(TAG, "📁 开始处理File对象初始化...");
+        LogManager.logI(TAG, "传入的File路径: " + (modelPath != null ? modelPath.getAbsolutePath() : "null"));
+        
+        if (modelPath == null) {
+            LogManager.logE(TAG, "❌ File对象为null");
+            return false;
+        }
+        
+        //LogManager.logI(TAG, "File对象状态检查:");
+        //LogManager.logI(TAG, "  - 是否存在: " + modelPath.exists());
+        //LogManager.logI(TAG, "  - 是否为文件: " + modelPath.isFile());
+        //LogManager.logI(TAG, "  - 是否为目录: " + modelPath.isDirectory());
+        //LogManager.logI(TAG, "  - 是否可读: " + modelPath.canRead());
+        
         try {
             // 判断传入的是文件还是目录
             File modelDir = modelPath;
             if (modelPath.isFile()) {
                 // 如果是文件，使用其父目录
-                LogManager.logD(TAG, "检测到传入的是模型文件而非目录，将使用其父目录: " + modelPath.getAbsolutePath());
+                LogManager.logI(TAG, "🔄 检测到传入的是模型文件而非目录，将使用其父目录: " + modelPath.getAbsolutePath());
                 modelDir = modelPath.getParentFile();
+                LogManager.logI(TAG, "父目录路径: " + (modelDir != null ? modelDir.getAbsolutePath() : "null"));
+                
                 if (modelDir == null || !modelDir.exists() || !modelDir.isDirectory()) {
-                    LogManager.logE(TAG, "无法获取模型文件的父目录，或父目录不存在: " + modelPath.getAbsolutePath());
+                    LogManager.logE(TAG, "❌ 无法获取模型文件的父目录，或父目录不存在: " + modelPath.getAbsolutePath());
                     return false;
                 }
+                LogManager.logI(TAG, "✅ 父目录有效，继续使用: " + modelDir.getAbsolutePath());
+            } else {
+                LogManager.logI(TAG, "✅ 传入的是目录路径，直接使用: " + modelDir.getAbsolutePath());
             }
             
             // 检查是否与当前加载的模型路径相同
@@ -122,11 +141,11 @@ public class TokenizerManager implements TokenizerInterface {
                 // 更新当前模型路径
                 currentModelPath = newModelPath;
                 
-                LogManager.logD(TAG, "分词器初始化成功，词汇表大小: " + getVocabSize());
+                //LogManager.logD(TAG, "分词器初始化成功，特殊token数量: " + getSpecialTokensSize());
                 
                 // 默认启用一致性分词策略
                 setUseConsistentTokenization(true);
-                LogManager.logD(TAG, "已启用一致性分词策略");
+                //LogManager.logD(TAG, "已启用一致性分词策略");
                 
                 initialized = true;
                 return true;
@@ -146,13 +165,47 @@ public class TokenizerManager implements TokenizerInterface {
      * @return 是否初始化成功
      */
     public boolean initialize(String modelPath) {
-        if (modelPath == null || modelPath.isEmpty()) {
-            LogManager.logE(TAG, "模型路径为空");
+        //LogManager.logI(TAG, "=== 开始分词器初始化流程 ===");
+        //LogManager.logI(TAG, "尝试从模型目录初始化tokenizer: " + modelPath);
+        //LogManager.logI(TAG, "当前线程: " + Thread.currentThread().getName());
+        //LogManager.logI(TAG, "系统时间: " + System.currentTimeMillis());
+        
+        if (modelPath == null || modelPath.trim().isEmpty()) {
+            LogManager.logE(TAG, "❌ 模型路径为空，无法初始化tokenizer");
             return false;
         }
         
+        // 检查当前分词器是否已经加载了相同的文件
+        String newModelPath = modelPath.trim();
+        //LogManager.logI(TAG, "检查是否需要重新加载分词器...");
+        //LogManager.logI(TAG, "当前模型路径: " + (currentModelPath != null ? currentModelPath : "null"));
+        //LogManager.logI(TAG, "新模型路径: " + newModelPath);
+        
+        if (currentModelPath != null && currentModelPath.equals(newModelPath)) {
+            LogManager.logD(TAG, "✅ 分词器已经初始化为相同的模型路径，无需重新加载: " + newModelPath);
+            boolean isInit = isInitialized();
+            LogManager.logI(TAG, "当前分词器状态: " + (isInit ? "已初始化" : "未初始化"));
+            return isInit;
+        }
+        
+        // 关闭现有的分词器实例
+        if (tokenizer != null) {
+            LogManager.logD(TAG, "🔄 关闭现有分词器实例，准备加载新分词器: " + newModelPath);
+            //LogManager.logI(TAG, "释放现有分词器资源...");
+            tokenizer.close();
+            tokenizer = null;
+            //LogManager.logI(TAG, "现有分词器资源已释放");
+        }
+        
         try {
+            LogManager.logI(TAG, "🔍 开始查找分词器文件...");
             File modelFile = new File(modelPath);
+            //LogManager.logI(TAG, "模型文件对象创建完成: " + modelFile.getAbsolutePath());
+            //LogManager.logI(TAG, "检查路径类型...");
+            //LogManager.logI(TAG, "是否为目录: " + modelFile.isDirectory());
+            //LogManager.logI(TAG, "是否为文件: " + modelFile.isFile());
+            //LogManager.logI(TAG, "是否存在: " + modelFile.exists());
+            
             return initialize(modelFile);
         } catch (Exception e) {
             LogManager.logE(TAG, "初始化分词器失败: " + e.getMessage(), e);
@@ -204,33 +257,60 @@ public class TokenizerManager implements TokenizerInterface {
      * @return 是否成功加载
      */
     public boolean loadFromDirectory(File directory) {
+        LogManager.logI(TAG, "📂 开始从目录加载分词器...");
+        LogManager.logI(TAG, "目标目录: " + (directory != null ? directory.getAbsolutePath() : "null"));
+        
         if (directory == null) {
-            LogManager.logE(TAG, "目录对象为空");
+            LogManager.logE(TAG, "❌ 目录对象为空");
             return false;
         }
         
+        LogManager.logI(TAG, "目录状态检查:");
+        LogManager.logI(TAG, "  - 是否存在: " + directory.exists());
+        LogManager.logI(TAG, "  - 是否为目录: " + directory.isDirectory());
+        LogManager.logI(TAG, "  - 是否可读: " + directory.canRead());
+        
         if (!directory.exists() || !directory.isDirectory()) {
-            LogManager.logE(TAG, "指定的目录不存在或不是目录: " + directory.getAbsolutePath());
+            LogManager.logE(TAG, "❌ 指定的目录不存在或不是目录: " + directory.getAbsolutePath());
             return false;
         }
         
         // 尝试查找tokenizer.json文件
+        LogManager.logI(TAG, "🔍 开始查找tokenizer.json文件...");
         File tokenizerFile = new File(directory, "tokenizer.json");
+        LogManager.logI(TAG, "tokenizer.json完整路径: " + tokenizerFile.getAbsolutePath());
+        LogManager.logI(TAG, "tokenizer.json文件状态:");
+        LogManager.logI(TAG, "  - 是否存在: " + tokenizerFile.exists());
+        LogManager.logI(TAG, "  - 是否为文件: " + tokenizerFile.isFile());
+        LogManager.logI(TAG, "  - 文件大小: " + (tokenizerFile.exists() ? tokenizerFile.length() + " bytes" : "文件不存在"));
+        LogManager.logI(TAG, "  - 是否可读: " + (tokenizerFile.exists() ? tokenizerFile.canRead() : "文件不存在"));
+        
         if (!tokenizerFile.exists() || !tokenizerFile.isFile()) {
-            LogManager.logE(TAG, "在目录中找不到tokenizer.json文件: " + directory.getAbsolutePath());
+            LogManager.logE(TAG, "❌ 在目录中找不到tokenizer.json文件: " + directory.getAbsolutePath());
+            LogManager.logI(TAG, "📋 列出目录中的所有文件:");
+            File[] files = directory.listFiles();
+            if (files != null && files.length > 0) {
+                for (File file : files) {
+                    LogManager.logI(TAG, "  - " + file.getName() + " (" + (file.isDirectory() ? "目录" : file.length() + " bytes") + ")");
+                }
+            } else {
+                LogManager.logI(TAG, "  目录为空或无法列出文件");
+            }
             return false;
         }
         
         // 检查文件大小和权限
         if (tokenizerFile.length() == 0) {
-            LogManager.logE(TAG, "tokenizer.json文件大小为0: " + tokenizerFile.getAbsolutePath());
+            LogManager.logE(TAG, "❌ tokenizer.json文件大小为0: " + tokenizerFile.getAbsolutePath());
             return false;
         }
         
         if (!tokenizerFile.canRead()) {
-            LogManager.logE(TAG, "tokenizer.json文件无法读取: " + tokenizerFile.getAbsolutePath());
+            LogManager.logE(TAG, "❌ tokenizer.json文件无法读取: " + tokenizerFile.getAbsolutePath());
             return false;
         }
+        
+        LogManager.logI(TAG, "✅ tokenizer.json文件验证通过，开始加载...");
         
         // 检查当前分词器是否已经加载了相同的文件
         if (tokenizer != null) {
@@ -264,40 +344,55 @@ public class TokenizerManager implements TokenizerInterface {
         }
         
         try {
-            // 直接尝试创建分词器，让HuggingfaceTokenizer处理文件验证
-            
-            // 从文件创建新的分词器实例
-            LogManager.logD(TAG, "尝试创建分词器实例，模型路径: " + tokenizerFile.getAbsolutePath());
+            LogManager.logI(TAG, "🔧 开始创建HuggingfaceTokenizer实例...");
+            LogManager.logI(TAG, "目标文件: " + tokenizerFile.getAbsolutePath());
+            LogManager.logI(TAG, "文件最后修改时间: " + new java.util.Date(tokenizerFile.lastModified()));
             
             // 检查JNI库加载状态
+            LogManager.logI(TAG, "📚 检查JNI库加载状态...");
             
             try {
+                LogManager.logI(TAG, "正在加载tokenizers_jni库...");
                 System.loadLibrary("tokenizers_jni");
-
+                LogManager.logI(TAG, "✅ tokenizers_jni库加载成功");
             } catch (UnsatisfiedLinkError jniError) {
-                LogManager.logE(TAG, "JNI库加载失败: " + jniError.getMessage(), jniError);
+                LogManager.logE(TAG, "❌ JNI库加载失败: " + jniError.getMessage(), jniError);
+                LogManager.logE(TAG, "可能的原因: 1) 库文件不存在 2) 架构不匹配 3) 依赖库缺失");
                 return false;
             } catch (Exception e) {
-                LogManager.logE(TAG, "JNI库加载时发生未知异常: " + e.getMessage(), e);
+                LogManager.logE(TAG, "❌ JNI库加载时发生未知异常: " + e.getMessage(), e);
                 return false;
             }
             
             try {
+                LogManager.logI(TAG, "🚀 开始创建HuggingfaceTokenizer对象...");
+                LogManager.logI(TAG, "构造参数: path=" + tokenizerFile.getAbsolutePath() + ", isFile=true");
+                
+                long createStartTime = System.currentTimeMillis();
                 
                 // 正确传递参数，第二个参数应该是true，表示这是一个文件路径
                 tokenizer = new HuggingfaceTokenizer(tokenizerFile.getAbsolutePath(), true);
                 
-
+                long createEndTime = System.currentTimeMillis();
+                LogManager.logI(TAG, "HuggingfaceTokenizer创建耗时: " + (createEndTime - createStartTime) + "ms");
                 
                 // 如果需要设置一致性分词，可以在这里设置
                 if (tokenizer != null) {
-                    LogManager.logI(TAG, "成功从文件加载分词器: " + tokenizerFile.getAbsolutePath());
+                    LogManager.logI(TAG, "✅ 成功从文件加载分词器: " + tokenizerFile.getAbsolutePath());
+                    //LogManager.logI(TAG, "分词器对象类型: " + tokenizer.getClass().getName());
+                    //LogManager.logI(TAG, "分词器模型路径: " + tokenizer.getModelPath());
                     
-                    // 模型类型由HuggingfaceTokenizer内部处理
+                    // 获取特殊token信息
+                    try {
+                        int specialTokensCount = tokenizer.getSpecialTokensSize();
+                        //LogManager.logI(TAG, "特殊token数量: " + specialTokensCount);
+                    } catch (Exception e) {
+                        LogManager.logW(TAG, "获取特殊token数量失败: " + e.getMessage());
+                    }
                     
                     return true;
                 } else {
-                    LogManager.logE(TAG, "分词器创建成功但实例为空");
+                    LogManager.logE(TAG, "❌ 分词器创建成功但实例为空");
                     return false;
                 }
             } catch (IllegalArgumentException e) {
@@ -329,9 +424,19 @@ public class TokenizerManager implements TokenizerInterface {
             return new long[1][0];
         }
         
+        LogManager.logD(TAG, "TokenizerManager开始分词，文本长度: " + text.length());
+        LogManager.logD(TAG, "使用的分词器类型: " + tokenizer.getClass().getSimpleName());
+        
         try {
+            long startTime = System.currentTimeMillis();
             // 使用HuggingfaceTokenizer分词
-            return tokenizer.tokenizeToLongArray(text);
+            long[][] result = tokenizer.tokenizeToLongArray(text);
+            long endTime = System.currentTimeMillis();
+            
+            LogManager.logD(TAG, String.format("TokenizerManager分词完成，耗时: %d ms, 结果维度: %dx%d", 
+                (endTime - startTime), result.length, result[0].length));
+            
+            return result;
         } catch (Exception e) {
             LogManager.logE(TAG, "分词器异常: " + e.getMessage(), e);
             return new long[1][0];
@@ -339,15 +444,20 @@ public class TokenizerManager implements TokenizerInterface {
     }
     
     /**
-     * 获取词汇表大小
-     * @return 词汇表大小
+     * 获取特殊token数量
+     * @return 特殊token数量
      */
-    public int getVocabSize() {
+    public int getSpecialTokensSize() {
         if (tokenizer != null) {
-            return tokenizer.getVocabSize();
+            int size = tokenizer.getSpecialTokensSize();
+            //LogManager.logD(TAG, "获取特殊token数量: " + size);
+            return size;
         }
+        LogManager.logD(TAG, "分词器未初始化，返回0");
         return 0;
     }
+    
+
     
     /**
      * 释放资源
@@ -631,11 +741,11 @@ public class TokenizerManager implements TokenizerInterface {
     public String getTokenizerInfo() {
         StringBuilder info = new StringBuilder();
         info.append("TokenizerManager配置信息:\n");
-        info.append("- 初始化状态: ").append(initialized ? "已初始化" : "未初始化").append("\n");
-        info.append("- 词汇表大小: ").append(getVocabSize()).append("\n");
-        info.append("- 模型类型: ").append(modelType.isEmpty() ? "未设置" : modelType).append("\n");
-        info.append("- 一致性分词: ").append(useConsistentTokenization ? "启用" : "禁用").append("\n");
-        info.append("- 调试模式: ").append(debugMode ? "启用" : "禁用").append("\n");
+        //info.append("- 初始化状态: ").append(initialized ? "已初始化" : "未初始化").append("\n");
+        //info.append("- 特殊token数量: ").append(getSpecialTokensSize()).append("\n");
+        //info.append("- 模型类型: ").append(modelType.isEmpty() ? "未设置" : modelType).append("\n");
+        //info.append("- 一致性分词: ").append(useConsistentTokenization ? "启用" : "禁用").append("\n");
+        //info.append("- 调试模式: ").append(debugMode ? "启用" : "禁用").append("\n");
         
         // 添加特殊token信息
         if (tokenizer != null) {
@@ -643,9 +753,9 @@ public class TokenizerManager implements TokenizerInterface {
                 Map<String, String> specialTokens = tokenizer.getSpecialTokens();
                 if (specialTokens != null) {
                     info.append("- 特殊token数量: ").append(specialTokens.size()).append("\n");
-                    info.append("- 常用特殊token:\n");
+                    //info.append("- 常用特殊token:\n");
                     for (Map.Entry<String, String> entry : specialTokens.entrySet()) {
-                        info.append("  ").append(entry.getKey()).append(": ").append(entry.getValue()).append("\n");
+                        //info.append("  ").append(entry.getKey()).append(": ").append(entry.getValue()).append("\n");
                     }
                 }
             } catch (Exception e) {

@@ -61,6 +61,7 @@ public class ConfigManager {
     public static final String KEY_RERANKER_MODEL_PATH = "reranker_model_path";
     public static final String KEY_KNOWLEDGE_BASE_PATH = "knowledge_base_path";
     public static final String KEY_SEARCH_DEPTH = "search_depth";
+    public static final String KEY_RERANK_COUNT = "rerank_count";
     public static final String KEY_RETRIEVAL_COUNT = "retrieval_count";
     public static final String KEY_DEBUG_MODE = "debug_mode"; // 调试模式配置键
     public static final String KEY_USE_GPU = "use_gpu"; // GPU加速配置键
@@ -116,7 +117,8 @@ public class ConfigManager {
     public static final String DEFAULT_RERANKER_MODEL_PATH = "files/rerankers";
     public static final String DEFAULT_KNOWLEDGE_BASE_PATH = "files/knowledge_bases";
     public static final int DEFAULT_SEARCH_DEPTH = 10;
-    public static final int DEFAULT_RETRIEVAL_COUNT = 5;
+    public static final int DEFAULT_RERANK_COUNT = 5;
+    public static final int DEFAULT_RETRIEVAL_COUNT = 20;
     public static final float DEFAULT_TEXT_SIZE = 14f;
     
     // LLM 推理相关的默认值
@@ -903,21 +905,39 @@ public class ConfigManager {
     }
 
     /**
-     * 获取近似深度
+     * 获取检索数
      * @param context 上下文
-     * @return 近似深度
+     * @return 检索数
      */
     public static int getSearchDepth(Context context) {
         return getInt(context, KEY_SEARCH_DEPTH, DEFAULT_SEARCH_DEPTH);
     }
 
     /**
-     * 设置近似深度
+     * 设置检索数
      * @param context 上下文
-     * @param searchDepth 近似深度
+     * @param searchDepth 检索数
      */
     public static void setSearchDepth(Context context, int searchDepth) {
         setInt(context, KEY_SEARCH_DEPTH, searchDepth);
+    }
+
+    /**
+     * 获取重排数
+     * @param context 上下文
+     * @return 重排数
+     */
+    public static int getRerankCount(Context context) {
+        return getInt(context, KEY_RERANK_COUNT, DEFAULT_RERANK_COUNT);
+    }
+
+    /**
+     * 设置重排数
+     * @param context 上下文
+     * @param rerankCount 重排数
+     */
+    public static void setRerankCount(Context context, int rerankCount) {
+        setInt(context, KEY_RERANK_COUNT, rerankCount);
     }
 
     /**
@@ -1659,7 +1679,7 @@ public class ConfigManager {
             
             // 搜索设置
             config.put(KEY_SEARCH_DEPTH, 10);
-            config.put(KEY_RETRIEVAL_COUNT, 5);
+            config.put(KEY_RETRIEVAL_COUNT, 20);
             
             // 调试设置
             config.put(KEY_DEBUG_MODE, false); // 默认关闭调试模式

@@ -138,9 +138,10 @@ public class KnowledgeNoteFragment extends Fragment {
         File[] directories = knowledgeBaseDir.listFiles(File::isDirectory);
         if (directories != null && directories.length > 0) {
             for (File dir : directories) {
-                // 确保不添加名为"无"的知识库
-                if (!dir.getName().equals("无")) {
-                    knowledgeBaseNames.add(dir.getName());
+                // 添加所有有效的知识库目录（排除隐藏目录和系统目录）
+                String dirName = dir.getName();
+                if (!dirName.startsWith(".") && !dirName.startsWith("_")) {
+                    knowledgeBaseNames.add(dirName);
                 }
             }
             LogManager.logD(TAG, "找到 " + knowledgeBaseNames.size() + " 个知识库");
@@ -164,11 +165,15 @@ public class KnowledgeNoteFragment extends Fragment {
                 String selectedKnowledgeBase = knowledgeBaseNames.get(position);
                 LogManager.logD(TAG, "已选择知识库: " + selectedKnowledgeBase);
                 
-                // 如果选择了"请先创建知识库"，禁用添加按钮
-                buttonAddToKnowledgeBase.setEnabled(!selectedKnowledgeBase.equals("请先创建知识库"));
-                
-                // 保存选择到ConfigManager（如果不是提示信息）
-                if (!selectedKnowledgeBase.equals("请先创建知识库")) {
+                // 如果选择的是提示文本（通常在列表末尾），则禁用添加按钮
+                if (selectedKnowledgeBase.contains("请先创建") || selectedKnowledgeBase.contains("创建知识库")) {
+                    buttonAddToKnowledgeBase.setEnabled(false);
+                    // 保存空字符串到ConfigManager表示没有选择知识库
+                    ConfigManager.setString(requireContext(), ConfigManager.KEY_KNOWLEDGE_BASE, "");
+                    LogManager.logD(TAG, "选择了提示项，已清空知识库配置");
+                } else {
+                    buttonAddToKnowledgeBase.setEnabled(true);
+                    // 保存选择的知识库到ConfigManager
                     ConfigManager.setString(requireContext(), ConfigManager.KEY_KNOWLEDGE_BASE, selectedKnowledgeBase);
                     LogManager.logD(TAG, "已保存知识库选择到ConfigManager: " + selectedKnowledgeBase);
                 }
@@ -194,7 +199,7 @@ public class KnowledgeNoteFragment extends Fragment {
             LogManager.logD(TAG, "从ConfigManager加载上次选择的知识库: " + 
                     (lastKnowledgeBase.isEmpty() ? "[空]" : lastKnowledgeBase));
             
-            if (!lastKnowledgeBase.isEmpty() && !knowledgeBaseNames.isEmpty() && !knowledgeBaseNames.get(0).equals("请先创建知识库")) {
+            if (!lastKnowledgeBase.isEmpty() && !knowledgeBaseNames.isEmpty() && !knowledgeBaseNames.get(0).contains("请先创建")) {
                 // 在下拉列表中查找并选择上次使用的知识库
                 for (int i = 0; i < knowledgeBaseNames.size(); i++) {
                     if (knowledgeBaseNames.get(i).equals(lastKnowledgeBase)) {

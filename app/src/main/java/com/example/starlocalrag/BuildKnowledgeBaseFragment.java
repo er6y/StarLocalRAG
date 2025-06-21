@@ -399,8 +399,8 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                 String selectedModel = parent.getItemAtPosition(position).toString();
                 LogManager.logD(TAG, "选择了词嵌入模型: " + selectedModel);
                 
-                // 保存用户选择的模型到ConfigManager
-                if (!selectedModel.equals("加载中...") && !selectedModel.equals("无可用模型")) {
+                // 保存用户选择的模型到ConfigManager（排除加载状态和错误状态）
+                if ( !selectedModel.contains("加载") && !selectedModel.contains("无可用") && !selectedModel.contains("获取") && !selectedModel.contains("失败")) {
                     ConfigManager.setLastSelectedEmbeddingModel(requireContext(), selectedModel);
                     LogManager.logD(TAG, "已保存词嵌入模型选择: " + selectedModel);
                 }
@@ -419,10 +419,17 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                 String selectedModel = parent.getItemAtPosition(position).toString();
                 LogManager.logD(TAG, "选择了重排模型: " + selectedModel);
                 
-                // 保存用户选择的重排模型到ConfigManager
-                if (!selectedModel.equals("加载中...")) {
-                    ConfigManager.setLastSelectedRerankerModel(requireContext(), selectedModel);
-                    LogManager.logD(TAG, "已保存重排模型选择: " + selectedModel);
+                // 保存用户选择的重排模型到ConfigManager（排除加载状态和错误状态）
+                if (!selectedModel.contains("加载") && !selectedModel.contains("无可用") && !selectedModel.contains("获取") && !selectedModel.contains("失败")) {
+                    if ("无".equals(selectedModel)) {
+                        // 用户选择"无"时，保存空字符串
+                        ConfigManager.setLastSelectedRerankerModel(requireContext(), "");
+                        LogManager.logD(TAG, "用户选择无重排模型，已保存空字符串");
+                    } else {
+                        // 用户选择具体模型时，保存模型名称
+                        ConfigManager.setLastSelectedRerankerModel(requireContext(), selectedModel);
+                        LogManager.logD(TAG, "已保存重排模型选择: " + selectedModel);
+                    }
                 }
             }
 
@@ -688,8 +695,10 @@ public class BuildKnowledgeBaseFragment extends Fragment {
         if (directories != null) {
             LogManager.logD(TAG, "发现知识库数量: " + directories.length);
             for (File dir : directories) {
-                if (!dir.getName().equals("无")) {
-                    knowledgeBaseNames.add(dir.getName());
+                // 添加所有有效的知识库目录（排除隐藏目录和系统目录）
+                String dirName = dir.getName();
+                if (!dirName.startsWith(".") && !dirName.startsWith("_")) {
+                    knowledgeBaseNames.add(dirName);
                 }
             }
         }
@@ -813,7 +822,11 @@ public class BuildKnowledgeBaseFragment extends Fragment {
         }
         
         String embeddingModel = spinnerEmbeddingModel.getSelectedItem().toString();
-        if (embeddingModel.equals("加载中...") || embeddingModel.equals("无可用模型")) {
+        if (spinnerEmbeddingModel.getSelectedItemPosition() <= 0 || 
+            embeddingModel.contains("加载") || 
+            embeddingModel.contains("无可用") || 
+            embeddingModel.contains("获取") || 
+            embeddingModel.contains("失败")) {
             Utils.showToastSafely(requireContext(), "请先选择有效的词嵌入模型", Toast.LENGTH_SHORT);
             return;
         }

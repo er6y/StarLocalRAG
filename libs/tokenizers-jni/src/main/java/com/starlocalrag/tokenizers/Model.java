@@ -42,7 +42,7 @@ public interface Model extends TokenizerComponent {
      * 获取词汇表大小
      * @return 词汇表中的token数量
      */
-    int getVocabSize();
+    int getSpecialTokensSize();
     
     /**
      * 从映射加载词汇表

@@ -465,7 +465,7 @@ public class EmbeddingModelManager {
         // 取消定时卸载任务
         cancelUnloadTask();
         
-        LogManager.logD(TAG, "标记模型开始使用");
+        //LogManager.logD(TAG, "标记模型开始使用");
     }
     
     /**

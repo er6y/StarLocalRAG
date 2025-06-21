@@ -60,6 +60,18 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
     private final AtomicBoolean isGenerating = new AtomicBoolean(false);
     private final AtomicBoolean shouldStop = new AtomicBoolean(false);
     
+    // 线程异常检测和强制终止
+    private static final long THREAD_TIMEOUT_MS = 30000; // 30秒超时
+    private static final long THREAD_CHECK_INTERVAL_MS = 5000; // 5秒检查间隔
+    private static final int MAX_FORCE_TERMINATION_RETRIES = 3; // 最大强制终止重试次数
+    
+    private volatile Thread currentInferenceThread = null;
+    private volatile long inferenceThreadStartTime = 0;
+    private volatile long lastThreadHealthCheckTime = 0;
+    private final AtomicBoolean threadHealthCheckEnabled = new AtomicBoolean(true);
+    private final AtomicInteger forceTerminationRetryCount = new AtomicInteger(0);
+    private volatile CompletableFuture<?> currentInferenceTask = null;
+    
     // 内存池管理 - 预分配策略
     private long preallocatedBatch = 0;
     private long preallocatedSampler = 0;
@@ -756,8 +768,15 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
         }
         
         // 在后台线程执行推理
-        executorService.submit(() -> {
+        currentInferenceTask = CompletableFuture.runAsync(() -> {
             try {
+                // 记录当前推理线程
+                currentInferenceThread = Thread.currentThread();
+                inferenceThreadStartTime = System.currentTimeMillis();
+                lastThreadHealthCheckTime = System.currentTimeMillis();
+                
+                LogManager.logD(TAG, "推理线程启动 [线程ID: " + currentInferenceThread.getId() + "]");
+                
                 isGenerating.set(true);
                 
                 // 推理开始时必须重置停止标志
@@ -857,6 +876,17 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
                     if (shouldStop.get()) {
                         // 停止调试日志已移除
                         break;
+                    }
+                    
+                    // 线程健康检查
+                    if (!checkThreadHealth()) {
+                        LogManager.logW(TAG, "线程健康检查失败，尝试强制终止");
+                        if (forceTerminateInferenceThread()) {
+                            LogManager.logI(TAG, "推理线程已被强制终止");
+                            return;
+                        } else {
+                            LogManager.logE(TAG, "强制终止推理线程失败，继续执行");
+                        }
                     }
                     
                     // 在JNI调用前再次确保JNI层的停止标志已设置
@@ -1193,54 +1223,51 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
     
     @Override
     public void stopInference() {
-        // 方法调试日志已移除
         LogManager.logD(TAG, "[停止调试] 停止标志当前状态: " + shouldStop.get());
         shouldStop.set(true);
         
-        // 方法调试日志已移除
         // 同时设置JNI层的停止标志
         try {
-            // JNI调试日志已移除
-            
-            // 先检查JNI方法是否可用
-            // JNI调试日志已移除
             boolean currentJniState = LlamaCppInference.get_should_stop();
-            // JNI调试日志已移除
-            
-            // 调用JNI方法设置停止标志
-            // JNI调试日志已移除
             LlamaCppInference.set_should_stop(true);
-            // JNI调试日志已移除
-            
-            // 验证设置是否生效
-            // JNI调试日志已移除
             boolean newJniState = LlamaCppInference.get_should_stop();
-            // JNI调试日志已移除
             
-            if (newJniState) {
-                // JNI调试日志已移除
-            } else {
+            if (!newJniState) {
                 LogManager.logE(TAG, "[JNI调试] ✗ JNI层停止标志设置失败 - 状态未改变");
             }
             
-            // 方法调试日志已移除
-            
         } catch (UnsatisfiedLinkError e) {
             LogManager.logE(TAG, "[JNI调试] JNI方法链接错误: " + e.getMessage(), e);
-            LogManager.logE(TAG, "[方法调试] 捕获到UnsatisfiedLinkError异常");
         } catch (NoSuchMethodError e) {
             LogManager.logE(TAG, "[JNI调试] JNI方法不存在: " + e.getMessage(), e);
-            LogManager.logE(TAG, "[方法调试] 捕获到NoSuchMethodError异常");
         } catch (Exception e) {
             LogManager.logE(TAG, "[JNI调试] 设置JNI停止标志失败: " + e.getMessage(), e);
-            LogManager.logE(TAG, "[方法调试] 捕获到Exception异常: " + e.getClass().getSimpleName());
         }
         
-        // 方法调试日志已移除
+        // 检查线程健康状态，如果异常则强制终止
+        if (isGenerating.get() && currentInferenceThread != null) {
+            LogManager.logD(TAG, "检查推理线程状态以决定是否需要强制终止");
+            
+            // 等待一段时间看线程是否自然停止
+            try {
+                Thread.sleep(2000); // 等待2秒
+                
+                if (isGenerating.get()) {
+                    LogManager.logW(TAG, "推理线程未在2秒内停止，检查线程健康状态");
+                    
+                    if (!checkThreadHealth()) {
+                        LogManager.logW(TAG, "线程健康检查失败，执行强制终止");
+                        forceTerminateInferenceThread();
+                    }
+                }
+            } catch (InterruptedException e) {
+                LogManager.logE(TAG, "等待线程停止时被中断: " + e.getMessage());
+                Thread.currentThread().interrupt();
+            }
+        }
         
         // 注意：不要在这里设置isGenerating为false
         // 让推理循环检查shouldStop标志后自然结束，然后在finally块中设置isGenerating为false
-        // 方法调试日志已移除
     }
     
 
@@ -1531,6 +1558,147 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
         } catch (Exception e) {
             LogManager.logE(TAG, "释放预分配资源失败", e);
         }
+    }
+    
+    /**
+     * 检查推理线程健康状态
+     * @return 线程是否健康
+     */
+    private boolean checkThreadHealth() {
+        if (!threadHealthCheckEnabled.get()) {
+            return true;
+        }
+        
+        long currentTime = System.currentTimeMillis();
+        
+        // 检查是否需要进行健康检查
+        if (currentTime - lastThreadHealthCheckTime < THREAD_CHECK_INTERVAL_MS) {
+            return true;
+        }
+        
+        lastThreadHealthCheckTime = currentTime;
+        
+        // 检查推理线程是否存在且正在运行
+        if (currentInferenceThread != null && isGenerating.get()) {
+            long threadRunTime = currentTime - inferenceThreadStartTime;
+            
+            LogManager.logD(TAG, "线程健康检查 [线程ID: " + currentInferenceThread.getId() + 
+                           ", 运行时间: " + threadRunTime + "ms, 状态: " + currentInferenceThread.getState() + "]");
+            
+            // 检查线程是否超时
+            if (threadRunTime > THREAD_TIMEOUT_MS) {
+                LogManager.logW(TAG, "检测到推理线程超时，运行时间: " + threadRunTime + "ms > " + THREAD_TIMEOUT_MS + "ms");
+                return false;
+            }
+            
+            // 检查线程状态是否异常
+            Thread.State threadState = currentInferenceThread.getState();
+            if (threadState == Thread.State.TERMINATED || threadState == Thread.State.BLOCKED) {
+                LogManager.logW(TAG, "检测到推理线程状态异常: " + threadState);
+                return false;
+            }
+        }
+        
+        return true;
+    }
+    
+    /**
+     * 强制终止推理线程
+     * @return 是否成功终止
+     */
+    private boolean forceTerminateInferenceThread() {
+        LogManager.logW(TAG, "开始强制终止推理线程，重试次数: " + forceTerminationRetryCount.get());
+        
+        if (forceTerminationRetryCount.get() >= MAX_FORCE_TERMINATION_RETRIES) {
+            LogManager.logE(TAG, "强制终止推理线程失败，已达到最大重试次数: " + MAX_FORCE_TERMINATION_RETRIES);
+            return false;
+        }
+        
+        forceTerminationRetryCount.incrementAndGet();
+        
+        try {
+            // 1. 首先尝试取消CompletableFuture任务
+            if (currentInferenceTask != null && !currentInferenceTask.isDone()) {
+                LogManager.logD(TAG, "尝试取消CompletableFuture任务");
+                boolean cancelled = currentInferenceTask.cancel(true);
+                LogManager.logD(TAG, "CompletableFuture任务取消结果: " + cancelled);
+                
+                // 等待一段时间看任务是否被取消
+                Thread.sleep(1000);
+                if (currentInferenceTask.isCancelled()) {
+                    LogManager.logI(TAG, "CompletableFuture任务已成功取消");
+                    resetInferenceState();
+                    return true;
+                }
+            }
+            
+            // 2. 尝试设置停止标志并等待自然结束
+            LogManager.logD(TAG, "设置停止标志并等待线程自然结束");
+            shouldStop.set(true);
+            
+            // 同时设置JNI层停止标志
+            try {
+                LlamaCppInference.set_should_stop(true);
+            } catch (Exception e) {
+                LogManager.logE(TAG, "设置JNI停止标志失败: " + e.getMessage());
+            }
+            
+            // 等待线程自然结束
+            for (int i = 0; i < 10; i++) {
+                Thread.sleep(500);
+                if (!isGenerating.get() || currentInferenceThread == null || 
+                    currentInferenceThread.getState() == Thread.State.TERMINATED) {
+                    LogManager.logI(TAG, "推理线程已自然结束");
+                    resetInferenceState();
+                    return true;
+                }
+            }
+            
+            // 3. 尝试关闭并重新创建ExecutorService
+            LogManager.logW(TAG, "线程未自然结束，尝试重新创建ExecutorService");
+            if (executorService != null && !executorService.isShutdown()) {
+                executorService.shutdownNow();
+                
+                // 等待ExecutorService关闭
+                if (!executorService.awaitTermination(3, java.util.concurrent.TimeUnit.SECONDS)) {
+                    LogManager.logW(TAG, "ExecutorService未能在3秒内关闭");
+                }
+            }
+            
+            // 重新创建ExecutorService
+            executorService = Executors.newSingleThreadExecutor();
+            LogManager.logI(TAG, "ExecutorService已重新创建");
+            
+            resetInferenceState();
+            return true;
+            
+        } catch (Exception e) {
+            LogManager.logE(TAG, "强制终止推理线程时发生异常: " + e.getMessage(), e);
+            return false;
+        }
+    }
+    
+    /**
+     * 重置推理状态
+     */
+    private void resetInferenceState() {
+        LogManager.logD(TAG, "重置推理状态");
+        
+        isGenerating.set(false);
+        shouldStop.set(false);
+        currentInferenceThread = null;
+        inferenceThreadStartTime = 0;
+        currentInferenceTask = null;
+        forceTerminationRetryCount.set(0);
+        
+        // 重置JNI层停止标志
+        try {
+            LlamaCppInference.set_should_stop(false);
+        } catch (Exception e) {
+            LogManager.logE(TAG, "重置JNI停止标志失败: " + e.getMessage());
+        }
+        
+        LogManager.logI(TAG, "推理状态已重置");
     }
     
     /**

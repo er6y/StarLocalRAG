@@ -45,7 +45,7 @@ public class EmbeddingModelUtils {
         
         // 检查元数据中是否有modeldir配置
         String modeldir = vectorDb.getMetadata().getModeldir();
-        LogManager.logD(TAG, "元数据中的modeldir: " + (modeldir != null ? modeldir : "null"));
+        //LogManager.logD(TAG, "元数据中的modeldir: " + (modeldir != null ? modeldir : "null"));
         
         if (modeldir != null && !modeldir.isEmpty()) {
             // 使用modeldir指定的目录
@@ -57,7 +57,7 @@ public class EmbeddingModelUtils {
                     for (File file : files) {
                         if (file.isFile() && isModelFile(file)) {
                             modelPath = file.getAbsolutePath();
-                            LogManager.logD(TAG, "使用modeldir中的模型: " + modelPath);
+                            //LogManager.logD(TAG, "使用modeldir中的模型: " + modelPath);
                             break;
                         }
                     }

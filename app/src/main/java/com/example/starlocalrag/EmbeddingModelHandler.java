@@ -1360,26 +1360,7 @@ public class EmbeddingModelHandler {
         vectorInfo.append("向量维度: ").append(embedding.length).append("\n");
         vectorInfo.append("处理时间: ").append(duration).append(" 毫秒\n");
         
-        // 添加向量前10个和后10个值的样本
-        vectorInfo.append("向量样本(前10个值): ");
-        for (int i = 0; i < Math.min(10, embedding.length); i++) {
-            vectorInfo.append(String.format("%.4f", embedding[i]));
-            if (i < Math.min(10, embedding.length) - 1) {
-                vectorInfo.append(", ");
-            }
-        }
-        vectorInfo.append("\n");
-        
-        if (embedding.length > 20) {
-            vectorInfo.append("向量样本(后10个值): ");
-            for (int i = Math.max(0, embedding.length - 10); i < embedding.length; i++) {
-                vectorInfo.append(String.format("%.4f", embedding[i]));
-                if (i < embedding.length - 1) {
-                    vectorInfo.append(", ");
-                }
-            }
-            vectorInfo.append("\n");
-        }
+        // 向量样本输出已移除，减少UI信息冗余
         
         return vectorInfo.toString();
     }
@@ -1393,7 +1374,7 @@ public class EmbeddingModelHandler {
             // 尝试从模型配置中获取维度
             if (configJson != null && configJson.has("hidden_size")) {
                 int hiddenSize = configJson.getInt("hidden_size");
-                LogManager.logD(TAG, "从配置文件获取向量维度: " + hiddenSize + ", 模型路径: " + modelPath);
+                //LogManager.logD(TAG, "从配置文件获取向量维度: " + hiddenSize + ", 模型路径: " + modelPath);
                 return hiddenSize;
             }
             
@@ -1807,7 +1788,7 @@ public class EmbeddingModelHandler {
      */
     private boolean checkAndRecoverOnnxSession() {
         // 记录当前线程信息
-        LogManager.logD(TAG, "检查会话状态 [线程ID: " + Thread.currentThread().getId() + "]");
+        //LogManager.logD(TAG, "检查会话状态 [线程ID: " + Thread.currentThread().getId() + "]");
         
         synchronized (sessionLock) {
             // 记录上次检查时间
@@ -1815,20 +1796,20 @@ public class EmbeddingModelHandler {
             
             // 检查会话是否可用
             if (onnxSession != null && sessionState == SESSION_STATE_READY) {
-                LogManager.logD(TAG, "会话状态正常，可以使用");
+                //LogManager.logD(TAG, "会话状态正常，可以使用");
                 return true;
             }
             
             // 如果会话正在加载中，等待一段时间
             if (sessionState == SESSION_STATE_LOADING) {
-                LogManager.logD(TAG, "会话正在加载中，等待...");
+                //LogManager.logD(TAG, "会话正在加载中，等待...");
                 try {
                     // 等待最多3秒
                     for (int i = 0; i < 30; i++) {
                         // 每100毫秒检查一次
                         Thread.sleep(100);
                         if (onnxSession != null && sessionState == SESSION_STATE_READY) {
-                            LogManager.logD(TAG, "会话已加载完成，可以使用");
+                            //LogManager.logD(TAG, "会话已加载完成，可以使用");
                             return true;
                         }
                     }
@@ -1876,7 +1857,7 @@ public class EmbeddingModelHandler {
                         
                         // 检查会话是否加载成功
                         if (onnxSession != null) {
-                            LogManager.logD(TAG, "ONNX会话恢复成功");
+                            //LogManager.logD(TAG, "ONNX会话恢复成功");
                             sessionState = SESSION_STATE_READY;
                             return true;
                         } else {
@@ -1953,7 +1934,7 @@ public class EmbeddingModelHandler {
      * @return 归一化后的向量
      */
     private float[] normalizeVector(float[] vector) {
-        LogManager.logD(TAG, "对嵌入向量进行L2归一化，向量长度: " + vector.length);
+        //LogManager.logD(TAG, "对嵌入向量进行L2归一化，向量长度: " + vector.length);
         
         float[] normalized = new float[vector.length];
         float norm = 0.0f;
@@ -1965,7 +1946,7 @@ public class EmbeddingModelHandler {
         norm = (float) Math.sqrt(norm);
         
         // 记录归一化前的范数
-        LogManager.logD(TAG, "归一化前的向量L2范数: " + norm);
+        //LogManager.logD(TAG, "归一化前的向量L2范数: " + norm);
         
         // 如果范数太小，返回零向量以避免数值问题
         if (norm < 1e-6) {
@@ -2006,19 +1987,35 @@ public class EmbeddingModelHandler {
         try {
             // 设置一致性分词策略
             tokenizer.setUseConsistentTokenization(useConsistentProcessing);
-            if (debugMode) {
-                LogManager.logD(TAG, "设置一致性分词策略: " + useConsistentProcessing);
-                LogManager.logD(TAG, "开始使用TokenizerManager进行分词");
-            }
+            
+            //LogManager.logD(TAG, "=== 开始分词 ===");
+            //LogManager.logD(TAG, "输入文本长度: " + text.length());
+            //LogManager.logD(TAG, "输入文本前100字符: " + (text.length() > 100 ? text.substring(0, 100) + "..." : text));
+            //LogManager.logD(TAG, "一致性分词策略: " + useConsistentProcessing);
+            
+            // 获取分词器特殊token数量
+            int specialTokensSize = tokenizer.getSpecialTokensSize();
+            //LogManager.logD(TAG, "分词器特殊token数量: " + specialTokensSize);
             
             // 执行分词
             long[][] result = tokenizer.tokenize(text);
             
-            if (debugMode) {
-                long endTime = System.currentTimeMillis();
-                LogManager.logD(TAG, String.format("分词完成，耗时: %d ms, 文本长度: %d, token数量: %d", 
-                    (endTime - startTime), text.length(), result[0].length));
+            long endTime = System.currentTimeMillis();
+            LogManager.logD(TAG, String.format("分词完成，耗时: %d ms, token数量: %d", 
+                (endTime - startTime), result[0].length));
+            
+            // 打印前10个token ID用于调试
+            if (result[0].length > 0) {
+                StringBuilder tokenIds = new StringBuilder();
+                int printCount = Math.min(10, result[0].length);
+                for (int i = 0; i < printCount; i++) {
+                    tokenIds.append(result[0][i]);
+                    if (i < printCount - 1) tokenIds.append(", ");
+                }
+                if (result[0].length > 10) tokenIds.append("...");
+                LogManager.logD(TAG, "前" + printCount + "个token ID: [" + tokenIds.toString() + "]");
             }
+            //LogManager.logD(TAG, "=== 分词结束 ===");
             
             return result;
         } catch (Exception e) {

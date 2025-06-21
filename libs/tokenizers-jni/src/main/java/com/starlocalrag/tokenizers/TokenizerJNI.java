@@ -74,6 +74,8 @@ public class TokenizerJNI {
      */
     public static native String decode(long tokenizerPtr, String ids, boolean skipSpecialTokens);
     
+
+    
     /**
      * 释放分词器
      * @param tokenizerPtr 分词器指针
