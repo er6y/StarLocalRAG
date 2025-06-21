@@ -32,7 +32,7 @@
     <!-- 词嵌入模型标签 -->
     <TextView
         android:id="@+id/textViewEmbeddingModelLabel"
-        android:layout_width="100dp"
+        android:layout_width="80dp"
         android:layout_height="wrap_content"
         android:text="词嵌入模型:"
         android:layout_marginTop="16dp"
@@ -45,7 +45,7 @@
         android:id="@+id/spinnerEmbeddingModel"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginStart="8dp"
+        android:layout_marginStart="0dp"
         app:layout_constraintTop_toTopOf="@+id/textViewEmbeddingModelLabel"
         app:layout_constraintBottom_toBottomOf="@+id/textViewEmbeddingModelLabel"
         app:layout_constraintStart_toEndOf="@+id/textViewEmbeddingModelLabel"
@@ -54,7 +54,7 @@
     <!-- 重排模型标签 -->
     <TextView
         android:id="@+id/textViewRerankerModelLabel"
-        android:layout_width="100dp"
+        android:layout_width="80dp"
         android:layout_height="wrap_content"
         android:text="重排模型:"
         android:layout_marginTop="12dp"
@@ -67,7 +67,7 @@
         android:id="@+id/spinnerRerankerModel"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginStart="8dp"
+        android:layout_marginStart="0dp"
         app:layout_constraintTop_toTopOf="@+id/textViewRerankerModelLabel"
         app:layout_constraintBottom_toBottomOf="@+id/textViewRerankerModelLabel"
         app:layout_constraintStart_toEndOf="@+id/textViewRerankerModelLabel"

@@ -36,44 +36,29 @@
             android:layout_marginBottom="8dp">
 
             <TextView
-                android:layout_width="wrap_content"
+                android:layout_width="100dp"
                 android:layout_height="wrap_content"
-                android:text="分块大小 (100~4000):"
+                android:text="分块大小\n(100~4000):"
                 android:textSize="16sp" />
 
-            <EditText
-                android:id="@+id/editTextChunkSize"
+            <SeekBar
+                android:id="@+id/seekBarChunkSize"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:layout_marginStart="8dp"
-                android:layout_marginEnd="8dp"
-                android:inputType="number"
-                android:hint="100-4000" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginBottom="16dp">
+                android:layout_marginStart="0dp"
+                android:layout_marginEnd="0dp"
+                android:max="39"
+                android:progress="4" />
 
             <TextView
-                android:layout_width="wrap_content"
+                android:id="@+id/textViewChunkSizeValue"
+                android:layout_width="40dp"
                 android:layout_height="wrap_content"
-                android:text="重叠大小 (20~800):"
-                android:textSize="16sp" />
-
-            <EditText
-                android:id="@+id/editTextOverlapSize"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:layout_marginStart="8dp"
-                android:layout_marginEnd="8dp"
-                android:inputType="number"
-                android:hint="20-800" />
+                android:text="500"
+                android:textSize="14sp"
+                android:gravity="center"
+                android:layout_marginStart="0dp" />
         </LinearLayout>
 
         <LinearLayout
@@ -84,20 +69,62 @@
             android:layout_marginBottom="8dp">
 
             <TextView
-                android:layout_width="wrap_content"
+                android:layout_width="100dp"
                 android:layout_height="wrap_content"
-                android:text="最小分块限制 (10~100):"
+                android:text="重叠大小\n(20~800):"
                 android:textSize="16sp" />
 
-            <EditText
-                android:id="@+id/editTextMinChunkSize"
+            <SeekBar
+                android:id="@+id/seekBarOverlapSize"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:layout_marginStart="8dp"
-                android:layout_marginEnd="8dp"
-                android:inputType="number"
-                android:hint="10-100" />
+                android:layout_marginStart="0dp"
+                android:layout_marginEnd="0dp"
+                android:max="39"
+                android:progress="0" />
+
+            <TextView
+                android:id="@+id/textViewOverlapSizeValue"
+                android:layout_width="40dp"
+                android:layout_height="wrap_content"
+                android:text="20"
+                android:textSize="14sp"
+                android:gravity="center"
+                android:layout_marginStart="0dp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="8dp">
+
+            <TextView
+                android:layout_width="100dp"
+                android:layout_height="wrap_content"
+                android:text="最小分块限制\n(10~100):"
+                android:textSize="16sp" />
+
+            <SeekBar
+                android:id="@+id/seekBarMinChunkSize"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="0dp"
+                android:layout_marginEnd="0dp"
+                android:max="9"
+                android:progress="0" />
+
+            <TextView
+                android:id="@+id/textViewMinChunkSizeValue"
+                android:layout_width="40dp"
+                android:layout_height="wrap_content"
+                android:text="10"
+                android:textSize="14sp"
+                android:gravity="center"
+                android:layout_marginStart="0dp" />
         </LinearLayout>
         
         <!-- JSON训练集分块优化开关 -->
@@ -135,140 +162,164 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
+            android:orientation="vertical"
             android:layout_marginBottom="8dp">
 
             <TextView
-                android:layout_width="wrap_content"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="模型目录:"
-                android:textSize="16sp" />
+                android:textSize="16sp"
+                android:layout_marginBottom="4dp" />
 
-            <EditText
-                android:id="@+id/editTextModelPath"
-                android:layout_width="0dp"
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:layout_marginStart="8dp"
-                android:layout_marginEnd="8dp"
-                android:inputType="text"
-                android:hint="模型文件目录路径" />
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
 
-            <Button
-                android:id="@+id/buttonSelectModelPath"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="选择"
-                android:textSize="14sp"
-                android:padding="4dp"
-                android:minWidth="60dp"
-                android:minHeight="36dp" />
+                <EditText
+                    android:id="@+id/editTextModelPath"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="8dp"
+                    android:inputType="text"
+                    android:hint="模型文件目录路径" />
+
+                <Button
+                    android:id="@+id/buttonSelectModelPath"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="选择"
+                    android:textSize="14sp"
+                    android:padding="4dp"
+                    android:minWidth="60dp"
+                    android:minHeight="36dp" />
+            </LinearLayout>
         </LinearLayout>
 
         <!-- 嵌入模型目录设置 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
+            android:orientation="vertical"
             android:layout_marginBottom="8dp">
 
             <TextView
-                android:layout_width="wrap_content"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="嵌入模型目录:"
-                android:textSize="16sp" />
+                android:textSize="16sp"
+                android:layout_marginBottom="4dp" />
 
-            <EditText
-                android:id="@+id/editTextEmbeddingModelPath"
-                android:layout_width="0dp"
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:layout_marginStart="8dp"
-                android:layout_marginEnd="8dp"
-                android:inputType="text"
-                android:hint="嵌入模型目录路径" />
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
 
-            <Button
-                android:id="@+id/buttonSelectEmbeddingModelPath"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="选择"
-                android:textSize="14sp"
-                android:padding="4dp"
-                android:minWidth="60dp"
-                android:minHeight="36dp" />
+                <EditText
+                    android:id="@+id/editTextEmbeddingModelPath"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="8dp"
+                    android:inputType="text"
+                    android:hint="嵌入模型目录路径" />
+
+                <Button
+                    android:id="@+id/buttonSelectEmbeddingModelPath"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="选择"
+                    android:textSize="14sp"
+                    android:padding="4dp"
+                    android:minWidth="60dp"
+                    android:minHeight="36dp" />
+            </LinearLayout>
         </LinearLayout>
 
         <!-- 重排模型目录设置 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
+            android:orientation="vertical"
             android:layout_marginBottom="8dp">
 
             <TextView
-                android:layout_width="wrap_content"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="重排模型目录:"
-                android:textSize="16sp" />
+                android:textSize="16sp"
+                android:layout_marginBottom="4dp" />
 
-            <EditText
-                android:id="@+id/editTextRerankerModelPath"
-                android:layout_width="0dp"
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:layout_marginStart="8dp"
-                android:layout_marginEnd="8dp"
-                android:inputType="text"
-                android:hint="重排模型目录路径" />
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
 
-            <Button
-                android:id="@+id/buttonSelectRerankerModelPath"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="选择"
-                android:textSize="14sp"
-                android:padding="4dp"
-                android:minWidth="60dp"
-                android:minHeight="36dp" />
+                <EditText
+                    android:id="@+id/editTextRerankerModelPath"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="8dp"
+                    android:inputType="text"
+                    android:hint="重排模型目录路径" />
+
+                <Button
+                    android:id="@+id/buttonSelectRerankerModelPath"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="选择"
+                    android:textSize="14sp"
+                    android:padding="4dp"
+                    android:minWidth="60dp"
+                    android:minHeight="36dp" />
+            </LinearLayout>
         </LinearLayout>
 
         <!-- 知识库目录设置 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
+            android:orientation="vertical"
             android:layout_marginBottom="16dp">
 
             <TextView
-                android:layout_width="wrap_content"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="知识库目录:"
-                android:textSize="16sp" />
+                android:textSize="16sp"
+                android:layout_marginBottom="4dp" />
 
-            <EditText
-                android:id="@+id/editTextKnowledgeBasePath"
-                android:layout_width="0dp"
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:layout_marginStart="8dp"
-                android:layout_marginEnd="8dp"
-                android:inputType="text"
-                android:hint="知识库目录路径" />
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
 
-            <Button
-                android:id="@+id/buttonSelectKnowledgeBasePath"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="选择"
-                android:textSize="14sp"
-                android:padding="4dp"
-                android:minWidth="60dp"
-                android:minHeight="36dp" />
+                <EditText
+                    android:id="@+id/editTextKnowledgeBasePath"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="8dp"
+                    android:inputType="text"
+                    android:hint="知识库目录路径" />
+
+                <Button
+                    android:id="@+id/buttonSelectKnowledgeBasePath"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="选择"
+                    android:textSize="14sp"
+                    android:padding="4dp"
+                    android:minWidth="60dp"
+                    android:minHeight="36dp" />
+            </LinearLayout>
         </LinearLayout>
 
 
@@ -292,20 +343,29 @@
             android:layout_marginBottom="8dp">
 
             <TextView
-                android:layout_width="wrap_content"
+                android:layout_width="100dp"
                 android:layout_height="wrap_content"
-                android:text="最大序列长度 (512~8192):"
+                android:text="最大序列长度\n(512~8192):"
                 android:textSize="16sp" />
 
-            <EditText
-                android:id="@+id/editTextMaxSequenceLength"
+            <SeekBar
+                android:id="@+id/seekBarMaxSequenceLength"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:layout_marginStart="8dp"
-                android:layout_marginEnd="8dp"
-                android:inputType="number"
-                android:hint="100-8192" />
+                android:layout_marginStart="0dp"
+                android:layout_marginEnd="0dp"
+                android:max="15"
+                android:progress="0" />
+
+            <TextView
+                android:id="@+id/textViewMaxSequenceLengthValue"
+                android:layout_width="40dp"
+                android:layout_height="wrap_content"
+                android:text="512"
+                android:textSize="14sp"
+                android:gravity="center"
+                android:layout_marginStart="0dp" />
         </LinearLayout>
         
         <!-- 推理线程数设置 -->
@@ -317,20 +377,29 @@
             android:layout_marginBottom="8dp">
 
             <TextView
-                android:layout_width="wrap_content"
+                android:layout_width="100dp"
                 android:layout_height="wrap_content"
-                android:text="推理线程数 (1~16):"
+                android:text="推理线程数\n(1~16):"
                 android:textSize="16sp" />
 
-            <EditText
-                android:id="@+id/editTextThreads"
+            <SeekBar
+                android:id="@+id/seekBarThreads"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:layout_marginStart="8dp"
-                android:layout_marginEnd="8dp"
-                android:inputType="number"
-                android:hint="1-16" />
+                android:layout_marginStart="0dp"
+                android:layout_marginEnd="0dp"
+                android:max="15"
+                android:progress="0" />
+
+            <TextView
+                android:id="@+id/textViewThreadsValue"
+                android:layout_width="40dp"
+                android:layout_height="wrap_content"
+                android:text="1"
+                android:textSize="14sp"
+                android:gravity="center"
+                android:layout_marginStart="0dp" />
         </LinearLayout>
         
         <!-- 最大输出token数设置 -->
@@ -342,20 +411,29 @@
             android:layout_marginBottom="8dp">
 
             <TextView
-                android:layout_width="wrap_content"
+                android:layout_width="100dp"
                 android:layout_height="wrap_content"
-                android:text="最大输出token数 (512~4096):"
+                android:text="最大输出token数\n(512~4096):"
                 android:textSize="16sp" />
 
-            <EditText
-                android:id="@+id/editTextKvCacheSize"
+            <SeekBar
+                android:id="@+id/seekBarKvCacheSize"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:layout_marginStart="8dp"
-                android:layout_marginEnd="8dp"
-                android:inputType="number"
-                android:hint="512-4096" />
+                android:layout_marginStart="0dp"
+                android:layout_marginEnd="0dp"
+                android:max="7"
+                android:progress="0" />
+
+            <TextView
+                android:id="@+id/textViewKvCacheSizeValue"
+                android:layout_width="40dp"
+                android:layout_height="wrap_content"
+                android:text="512"
+                android:textSize="14sp"
+                android:gravity="center"
+                android:layout_marginStart="0dp" />
         </LinearLayout>
 
         <!-- 备份推理参数（归属于LLM推理设置） -->
@@ -368,20 +446,29 @@
             android:layout_marginBottom="8dp">
 
             <TextView
-                android:layout_width="wrap_content"
+                android:layout_width="100dp"
                 android:layout_height="wrap_content"
-                android:text="手动温度参数 (0.0~2.0):"
+                android:text="手动温度参数\n(0.0~2.0):"
                 android:textSize="16sp" />
 
-            <EditText
-                android:id="@+id/editTextManualTemperature"
+            <SeekBar
+                android:id="@+id/seekBarManualTemperature"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:layout_marginStart="8dp"
-                android:layout_marginEnd="8dp"
-                android:inputType="numberDecimal"
-                android:hint="0.0-2.0" />
+                android:layout_marginStart="0dp"
+                android:layout_marginEnd="0dp"
+                android:max="20"
+                android:progress="0" />
+
+            <TextView
+                android:id="@+id/textViewManualTemperatureValue"
+                android:layout_width="40dp"
+                android:layout_height="wrap_content"
+                android:text="0.0"
+                android:textSize="14sp"
+                android:gravity="center"
+                android:layout_marginStart="0dp" />
         </LinearLayout>
 
         <LinearLayout
@@ -392,20 +479,29 @@
             android:layout_marginBottom="8dp">
 
             <TextView
-                android:layout_width="wrap_content"
+                android:layout_width="100dp"
                 android:layout_height="wrap_content"
-                android:text="手动Top-P参数 (0.0~1.0):"
+                android:text="手动Top-P参数(0.0~1.0):"
                 android:textSize="16sp" />
 
-            <EditText
-                android:id="@+id/editTextManualTopP"
+            <SeekBar
+                android:id="@+id/seekBarManualTopP"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:layout_marginStart="8dp"
-                android:layout_marginEnd="8dp"
-                android:inputType="numberDecimal"
-                android:hint="0.0-1.0" />
+                android:layout_marginStart="0dp"
+                android:layout_marginEnd="0dp"
+                android:max="20"
+                android:progress="0" />
+
+            <TextView
+                android:id="@+id/textViewManualTopPValue"
+                android:layout_width="40dp"
+                android:layout_height="wrap_content"
+                android:text="0.00"
+                android:textSize="14sp"
+                android:gravity="center"
+                android:layout_marginStart="0dp" />
         </LinearLayout>
 
         <LinearLayout
@@ -416,20 +512,29 @@
             android:layout_marginBottom="8dp">
 
             <TextView
-                android:layout_width="wrap_content"
+                android:layout_width="100dp"
                 android:layout_height="wrap_content"
-                android:text="手动Top-K参数 (1~100):"
+                android:text="手动Top-K参数(10~100):"
                 android:textSize="16sp" />
 
-            <EditText
-                android:id="@+id/editTextManualTopK"
+            <SeekBar
+                android:id="@+id/seekBarManualTopK"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:layout_marginStart="8dp"
-                android:layout_marginEnd="8dp"
-                android:inputType="number"
-                android:hint="1-100" />
+                android:layout_marginStart="0dp"
+                android:layout_marginEnd="0dp"
+                android:max="9"
+                android:progress="0" />
+
+            <TextView
+                android:id="@+id/textViewManualTopKValue"
+                android:layout_width="40dp"
+                android:layout_height="wrap_content"
+                android:text="1"
+                android:textSize="14sp"
+                android:gravity="center"
+                android:layout_marginStart="0dp" />
         </LinearLayout>
 
         <LinearLayout
@@ -440,20 +545,29 @@
             android:layout_marginBottom="8dp">
 
             <TextView
-                android:layout_width="wrap_content"
+                android:layout_width="100dp"
                 android:layout_height="wrap_content"
-                android:text="手动重复惩罚参数 (0.0~2.0):"
+                android:text="手动重复惩罚参数(0.0~2.0):"
                 android:textSize="16sp" />
 
-            <EditText
-                android:id="@+id/editTextManualRepeatPenalty"
+            <SeekBar
+                android:id="@+id/seekBarManualRepeatPenalty"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:layout_marginStart="8dp"
-                android:layout_marginEnd="8dp"
-                android:inputType="numberDecimal"
-                android:hint="0.0-2.0" />
+                android:layout_marginStart="0dp"
+                android:layout_marginEnd="0dp"
+                android:max="20"
+                android:progress="0" />
+
+            <TextView
+                android:id="@+id/textViewManualRepeatPenaltyValue"
+                android:layout_width="40dp"
+                android:layout_height="wrap_content"
+                android:text="0.0"
+                android:textSize="14sp"
+                android:gravity="center"
+                android:layout_marginStart="0dp" />
         </LinearLayout>
         
         <!-- 优先备份参数开关 -->

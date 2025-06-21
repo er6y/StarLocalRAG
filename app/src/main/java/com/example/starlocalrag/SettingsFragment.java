@@ -40,9 +40,12 @@ public class SettingsFragment extends Fragment {
     private static final String TAG = "SettingsFragment";
     
     // UI组件
-    private EditText editTextChunkSize;
-    private EditText editTextOverlapSize;
-    private EditText editTextMinChunkSize; // 添加最小分块限制输入框
+    private SeekBar seekBarChunkSize;
+    private TextView textViewChunkSizeValue;
+    private SeekBar seekBarOverlapSize;
+    private TextView textViewOverlapSizeValue;
+    private SeekBar seekBarMinChunkSize;
+    private TextView textViewMinChunkSizeValue;
     private EditText editTextModelPath;
     private EditText editTextEmbeddingModelPath;
     private EditText editTextRerankerModelPath;
@@ -60,15 +63,22 @@ public class SettingsFragment extends Fragment {
     private TextView textViewFontSizeValue; // 字体大小值显示
     
     // LLM 推理设置相关UI组件
-    private EditText editTextMaxSequenceLength; // 最大序列长度
-    private EditText editTextThreads; // 推理线程数
-    private EditText editTextMaxNewTokens; // 最大输出token数
+    private SeekBar seekBarMaxSequenceLength;
+    private TextView textViewMaxSequenceLengthValue;
+    private SeekBar seekBarThreads;
+    private TextView textViewThreadsValue;
+    private SeekBar seekBarKvCacheSize;
+    private TextView textViewKvCacheSizeValue;
     
     // 手动推理参数UI组件
-    private EditText editTextManualTemperature; // 手动温度参数
-    private EditText editTextManualTopP; // 手动Top-P参数
-    private EditText editTextManualTopK; // 手动Top-K参数
-    private EditText editTextManualRepeatPenalty; // 手动重复惩罚参数
+    private SeekBar seekBarManualTemperature;
+    private TextView textViewManualTemperatureValue;
+    private SeekBar seekBarManualTopP;
+    private TextView textViewManualTopPValue;
+    private SeekBar seekBarManualTopK;
+    private TextView textViewManualTopKValue;
+    private SeekBar seekBarManualRepeatPenalty;
+    private TextView textViewManualRepeatPenaltyValue;
     private SwitchCompat switchPriorityManualParams; // 优先手动参数开关
     
     // Activity Result Launchers
@@ -150,9 +160,12 @@ public class SettingsFragment extends Fragment {
         View view = inflater.inflate(R.layout.fragment_settings, container, false);
         
         // 初始化UI控件
-        editTextChunkSize = view.findViewById(R.id.editTextChunkSize);
-        editTextOverlapSize = view.findViewById(R.id.editTextOverlapSize);
-        editTextMinChunkSize = view.findViewById(R.id.editTextMinChunkSize); // 初始化最小分块限制输入框
+        seekBarChunkSize = view.findViewById(R.id.seekBarChunkSize);
+        textViewChunkSizeValue = view.findViewById(R.id.textViewChunkSizeValue);
+        seekBarOverlapSize = view.findViewById(R.id.seekBarOverlapSize);
+        textViewOverlapSizeValue = view.findViewById(R.id.textViewOverlapSizeValue);
+        seekBarMinChunkSize = view.findViewById(R.id.seekBarMinChunkSize);
+        textViewMinChunkSizeValue = view.findViewById(R.id.textViewMinChunkSizeValue);
         editTextModelPath = view.findViewById(R.id.editTextModelPath);
         editTextEmbeddingModelPath = view.findViewById(R.id.editTextEmbeddingModelPath);
         editTextRerankerModelPath = view.findViewById(R.id.editTextRerankerModelPath);
@@ -168,18 +181,25 @@ public class SettingsFragment extends Fragment {
         switchJsonDatasetSplitting = view.findViewById(R.id.switchJsonDatasetSplitting); // JSON训练集分块优化开关
         
         // 初始化 LLM 推理设置相关UI组件
-        editTextMaxSequenceLength = view.findViewById(R.id.editTextMaxSequenceLength);
-        editTextThreads = view.findViewById(R.id.editTextThreads);
-        editTextMaxNewTokens = view.findViewById(R.id.editTextKvCacheSize); // UI控件ID保持不变以兼容现有布局
+        seekBarMaxSequenceLength = view.findViewById(R.id.seekBarMaxSequenceLength);
+        textViewMaxSequenceLengthValue = view.findViewById(R.id.textViewMaxSequenceLengthValue);
+        seekBarThreads = view.findViewById(R.id.seekBarThreads);
+        textViewThreadsValue = view.findViewById(R.id.textViewThreadsValue);
+        seekBarKvCacheSize = view.findViewById(R.id.seekBarKvCacheSize);
+        textViewKvCacheSizeValue = view.findViewById(R.id.textViewKvCacheSizeValue);
         // switchNoThinking已移动到RAG问答界面
         seekBarFontSize = view.findViewById(R.id.seekBarFontSize); // 字体大小拖动条
         textViewFontSizeValue = view.findViewById(R.id.textViewFontSizeValue); // 字体大小值显示
         
         // 初始化手动推理参数UI组件
-        editTextManualTemperature = view.findViewById(R.id.editTextManualTemperature);
-        editTextManualTopP = view.findViewById(R.id.editTextManualTopP);
-        editTextManualTopK = view.findViewById(R.id.editTextManualTopK);
-        editTextManualRepeatPenalty = view.findViewById(R.id.editTextManualRepeatPenalty);
+        seekBarManualTemperature = view.findViewById(R.id.seekBarManualTemperature);
+        textViewManualTemperatureValue = view.findViewById(R.id.textViewManualTemperatureValue);
+        seekBarManualTopP = view.findViewById(R.id.seekBarManualTopP);
+        textViewManualTopPValue = view.findViewById(R.id.textViewManualTopPValue);
+        seekBarManualTopK = view.findViewById(R.id.seekBarManualTopK);
+        textViewManualTopKValue = view.findViewById(R.id.textViewManualTopKValue);
+        seekBarManualRepeatPenalty = view.findViewById(R.id.seekBarManualRepeatPenalty);
+        textViewManualRepeatPenaltyValue = view.findViewById(R.id.textViewManualRepeatPenaltyValue);
         switchPriorityManualParams = view.findViewById(R.id.switchPriorityManualParams); // 优先手动参数开关
         
         // 加载当前设置
@@ -247,6 +267,18 @@ public class SettingsFragment extends Fragment {
         
         // 保存设置
         buttonSaveSettings.setOnClickListener(v -> saveSettings());
+        
+        // 设置所有SeekBar监听器
+        setupChunkSizeSeekBar();
+        setupOverlapSizeSeekBar();
+        setupMinChunkSizeSeekBar();
+        setupMaxSequenceLengthSeekBar();
+        setupThreadsSeekBar();
+        setupKvCacheSizeSeekBar();
+        setupManualTemperatureSeekBar();
+        setupManualTopPSeekBar();
+        setupManualTopKSeekBar();
+        setupManualRepeatPenaltySeekBar();
     }
     
     private void setupFontSizeSeekBar() {
@@ -293,6 +325,31 @@ public class SettingsFragment extends Fragment {
         textViewFontSizeValue.setTextSize(fontSize);
     }
     
+    private void setupChunkSizeSeekBar() {
+        seekBarChunkSize.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                // 更新分块大小值显示
+                updateChunkSizeText(progress);
+            }
+            
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {
+                // 不需要处理
+            }
+            
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+                // 不需要处理
+            }
+        });
+    }
+    
+    private void updateChunkSizeText(int progress) {
+        int chunkSize = (progress * 100) + 100;
+        textViewChunkSizeValue.setText(String.valueOf(chunkSize));
+    }
+    
     private void loadSettings() {
         try {
             // 从ConfigManager加载设置
@@ -330,9 +387,12 @@ public class SettingsFragment extends Fragment {
             boolean noThinking = ConfigManager.getNoThinking(context);
             
             // 设置UI
-            editTextChunkSize.setText(String.valueOf(chunkSize));
-            editTextOverlapSize.setText(String.valueOf(overlapSize));
-            editTextMinChunkSize.setText(String.valueOf(minChunkSize)); // 设置最小分块限制UI
+            seekBarChunkSize.setProgress((chunkSize - 100) / 100);
+            updateChunkSizeText((chunkSize - 100) / 100);
+            seekBarOverlapSize.setProgress((overlapSize - 20) / 20);
+            updateOverlapSizeText((overlapSize - 20) / 20);
+            seekBarMinChunkSize.setProgress((minChunkSize - 10) / 10);
+            updateMinChunkSizeText((minChunkSize - 10) / 10);
             editTextModelPath.setText(modelPath);
             editTextEmbeddingModelPath.setText(embeddingModelPath);
             editTextRerankerModelPath.setText(rerankerModelPath);
@@ -345,9 +405,12 @@ public class SettingsFragment extends Fragment {
             updateFontSizeText(Math.round(fontSize) - 10);
             
             // 设置 LLM 推理设置UI
-            editTextMaxSequenceLength.setText(String.valueOf(maxSequenceLength));
-            editTextThreads.setText(String.valueOf(threads));
-            editTextMaxNewTokens.setText(String.valueOf(maxNewTokens));
+            seekBarMaxSequenceLength.setProgress((maxSequenceLength - 512) / 512);
+            updateMaxSequenceLengthText((maxSequenceLength - 512) / 512);
+            seekBarThreads.setProgress(threads - 1);
+            updateThreadsText(threads - 1);
+            seekBarKvCacheSize.setProgress((maxNewTokens - 512) / 512);
+            updateKvCacheSizeText((maxNewTokens - 512) / 512);
             // switchNoThinking已移动到RAG问答界面
             
             // 加载手动推理参数
@@ -358,10 +421,14 @@ public class SettingsFragment extends Fragment {
             boolean priorityManualParams = ConfigManager.getBoolean(context, ConfigManager.KEY_PRIORITY_MANUAL_PARAMS, false);
             
             // 设置手动推理参数UI
-            editTextManualTemperature.setText(String.valueOf(manualTemperature));
-            editTextManualTopP.setText(String.valueOf(manualTopP));
-            editTextManualTopK.setText(String.valueOf(manualTopK));
-            editTextManualRepeatPenalty.setText(String.valueOf(manualRepeatPenalty));
+            seekBarManualTemperature.setProgress((int)(manualTemperature * 10));
+            updateManualTemperatureText((int)(manualTemperature * 10));
+            seekBarManualTopP.setProgress((int)(manualTopP / 0.05f));
+            updateManualTopPText((int)(manualTopP / 0.05f));
+            seekBarManualTopK.setProgress((manualTopK - 10) / 10);
+            updateManualTopKText((manualTopK - 10) / 10);
+            seekBarManualRepeatPenalty.setProgress((int)(manualRepeatPenalty * 10));
+            updateManualRepeatPenaltyText((int)(manualRepeatPenalty * 10));
             switchPriorityManualParams.setChecked(priorityManualParams);
             
             LogManager.logD(TAG, "设置加载完成");
@@ -376,24 +443,15 @@ public class SettingsFragment extends Fragment {
         
         try {
             // 获取用户输入
-            String chunkSizeStr = editTextChunkSize.getText().toString().trim();
-            String overlapSizeStr = editTextOverlapSize.getText().toString().trim();
-            String minChunkSizeStr = editTextMinChunkSize.getText().toString().trim(); // 获取最小分块限制输入
+            int chunkSize = (seekBarChunkSize.getProgress() * 100) + 100;
+            int overlapSize = (seekBarOverlapSize.getProgress() * 20) + 20;
+            int minChunkSize = (seekBarMinChunkSize.getProgress() * 10) + 10;
             String modelPathStr = editTextModelPath.getText().toString().trim();
             String embeddingModelPathStr = editTextEmbeddingModelPath.getText().toString().trim();
             String rerankerModelPathStr = editTextRerankerModelPath.getText().toString().trim();
             String knowledgeBasePathStr = editTextKnowledgeBasePath.getText().toString().trim();
             
-            // 验证输入
-            if (chunkSizeStr.isEmpty() || overlapSizeStr.isEmpty() || minChunkSizeStr.isEmpty()) { // 验证最小分块限制
-                Toast.makeText(context, "请填写所有分块设置", Toast.LENGTH_SHORT).show();
-                return;
-            }
-            
-            // 转换为整数
-            int chunkSize = Integer.parseInt(chunkSizeStr);
-            int overlapSize = Integer.parseInt(overlapSizeStr);
-            int minChunkSize = Integer.parseInt(minChunkSizeStr); // 转换最小分块限制
+            // 数值已经从SeekBar获取，无需验证输入格式
             
             // 验证值范围
             if (chunkSize < 100 || chunkSize > 4000) {
@@ -439,40 +497,19 @@ public class SettingsFragment extends Fragment {
             float fontSize = progress + 10;
             
             // 获取 LLM 推理设置
-            String maxSequenceLengthStr = editTextMaxSequenceLength.getText().toString().trim();
-            String threadsStr = editTextThreads.getText().toString().trim();
-            String maxNewTokensStr = editTextMaxNewTokens.getText().toString().trim();
+            int maxSequenceLength = (seekBarMaxSequenceLength.getProgress() * 512) + 512;
+            int threads = seekBarThreads.getProgress() + 1;
+            int maxNewTokens = (seekBarKvCacheSize.getProgress() * 512) + 512;
             // noThinking已移动到RAG问答界面
             
             // 获取手动推理参数
-            String manualTemperatureStr = editTextManualTemperature.getText().toString().trim();
-            String manualTopPStr = editTextManualTopP.getText().toString().trim();
-            String manualTopKStr = editTextManualTopK.getText().toString().trim();
-            String manualRepeatPenaltyStr = editTextManualRepeatPenalty.getText().toString().trim();
+            float manualTemperature = seekBarManualTemperature.getProgress() / 10.0f;
+            float manualTopP = seekBarManualTopP.getProgress() * 0.05f;
+            int manualTopK = (seekBarManualTopK.getProgress() * 10) + 10;
+            float manualRepeatPenalty = seekBarManualRepeatPenalty.getProgress() / 10.0f;
             boolean priorityManualParams = switchPriorityManualParams.isChecked();
             
-            // 验证 LLM 推理设置
-            if (maxSequenceLengthStr.isEmpty() || threadsStr.isEmpty() || maxNewTokensStr.isEmpty()) {
-                Toast.makeText(context, "请填写所有 LLM 推理设置", Toast.LENGTH_SHORT).show();
-                return;
-            }
-            
-            // 验证手动推理参数
-            if (manualTemperatureStr.isEmpty() || manualTopPStr.isEmpty() || manualTopKStr.isEmpty() || manualRepeatPenaltyStr.isEmpty()) {
-                Toast.makeText(context, "请填写所有手动推理参数", Toast.LENGTH_SHORT).show();
-                return;
-            }
-            
-            // 转换为整数
-            int maxSequenceLength = Integer.parseInt(maxSequenceLengthStr);
-            int threads = Integer.parseInt(threadsStr);
-            int maxNewTokens = Integer.parseInt(maxNewTokensStr);
-            
-            // 转换手动推理参数
-            float manualTemperature = Float.parseFloat(manualTemperatureStr);
-            float manualTopP = Float.parseFloat(manualTopPStr);
-            int manualTopK = Integer.parseInt(manualTopKStr);
-            float manualRepeatPenalty = Float.parseFloat(manualRepeatPenaltyStr);
+            // 数值已经从SeekBar获取，无需验证输入格式和转换
             
             // 验证值范围
             if (maxSequenceLength < 100 || maxSequenceLength > 8192) {
@@ -698,5 +735,185 @@ public class SettingsFragment extends Fragment {
      */
     public static boolean isJsonDatasetSplittingEnabled(Context context) {
         return ConfigManager.isJsonDatasetSplittingEnabled(context);
+    }
+    
+    private void setupOverlapSizeSeekBar() {
+        seekBarOverlapSize.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                updateOverlapSizeText(progress);
+            }
+            
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {}
+            
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {}
+        });
+    }
+    
+    private void updateOverlapSizeText(int progress) {
+        int overlapSize = (progress * 20) + 20;
+        textViewOverlapSizeValue.setText(String.valueOf(overlapSize));
+    }
+    
+    private void setupMinChunkSizeSeekBar() {
+        seekBarMinChunkSize.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                updateMinChunkSizeText(progress);
+            }
+            
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {}
+            
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {}
+        });
+    }
+    
+    private void updateMinChunkSizeText(int progress) {
+        int minChunkSize = (progress * 10) + 10;
+        textViewMinChunkSizeValue.setText(String.valueOf(minChunkSize));
+    }
+    
+    private void setupMaxSequenceLengthSeekBar() {
+        seekBarMaxSequenceLength.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                updateMaxSequenceLengthText(progress);
+            }
+            
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {}
+            
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {}
+        });
+    }
+    
+    private void updateMaxSequenceLengthText(int progress) {
+        int maxSequenceLength = (progress * 512) + 512;
+        textViewMaxSequenceLengthValue.setText(String.valueOf(maxSequenceLength));
+    }
+    
+    private void setupThreadsSeekBar() {
+        seekBarThreads.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                updateThreadsText(progress);
+            }
+            
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {}
+            
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {}
+        });
+    }
+    
+    private void updateThreadsText(int progress) {
+        int threads = progress + 1;
+        textViewThreadsValue.setText(String.valueOf(threads));
+    }
+    
+    private void setupKvCacheSizeSeekBar() {
+        seekBarKvCacheSize.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                updateKvCacheSizeText(progress);
+            }
+            
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {}
+            
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {}
+        });
+    }
+    
+    private void updateKvCacheSizeText(int progress) {
+        int kvCacheSize = (progress * 512) + 512;
+        textViewKvCacheSizeValue.setText(String.valueOf(kvCacheSize));
+    }
+    
+    private void setupManualTemperatureSeekBar() {
+        seekBarManualTemperature.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                updateManualTemperatureText(progress);
+            }
+            
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {}
+            
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {}
+        });
+    }
+    
+    private void updateManualTemperatureText(int progress) {
+        float temperature = progress / 10.0f;
+        textViewManualTemperatureValue.setText(String.format("%.1f", temperature));
+    }
+    
+    private void setupManualTopPSeekBar() {
+        seekBarManualTopP.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                updateManualTopPText(progress);
+            }
+            
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {}
+            
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {}
+        });
+    }
+    
+    private void updateManualTopPText(int progress) {
+        float topP = progress * 0.05f;
+        textViewManualTopPValue.setText(String.format("%.2f", topP));
+    }
+    
+    private void setupManualTopKSeekBar() {
+        seekBarManualTopK.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                updateManualTopKText(progress);
+            }
+            
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {}
+            
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {}
+        });
+    }
+    
+    private void updateManualTopKText(int progress) {
+        int topK = (progress * 10) + 10;
+        textViewManualTopKValue.setText(String.valueOf(topK));
+    }
+    
+    private void setupManualRepeatPenaltySeekBar() {
+        seekBarManualRepeatPenalty.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                updateManualRepeatPenaltyText(progress);
+            }
+            
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {}
+            
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {}
+        });
+    }
+    
+    private void updateManualRepeatPenaltyText(int progress) {
+        float repeatPenalty = progress / 10.0f;
+        textViewManualRepeatPenaltyValue.setText(String.format("%.1f", repeatPenalty));
     }
 }
