@@ -408,6 +408,16 @@ public class MainActivity extends AppCompatActivity implements SettingsFragment.
             transaction.addToBackStack("settings");
             transaction.commit();
             return true;
+        } else if (id == R.id.action_default_model_download) {
+            // 打开默认模型下载界面
+            viewPager.setVisibility(View.GONE);
+            findViewById(R.id.container).setVisibility(View.VISIBLE);
+            
+            FragmentTransaction transaction = getSupportFragmentManager().beginTransaction();
+            transaction.replace(R.id.container, new ModelDownloadFragment());
+            transaction.addToBackStack("model_download");
+            transaction.commit();
+            return true;
         } else if (id == R.id.action_exit) {
             // 退出应用
             finish();

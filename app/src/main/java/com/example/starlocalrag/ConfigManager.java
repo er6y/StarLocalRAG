@@ -108,25 +108,25 @@ public class ConfigManager {
     public static final String KEY_LOG_CONTENT_TEXT_SIZE = "log_content_text_size";
 
     // 默认值
-    public static final int DEFAULT_BLOCK_SIZE = 1000;
-    public static final int DEFAULT_CHUNK_SIZE = 1000;
-    public static final int DEFAULT_OVERLAP_SIZE = 200;
-    public static final int DEFAULT_MIN_CHUNK_SIZE = 200; // 修改为200，与PC端保持一致
-    public static final String DEFAULT_MODEL_PATH = "files/models";
-    public static final String DEFAULT_EMBEDDING_MODEL_PATH = "files/embeddings";
-    public static final String DEFAULT_RERANKER_MODEL_PATH = "files/rerankers";
-    public static final String DEFAULT_KNOWLEDGE_BASE_PATH = "files/knowledge_bases";
-    public static final int DEFAULT_SEARCH_DEPTH = 10;
+    public static final int DEFAULT_CHUNK_SIZE = 500;
+    public static final int DEFAULT_BLOCK_SIZE = DEFAULT_CHUNK_SIZE;
+    public static final int DEFAULT_OVERLAP_SIZE = 100;
+    public static final int DEFAULT_MIN_CHUNK_SIZE = 10; // 修改为200，与PC端保持一致
+    public static final String DEFAULT_MODEL_PATH = "/storage/emulated/0/Download/StarRagData/models";
+    public static final String DEFAULT_EMBEDDING_MODEL_PATH = "/storage/emulated/0/Download/StarRagData/embeddings";
+    public static final String DEFAULT_RERANKER_MODEL_PATH = "/storage/emulated/0/Download/StarRagData/rerankers";
+    public static final String DEFAULT_KNOWLEDGE_BASE_PATH = "/storage/emulated/0/Download/StarRagData/knowledge_bases";
+    public static final int DEFAULT_SEARCH_DEPTH = 20;
     public static final int DEFAULT_RERANK_COUNT = 5;
-    public static final int DEFAULT_RETRIEVAL_COUNT = 20;
+
     public static final float DEFAULT_TEXT_SIZE = 14f;
     
     // LLM 推理相关的默认值
     public static final int DEFAULT_MAX_SEQUENCE_LENGTH = 1792;
     public static final boolean DEFAULT_NO_THINKING = false;
     public static final int DEFAULT_THREADS = 4;
-    public static final int DEFAULT_MAX_NEW_TOKENS = 2048; // 最大输出token数默认值
-    public static final int DEFAULT_KV_CACHE_SIZE = 2048; // 兼容性保留，已废弃
+    public static final int DEFAULT_MAX_NEW_TOKENS = 4096; // 最大输出token数默认值
+    public static final int DEFAULT_KV_CACHE_SIZE = 512; // 兼容性保留，已废弃
     
     // LlamaCpp 相关默认值
     public static final String DEFAULT_LLAMACPP_MODEL_PATH = "files/models/llamacpp";

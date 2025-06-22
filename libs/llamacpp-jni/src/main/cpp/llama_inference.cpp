@@ -829,13 +829,49 @@ Java_com_starlocalrag_llamacpp_LlamaCppInference_completion_1loop(
     
     // sample the most likely token
     const auto new_token_id = llama_sampler_sample(sampler, context, -1);
+    
+    // DEBUG: 打印采样到的token信息
+    auto new_token_chars = common_token_to_piece(context, new_token_id);
+    __android_log_print(ANDROID_LOG_INFO, "LlamaCppJNI", "[TOKEN_DEBUG] 采样token: id=%d, text='%s'", new_token_id, new_token_chars.c_str());
+    
+    // DEBUG: 检查是否为特殊token
+    bool is_eog_token = llama_vocab_is_eog(vocab, new_token_id);
+    bool is_eos_token = (new_token_id == llama_vocab_eos(vocab));
+    bool is_bos_token = (new_token_id == llama_vocab_bos(vocab));
+    
+    __android_log_print(ANDROID_LOG_INFO, "LlamaCppJNI", "[TOKEN_DEBUG] 特殊token检查: is_eog=%s, is_eos=%s, is_bos=%s", 
+                       is_eog_token ? "true" : "false",
+                       is_eos_token ? "true" : "false", 
+                       is_bos_token ? "true" : "false");
+    
+    // DEBUG: 打印模型的特殊token信息
+     static bool special_tokens_logged = false;
+     if (!special_tokens_logged) {
+         __android_log_print(ANDROID_LOG_INFO, "LlamaCppJNI", "[SPECIAL_TOKENS] BOS token id: %d", llama_vocab_bos(vocab));
+         __android_log_print(ANDROID_LOG_INFO, "LlamaCppJNI", "[SPECIAL_TOKENS] EOS token id: %d", llama_vocab_eos(vocab));
+         __android_log_print(ANDROID_LOG_INFO, "LlamaCppJNI", "[SPECIAL_TOKENS] EOT token id: %d", llama_vocab_eot(vocab));
+         
+         // 只打印模型自身定义的特殊token，避免硬编码误判
+         __android_log_print(ANDROID_LOG_INFO, "LlamaCppJNI", "[SPECIAL_TOKENS] 模型词汇表大小: %d", llama_vocab_n_tokens(vocab));
+         __android_log_print(ANDROID_LOG_INFO, "LlamaCppJNI", "[SPECIAL_TOKENS] 依赖模型自身的EOG判断逻辑，避免硬编码结束token列表");
+         
+         special_tokens_logged = true;
+     }
 
     const auto n_cur = env->GetIntField(intvar_ncur, la_int_var_value);
-    if (llama_vocab_is_eog(vocab, new_token_id) || n_cur == n_len) {
+    
+    // DEBUG: 检查推理结束条件
+    bool should_end_eog = llama_vocab_is_eog(vocab, new_token_id);
+    bool should_end_length = (n_cur == n_len);
+    
+    if (should_end_eog || should_end_length) {
+        __android_log_print(ANDROID_LOG_INFO, "LlamaCppJNI", "[INFERENCE_END] 推理结束 - EOG检测: %s, 长度限制: %s, 当前位置: %d, 最大长度: %d, 结束token_id: %d",
+                           should_end_eog ? "true" : "false",
+                           should_end_length ? "true" : "false",
+                           n_cur, n_len, new_token_id);
         return nullptr;
     }
 
-    auto new_token_chars = common_token_to_piece(context, new_token_id);
     cached_token_chars += new_token_chars;
 
     jstring new_token = nullptr;

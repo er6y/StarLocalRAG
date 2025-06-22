@@ -18,14 +18,16 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
 
+import com.example.starlocalrag.ConfigManager;
+
 /**
- * 词嵌入模型工具类，提供模型检测和查找的公共方法
+ * 模型工具类，提供嵌入模型和重排模型检测和查找的公共方法
  */
 public class EmbeddingModelUtils {
     private static final String TAG = "EmbeddingModelUtils";
     
     /**
-     * 检查并加载词嵌入模型
+     * 检查并加载嵌入模型和重排模型
      * @param context 上下文
      * @param vectorDb 向量数据库处理器
      * @param callback 回调函数，参数为找到的模型路径，如果未找到则为null
@@ -37,71 +39,97 @@ public class EmbeddingModelUtils {
             Consumer<String> callback,
             ModelSelectedCallback modelSelectedCallback) {
         
-        // 获取嵌入模型目录名
-        String embeddingModel = vectorDb.getMetadata().getModeldir();
+        // 获取配置路径
         String embeddingModelPath = ConfigManager.getEmbeddingModelPath(context);
-        String modelPath = null;
-        boolean needModelSelection = false;
+        String rerankerModelPath = ConfigManager.getRerankerModelPath(context);
         
-        // 检查元数据中是否有modeldir配置
+        // 获取元数据中的模型目录
         String modeldir = vectorDb.getMetadata().getModeldir();
-        //LogManager.logD(TAG, "元数据中的modeldir: " + (modeldir != null ? modeldir : "null"));
+        String rerankerdir = vectorDb.getMetadata().getRerankerdir();
         
+        boolean needEmbeddingModelSelection = false;
+        boolean needRerankerModelSelection = false;
+        String modelPath = null;
+        
+        // 检查嵌入模型
         if (modeldir != null && !modeldir.isEmpty()) {
-            // 使用modeldir指定的目录
-            File modeldirFile = new File(embeddingModelPath, modeldir);
-            if (modeldirFile.exists() && modeldirFile.isDirectory()) {
-                // 在modeldir中查找模型文件
-                File[] files = modeldirFile.listFiles();
-                if (files != null) {
-                    for (File file : files) {
-                        if (file.isFile() && isModelFile(file)) {
-                            modelPath = file.getAbsolutePath();
-                            //LogManager.logD(TAG, "使用modeldir中的模型: " + modelPath);
-                            break;
+            // 检查modeldir是否在embedding_model_path下的所有模型目录中存在
+            File embeddingModelDir = new File(embeddingModelPath);
+            boolean embeddingModelFound = false;
+            
+            if (embeddingModelDir.exists() && embeddingModelDir.isDirectory()) {
+                File[] directories = embeddingModelDir.listFiles(File::isDirectory);
+                if (directories != null) {
+                    for (File dir : directories) {
+                        if (dir.getName().equals(modeldir)) {
+                            // 检查目录中是否有模型文件
+                            File[] modelFiles = dir.listFiles(file -> isModelFile(file));
+                            if (modelFiles != null && modelFiles.length > 0) {
+                                modelPath = modelFiles[0].getAbsolutePath();
+                                embeddingModelFound = true;
+                                break;
+                            }
                         }
                     }
                 }
                 
-                if (modelPath == null) {
-                    LogManager.logD(TAG, "在指定的modeldir中未找到模型文件: " + modeldirFile.getAbsolutePath());
-                    needModelSelection = true;
+                // 如果是根目录（空字符串），检查根目录
+                if (!embeddingModelFound && modeldir.isEmpty()) {
+                    File[] rootModelFiles = embeddingModelDir.listFiles(file -> isModelFile(file));
+                    if (rootModelFiles != null && rootModelFiles.length > 0) {
+                        modelPath = rootModelFiles[0].getAbsolutePath();
+                        embeddingModelFound = true;
+                    }
                 }
-            } else {
-                LogManager.logD(TAG, "指定的modeldir不存在或不是目录: " + modeldirFile.getAbsolutePath());
-                needModelSelection = true;
+            }
+            
+            if (!embeddingModelFound) {
+                LogManager.logD(TAG, "嵌入模型目录 '" + modeldir + "' 在可用模型目录中未找到");
+                needEmbeddingModelSelection = true;
             }
         } else {
             LogManager.logD(TAG, "元数据中没有modeldir配置或为空");
-            needModelSelection = true;
+            needEmbeddingModelSelection = true;
         }
         
-        // 如果modeldir中没有找到模型，尝试直接使用embeddingModel
-        if (modelPath == null) {
-            modelPath = new File(embeddingModelPath, embeddingModel).getAbsolutePath();
-            File modelFile = new File(modelPath);
-            if (!modelFile.exists()) {
-                LogManager.logD(TAG, "模型文件不存在: " + modelPath);
-                needModelSelection = true;
+        // 检查重排模型（如果rerankerdir不为空且不为"无"）
+        if (rerankerdir != null && !rerankerdir.isEmpty() && !rerankerdir.equals("无")) {
+            File rerankerModelDir = new File(rerankerModelPath);
+            boolean rerankerModelFound = false;
+            
+            if (rerankerModelDir.exists() && rerankerModelDir.isDirectory()) {
+                File[] directories = rerankerModelDir.listFiles(File::isDirectory);
+                if (directories != null) {
+                    for (File dir : directories) {
+                        if (dir.getName().equals(rerankerdir)) {
+                            rerankerModelFound = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            if (!rerankerModelFound) {
+                LogManager.logD(TAG, "重排模型目录 '" + rerankerdir + "' 在可用模型目录中未找到");
+                needRerankerModelSelection = true;
             }
         }
 
         // 如果需要选择模型
-        if (needModelSelection) {
-            LogManager.logD(TAG, "需要选择模型，将尝试在嵌入模型目录中查找");
+        if (needEmbeddingModelSelection || needRerankerModelSelection) {
+            LogManager.logD(TAG, "需要选择模型，嵌入模型: " + needEmbeddingModelSelection + ", 重排模型: " + needRerankerModelSelection);
             
-            // 尝试在嵌入模型目录中查找模型文件
+            // 获取可用的嵌入模型列表
+            List<String> availableEmbeddingModels = new ArrayList<>();
             File embeddingModelDir = new File(embeddingModelPath);
             if (embeddingModelDir.exists() && embeddingModelDir.isDirectory()) {
-                // 获取所有子目录，用于模型选择
-                List<String> availableModels = new ArrayList<>();
                 File[] directories = embeddingModelDir.listFiles(File::isDirectory);
                 if (directories != null) {
                     for (File dir : directories) {
                         // 检查目录中是否有模型文件
                         File[] modelFiles = dir.listFiles(file -> isModelFile(file));
                         if (modelFiles != null && modelFiles.length > 0) {
-                            availableModels.add(dir.getName());
+                            availableEmbeddingModels.add(dir.getName());
                         }
                     }
                 }
@@ -109,18 +137,30 @@ public class EmbeddingModelUtils {
                 // 也检查根目录中的模型文件
                 File[] rootModelFiles = embeddingModelDir.listFiles(file -> isModelFile(file));
                 if (rootModelFiles != null && rootModelFiles.length > 0) {
-                    availableModels.add("根目录");
+                    availableEmbeddingModels.add("根目录");
                 }
-                
-                if (!availableModels.isEmpty()) {
-                    // 弹出模型选择对话框
-                    showModelSelectionDialog(context, embeddingModel, availableModels, embeddingModelPath, vectorDb, modelSelectedCallback);
-                    callback.accept(null); // 返回null，表示需要等待用户选择
-                } else {
-                    LogManager.logE(TAG, "在嵌入模型目录中未找到可用的模型文件");
-                    callback.accept(null); // 返回null，表示没有找到模型
+            }
+            
+            // 获取可用的重排模型列表
+            List<String> availableRerankerModels = new ArrayList<>();
+            availableRerankerModels.add("无"); // 添加"无"选项
+            File rerankerModelDir = new File(rerankerModelPath);
+            if (rerankerModelDir.exists() && rerankerModelDir.isDirectory()) {
+                File[] directories = rerankerModelDir.listFiles(File::isDirectory);
+                if (directories != null) {
+                    for (File dir : directories) {
+                        availableRerankerModels.add(dir.getName());
+                    }
                 }
+            }
+            
+            if (!availableEmbeddingModels.isEmpty()) {
+                // 弹出模型选择对话框
+                showModelSelectionDialog(context, modeldir, rerankerdir, availableEmbeddingModels, availableRerankerModels, 
+                    embeddingModelPath, rerankerModelPath, vectorDb, modelSelectedCallback);
+                callback.accept(null); // 返回null，表示需要等待用户选择
             } else {
+                LogManager.logE(TAG, "在嵌入模型目录中未找到可用的模型文件");
                 callback.accept(null); // 返回null，表示没有找到模型
             }
         } else {
@@ -134,9 +174,12 @@ public class EmbeddingModelUtils {
      */
     private static void showModelSelectionDialog(
             Context context,
-            String originalModel,
-            List<String> availableModels,
+            String originalEmbeddingModel,
+            String originalRerankerModel,
+            List<String> availableEmbeddingModels,
+            List<String> availableRerankerModels,
             String embeddingModelPath,
+            String rerankerModelPath,
             SQLiteVectorDatabaseHandler vectorDb,
             ModelSelectedCallback callback) {
         
@@ -153,38 +196,61 @@ public class EmbeddingModelUtils {
                 // 获取控件
                 TextView textViewInfo = dialogView.findViewById(R.id.textViewInfo);
                 Spinner spinnerModels = dialogView.findViewById(R.id.spinnerModels);
+                Spinner spinnerRerankers = dialogView.findViewById(R.id.spinnerRerankers);
                 CheckBox checkBoxRemember = dialogView.findViewById(R.id.checkBoxRemember);
                 
                 // 设置提示信息
-                textViewInfo.setText("知识库使用的词嵌入模型 '" + originalModel + "' 不存在，请从以下可用模型目录中选择一个：");
+                String infoText = "模型配置不匹配，请重新选择：";
+                if (originalEmbeddingModel != null && !originalEmbeddingModel.isEmpty()) {
+                    infoText += "\n嵌入模型 '" + originalEmbeddingModel + "' 不可用";
+                }
+                if (originalRerankerModel != null && !originalRerankerModel.isEmpty() && !originalRerankerModel.equals("无")) {
+                    infoText += "\n重排模型 '" + originalRerankerModel + "' 不可用";
+                }
+                textViewInfo.setText(infoText);
                 
-                // 创建模型列表适配器
-                ArrayAdapter<String> adapter = new ArrayAdapter<>(context, android.R.layout.simple_spinner_item, availableModels);
-                adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-                spinnerModels.setAdapter(adapter);
+                // 创建嵌入模型列表适配器
+                ArrayAdapter<String> embeddingAdapter = new ArrayAdapter<>(context, android.R.layout.simple_spinner_item, availableEmbeddingModels);
+                embeddingAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+                spinnerModels.setAdapter(embeddingAdapter);
                 
-                // 查找原始模型在列表中的位置
-                int originalModelIndex = availableModels.indexOf(originalModel);
-                if (originalModelIndex >= 0) {
-                    spinnerModels.setSelection(originalModelIndex);
+                // 创建重排模型列表适配器
+                ArrayAdapter<String> rerankerAdapter = new ArrayAdapter<>(context, android.R.layout.simple_spinner_item, availableRerankerModels);
+                rerankerAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+                spinnerRerankers.setAdapter(rerankerAdapter);
+                
+                // 查找原始嵌入模型在列表中的位置
+                int originalEmbeddingModelIndex = availableEmbeddingModels.indexOf(originalEmbeddingModel);
+                if (originalEmbeddingModelIndex >= 0) {
+                    spinnerModels.setSelection(originalEmbeddingModelIndex);
+                }
+                
+                // 查找原始重排模型在列表中的位置
+                int originalRerankerModelIndex = availableRerankerModels.indexOf(originalRerankerModel);
+                if (originalRerankerModelIndex >= 0) {
+                    spinnerRerankers.setSelection(originalRerankerModelIndex);
+                } else {
+                    // 默认选择"无"
+                    spinnerRerankers.setSelection(0);
                 }
                 
                 LogManager.logD(TAG, "准备创建对话框，耗时: " + (System.currentTimeMillis() - startTime) + "ms");
                 
                 // 创建对话框 - 使用原生按钮
                 AlertDialog.Builder builder = new AlertDialog.Builder(context)
-                        .setTitle("选择词嵌入模型目录")
+                        .setTitle("选择嵌入模型和重排模型")
                         .setView(dialogView)
                         .setCancelable(false) // 防止用户通过点击外部或返回键关闭对话框
                         .setPositiveButton("确定", (dialog, which) -> {
                             LogManager.logD(TAG, "确定按钮被点击");
                             long processStartTime = System.currentTimeMillis();
                             
-                            String selectedModel = (String) spinnerModels.getSelectedItem();
+                            String selectedEmbeddingModel = (String) spinnerModels.getSelectedItem();
+                            String selectedRerankerModel = (String) spinnerRerankers.getSelectedItem();
                             boolean rememberChoice = checkBoxRemember.isChecked();
                             
-                            if (selectedModel != null) {
-                                LogManager.logD(TAG, "用户选择了模型: " + selectedModel + ", 记住选择: " + rememberChoice + ", 处理耗时: " + (System.currentTimeMillis() - processStartTime) + "ms");
+                            if (selectedEmbeddingModel != null) {
+                                LogManager.logD(TAG, "用户选择了嵌入模型: " + selectedEmbeddingModel + ", 重排模型: " + selectedRerankerModel + ", 记住选择: " + rememberChoice + ", 处理耗时: " + (System.currentTimeMillis() - processStartTime) + "ms");
                                 
                                 // 在后台线程中处理选定的模型，避免阻塞UI线程
                                 new Thread(() -> {
@@ -192,7 +258,7 @@ public class EmbeddingModelUtils {
                                     long threadStartTime = System.currentTimeMillis();
                                     
                                     // 处理选定的模型
-                                    processSelectedModel(context, selectedModel, embeddingModelPath, vectorDb, callback);
+                                    processSelectedModels(context, selectedEmbeddingModel, selectedRerankerModel, embeddingModelPath, rerankerModelPath, vectorDb, callback);
                                     
                                     LogManager.logD(TAG, "模型处理完成，耗时: " + (System.currentTimeMillis() - threadStartTime) + "ms");
                                 }).start();
@@ -226,56 +292,87 @@ public class EmbeddingModelUtils {
     /**
      * 处理用户选择的模型
      */
-    private static void processSelectedModel(
+    private static void processSelectedModels(
             Context context,
-            String selectedModel,
+            String selectedEmbeddingModel,
+            String selectedRerankerModel,
             String embeddingModelPath,
+            String rerankerModelPath,
             SQLiteVectorDatabaseHandler vectorDb,
             ModelSelectedCallback callback) {
         
-        String modelPath = null;
-        boolean modelFound = false;
+        String embeddingModelPath_result = null;
+        String rerankerModelPath_result = null;
+        boolean embeddingModelFound = false;
+        boolean rerankerModelFound = true; // 重排模型默认为找到（因为可以选择"无"）
         
-        if (selectedModel.equals("根目录")) {
-            // 在根目录中查找模型文件
+        // 处理嵌入模型选择
+        if (selectedEmbeddingModel.equals("根目录")) {
+            // 在根目录中查找嵌入模型文件
             File embeddingModelDir = new File(embeddingModelPath);
             File[] files = embeddingModelDir.listFiles(file -> isModelFile(file));
             if (files != null && files.length > 0) {
-                modelPath = files[0].getAbsolutePath();
-                modelFound = true;
+                embeddingModelPath_result = files[0].getAbsolutePath();
+                embeddingModelFound = true;
                 
-                // 确保元数据中存在modeldir项，并设置为空字符串（表示使用根目录）
+                // 更新元数据中的modeldir
                 SQLiteVectorDatabaseHandler.DatabaseMetadata metadata = vectorDb.getMetadata();
                 metadata.setModeldir("");
-                vectorDb.saveDatabase();
                 LogManager.logD(TAG, "已更新元数据，modeldir设置为空（使用根目录）");
             }
         } else {
-            // 使用选定的目录
-            File selectedDir = new File(embeddingModelPath, selectedModel);
-            if (selectedDir.exists() && selectedDir.isDirectory()) {
-                File[] files = selectedDir.listFiles(file -> isModelFile(file));
+            // 使用选定的嵌入模型目录
+            File selectedEmbeddingDir = new File(embeddingModelPath, selectedEmbeddingModel);
+            if (selectedEmbeddingDir.exists() && selectedEmbeddingDir.isDirectory()) {
+                File[] files = selectedEmbeddingDir.listFiles(file -> isModelFile(file));
                 if (files != null && files.length > 0) {
-                    modelPath = files[0].getAbsolutePath();
-                    modelFound = true;
+                    embeddingModelPath_result = files[0].getAbsolutePath();
+                    embeddingModelFound = true;
                     
-                    // 确保元数据中存在modeldir项，并设置为选定的目录
+                    // 更新元数据中的modeldir
                     SQLiteVectorDatabaseHandler.DatabaseMetadata metadata = vectorDb.getMetadata();
-                    metadata.setModeldir(selectedModel);
-                    vectorDb.saveDatabase();
-                    LogManager.logD(TAG, "已更新元数据，modeldir设置为: " + selectedModel);
+                    metadata.setModeldir(selectedEmbeddingModel);
+                    LogManager.logD(TAG, "已更新元数据，modeldir设置为: " + selectedEmbeddingModel);
                 }
             }
         }
         
-        if (modelFound && callback != null) {
-            // 保存模型映射
-            ConfigManager.setModelMapping(context, "model_" + vectorDb.getMetadata().getModeldir(), selectedModel);
-            
-            // 调用回调函数
-            callback.onModelSelected(selectedModel, modelPath);
+        // 处理重排模型选择
+        if (selectedRerankerModel.equals("无")) {
+            // 用户选择不使用重排模型
+            SQLiteVectorDatabaseHandler.DatabaseMetadata metadata = vectorDb.getMetadata();
+            metadata.setRerankerdir("无");
+            LogManager.logD(TAG, "已更新元数据，rerankerdir设置为: 无");
         } else {
-            LogManager.logE(TAG, "在选定的模型目录中未找到模型文件");
+            // 使用选定的重排模型目录
+            File selectedRerankerDir = new File(rerankerModelPath, selectedRerankerModel);
+            if (selectedRerankerDir.exists() && selectedRerankerDir.isDirectory()) {
+                // 检查重排模型目录是否包含模型文件（这里可以根据实际需要调整检查逻辑）
+                rerankerModelFound = true;
+                
+                // 更新元数据中的rerankerdir
+                SQLiteVectorDatabaseHandler.DatabaseMetadata metadata = vectorDb.getMetadata();
+                metadata.setRerankerdir(selectedRerankerModel);
+                LogManager.logD(TAG, "已更新元数据，rerankerdir设置为: " + selectedRerankerModel);
+            } else {
+                rerankerModelFound = false;
+                LogManager.logE(TAG, "选定的重排模型目录不存在: " + selectedRerankerModel);
+            }
+        }
+        
+        // 保存数据库元数据
+        vectorDb.saveDatabase();
+        
+        if (embeddingModelFound && rerankerModelFound && callback != null) {
+            // 调用回调函数
+            callback.onModelSelected(selectedEmbeddingModel, embeddingModelPath_result);
+        } else {
+            if (!embeddingModelFound) {
+                LogManager.logE(TAG, "在选定的嵌入模型目录中未找到模型文件");
+            }
+            if (!rerankerModelFound) {
+                LogManager.logE(TAG, "重排模型配置失败");
+            }
             if (callback != null) {
                 callback.onModelSelected(null, null);
             }

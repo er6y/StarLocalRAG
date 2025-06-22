@@ -9,6 +9,12 @@
         app:showAsAction="never" />
         
     <item
+        android:id="@+id/action_default_model_download"
+        android:title="默认模型下载"
+        android:orderInCategory="125"
+        app:showAsAction="never" />
+        
+    <item
         android:id="@+id/action_about"
         android:title="关于"
         android:orderInCategory="150"

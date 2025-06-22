@@ -200,8 +200,8 @@ public class KnowledgeBaseBuilderService extends Service {
         this.currentProgress = progress;
         this.currentStatus = status;
         
-        // 更新通知
-        updateNotification(status, progress);
+        // 更新通知 - 已注释掉通知更新
+        // updateNotification(status, progress);
         
         LogManager.logD(TAG, "通知进度更新: " + progress + "%, " + status);
     }
@@ -224,8 +224,8 @@ public class KnowledgeBaseBuilderService extends Service {
         this.currentProgress = progress;
         this.currentStatus = status;
         
-        // 更新通知
-        updateNotification(status, progress);
+        // 更新通知 - 已注释掉通知更新
+        // updateNotification(status, progress);
         
         // 回调进度（确保UI显示正确格式）
         if (progressCallback != null) {
@@ -251,11 +251,11 @@ public class KnowledgeBaseBuilderService extends Service {
         
         // 检查前台服务状态
         try {
-            // 更新通知以确保前台服务状态
-            updateNotification(currentStatus, currentProgress);
-            LogManager.logD(TAG, "应用切后台，已更新前台服务通知");
+            // 更新通知以确保前台服务状态 - 已注释掉通知更新
+            // updateNotification(currentStatus, currentProgress);
+            LogManager.logD(TAG, "应用切后台，已跳过前台服务通知更新");
         } catch (Exception e) {
-            LogManager.logE(TAG, "应用切后台，更新通知失败", e);
+            LogManager.logE(TAG, "应用切后台，处理失败", e);
         }
     }
     
@@ -266,12 +266,12 @@ public class KnowledgeBaseBuilderService extends Service {
         LogManager.logD(TAG, "应用切换到前台");
         checkServiceStatus();
         
-        // 更新通知
+        // 更新通知 - 已注释掉通知更新
         try {
-            updateNotification(currentStatus, currentProgress);
-            LogManager.logD(TAG, "应用切前台，已更新通知");
+            // updateNotification(currentStatus, currentProgress);
+            LogManager.logD(TAG, "应用切前台，已跳过通知更新");
         } catch (Exception e) {
-            LogManager.logE(TAG, "应用切前台，更新通知失败", e);
+            LogManager.logE(TAG, "应用切前台，处理失败", e);
         }
     }
     
@@ -302,9 +302,9 @@ public class KnowledgeBaseBuilderService extends Service {
             LogManager.logD(TAG, "唤醒锁已经持有，无需重新获取");
         }
         
-        // 启动前台服务
-        startForeground(NOTIFICATION_ID, createNotification("开始构建知识库: " + knowledgeBaseName, 0));
-        LogManager.logD(TAG, "已启动前台服务，通知ID: " + NOTIFICATION_ID);
+        // 启动前台服务 - 已注释掉通知弹出
+        // startForeground(NOTIFICATION_ID, createNotification("开始构建知识库: " + knowledgeBaseName, 0));
+        LogManager.logD(TAG, "知识库构建开始，已跳过前台服务通知");
         
         // 在后台线程中执行构建任务
         executor.execute(() -> {
@@ -326,9 +326,9 @@ public class KnowledgeBaseBuilderService extends Service {
                     }
                 }
                 
-                // 更新最终通知
+                // 更新最终通知 - 已注释掉通知更新
                 String finalStatus = success ? "知识库构建完成: " + knowledgeBaseName : "知识库构建已取消";
-                updateNotification(finalStatus, success ? 100 : 0);
+                // updateNotification(finalStatus, success ? 100 : 0);
                 
                 // 延迟停止服务
                 stopSelfDelayed();
@@ -341,8 +341,8 @@ public class KnowledgeBaseBuilderService extends Service {
                     progressCallback.onTaskCompleted(false, "知识库构建失败: " + e.getMessage());
                 }
                 
-                // 更新错误通知
-                updateNotification("知识库构建失败: " + e.getMessage(), 0);
+                // 更新错误通知 - 已注释掉通知更新
+                // updateNotification("知识库构建失败: " + e.getMessage(), 0);
                 
                 // 延迟停止服务
                 stopSelfDelayed();
@@ -365,9 +365,9 @@ public class KnowledgeBaseBuilderService extends Service {
      * 延迟停止服务
      */
     private void stopSelfDelayed() {
-        // 立即停止前台服务，移除通知栏
-        stopForeground(STOP_FOREGROUND_REMOVE);
-        LogManager.logD(TAG, "前台服务已停止，通知栏已移除");
+        // 立即停止前台服务，移除通知栏 - 已注释掉因为没有前台服务
+        // stopForeground(STOP_FOREGROUND_REMOVE);
+        LogManager.logD(TAG, "知识库构建服务准备停止");
         
         // 延迟1秒后停止服务，确保资源释放
         android.os.Handler mainHandler = new android.os.Handler(getMainLooper());
@@ -389,7 +389,7 @@ public class KnowledgeBaseBuilderService extends Service {
     public void cancelTask() {
         isTaskCancelled.set(true);
         LogManager.logD(TAG, "已请求取消知识库构建任务");
-        updateNotification("正在取消知识库构建...", 0);
+        // updateNotification("正在取消知识库构建...", 0);
     }
     
     /**
@@ -419,8 +419,8 @@ public class KnowledgeBaseBuilderService extends Service {
                 // 向量化进度
                 int progress = 50 + (int) (percentage / 2); // 50-100%
                 
-                // 更新通知栏进度
-                updateNotification("正在生成向量: " + processedChunks + "/" + totalChunks, progress);
+                // 更新通知栏进度 - 已注释掉通知更新
+                // updateNotification("正在生成向量: " + processedChunks + "/" + totalChunks, progress);
                 
                 // // 更新进度标签，恢复原来的格式：正在生成向量 (x/y): z%
                 // if (progressCallback != null) {
@@ -468,7 +468,7 @@ public class KnowledgeBaseBuilderService extends Service {
         textChunkProcessor.setNotificationProgressCallback(new TextChunkProcessor.NotificationProgressCallback() {
             @Override
             public void onNotificationProgressUpdate(int processedChunks, int totalChunks, float percentage) {
-                updateNotificationProgress(processedChunks, totalChunks, percentage);
+                // updateNotificationProgress(processedChunks, totalChunks, percentage);
             }
         });
         
@@ -510,8 +510,8 @@ public class KnowledgeBaseBuilderService extends Service {
         this.currentProgress = progress;
         this.currentStatus = status;
         
-        // 更新通知
-        updateNotification(status, progress);
+        // 更新通知 - 已注释掉通知更新
+        // updateNotification(status, progress);
         
         // 回调进度
         if (progressCallback != null) {
