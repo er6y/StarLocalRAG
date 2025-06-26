@@ -218,5 +218,5 @@ dependencies {
     }
 }
 
-// 确保在构建app之前先编译Rust库
-preBuild.dependsOn ':libs:tokenizers-jni:copyRustLibrariesArm64', ':libs:tokenizers-jni:copyRustLibrariesArm7'
+// 确保在构建app之前先复制Rust库
+preBuild.dependsOn ':libs:tokenizers-jni:copyRustLibrariesArm64', ':libs:tokenizers-jni:copyRustLibrariesArm7', ':libs:tokenizers-jni:copyRustLibrariesX86', ':libs:tokenizers-jni:copyRustLibrariesX86_64'

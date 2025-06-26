@@ -8,17 +8,17 @@ import android.util.Log;
 import com.example.starlocalrag.LogManager;
 
 /**
- * Uri 工具类
- * 用于处理 Uri 相关操作
+ * Uri utility class
+ * Used for handling Uri related operations
  */
 public class UriUtils {
     private static final String TAG = "UriUtils";
     
     /**
-     * 从 Uri 获取文件名
-     * @param context 上下文
-     * @param uri 文件 Uri
-     * @return 文件名，如果获取失败则返回 Uri 的字符串表示
+     * Get filename from Uri
+     * @param context Context
+     * @param uri File Uri
+     * @return Filename, returns Uri string representation if failed to get
      */
     public static String getFileName(Context context, Uri uri) {
         if (uri == null) return "";
@@ -45,7 +45,7 @@ public class UriUtils {
                 }
             }
         } catch (Exception e) {
-            LogManager.logE(TAG, "获取文件名失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "Failed to get filename: " + e.getMessage(), e);
             result = uri.toString();
         }
         

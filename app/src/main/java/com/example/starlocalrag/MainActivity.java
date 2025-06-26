@@ -12,6 +12,9 @@ import androidx.fragment.app.FragmentTransaction;
 import androidx.viewpager2.adapter.FragmentStateAdapter;
 import androidx.viewpager2.widget.ViewPager2;
 
+import android.content.res.Configuration;
+import java.util.Locale;
+
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 
 import android.Manifest;
@@ -60,6 +63,7 @@ public class MainActivity extends AppCompatActivity implements SettingsFragment.
     private ViewPager2 viewPager;
     private BottomNavigationView bottomNavigation;
     private LogManager logManager;
+    private StateDisplayManager stateDisplayManager;
     
     private boolean isInForeground = false;
     private KnowledgeBaseBuilderService knowledgeBaseBuilderService;
@@ -68,6 +72,34 @@ public class MainActivity extends AppCompatActivity implements SettingsFragment.
     // ActivityResultLauncher替代startActivityForResult
     private ActivityResultLauncher<Intent> manageStorageLauncher;
     private ActivityResultLauncher<Intent> batteryOptimizationLauncher;
+    
+    @Override
+    protected void attachBaseContext(Context newBase) {
+        super.attachBaseContext(updateBaseContextLocale(newBase));
+    }
+    
+    /**
+     * 更新Context的语言设置
+     */
+    private Context updateBaseContextLocale(Context context) {
+        try {
+            String language = ConfigManager.getString(context, ConfigManager.KEY_LANGUAGE, ConfigManager.DEFAULT_LANGUAGE);
+            
+            Locale locale;
+            if ("ENG".equals(language)) {
+                locale = Locale.ENGLISH;
+            } else {
+                locale = Locale.SIMPLIFIED_CHINESE;
+            }
+            
+            Configuration config = context.getResources().getConfiguration();
+            config.setLocale(locale);
+            return context.createConfigurationContext(config);
+        } catch (Exception e) {
+            LogManager.logE(TAG, "Failed to update Context language settings: " + e.getMessage());
+            return context;
+        }
+    }
     
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -85,6 +117,9 @@ public class MainActivity extends AppCompatActivity implements SettingsFragment.
         
         // 初始化日志管理器
         logManager = LogManager.getInstance(this);
+        
+        // 初始化状态显示管理器
+        stateDisplayManager = new StateDisplayManager(this);
         
         // 加载日志配置
         LogManager.loadLogConfig(this);
@@ -204,27 +239,27 @@ public class MainActivity extends AppCompatActivity implements SettingsFragment.
                 try {
                     // 显示一次性权限请求对话框
                     androidx.appcompat.app.AlertDialog.Builder builder = new androidx.appcompat.app.AlertDialog.Builder(this);
-                    builder.setTitle("需要完全文件访问权限");
-                    builder.setMessage("StarLocalRAG需要完全的文件访问权限才能正常工作。请在接下来的设置页面中授予权限，授予后将不再请求此权限。");
-                    builder.setPositiveButton("前往设置", (dialog, which) -> {
+                    builder.setTitle(stateDisplayManager.getDialogDisplay(AppConstants.DIALOG_TITLE_NEED_FULL_FILE_ACCESS));
+                    builder.setMessage(stateDisplayManager.getDialogDisplay(AppConstants.DIALOG_MESSAGE_NEED_FULL_FILE_ACCESS));
+                    builder.setPositiveButton(stateDisplayManager.getButtonDisplay(AppConstants.BUTTON_TEXT_GO_TO_SETTINGS), (dialog, which) -> {
                         Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
                         Uri uri = Uri.fromParts("package", getPackageName(), null);
                         intent.setData(uri);
                         manageStorageLauncher.launch(intent);
                     });
-                    builder.setNegativeButton("取消", (dialog, which) -> {
+                    builder.setNegativeButton(stateDisplayManager.getButtonDisplay(AppConstants.BUTTON_TEXT_CANCEL), (dialog, which) -> {
                         Toast.makeText(this, "应用可能无法正常工作", Toast.LENGTH_LONG).show();
                     });
                     builder.setCancelable(false);
                     builder.show();
                 } catch (Exception e) {
-                    LogManager.logE(TAG, "无法打开文件访问权限设置: " + e.getMessage());
+                    LogManager.logE(TAG, "Cannot open file access permission settings: " + e.getMessage());
                     Toast.makeText(this, "无法打开文件访问权限设置，请手动授予权限", Toast.LENGTH_LONG).show();
                 }
             } else if (Environment.isExternalStorageManager() && !hasStoragePermission) {
                 // 如果已经有权限但没有保存状态，则保存状态
                 ConfigManager.setBoolean(this, "has_storage_permission", true);
-                LogManager.logD(TAG, "已获得完全文件访问权限并保存状态");
+                LogManager.logD(TAG, "Obtained full file access permission and saved status");
             }
         }
     }
@@ -234,7 +269,7 @@ public class MainActivity extends AppCompatActivity implements SettingsFragment.
      */
     private void requestIgnoreBatteryOptimization() {
         // 不再在应用启动时自动请求，而是在需要时才请求
-        LogManager.logD(TAG, "电池优化状态: " + (isIgnoringBatteryOptimizations() ? "已忽略" : "未忽略"));
+        LogManager.logD(TAG, "Battery optimization status: " + (isIgnoringBatteryOptimizations() ? "ignored" : "not ignored"));
     }
     
     /**
@@ -250,7 +285,7 @@ public class MainActivity extends AppCompatActivity implements SettingsFragment.
                     batteryOptimizationLauncher.launch(intent);
                     return true;
                 } catch (Exception e) {
-                    LogManager.logE(TAG, "请求忽略电池优化失败: " + e.getMessage(), e);
+                    LogManager.logE(TAG, "Failed to request ignore battery optimization: " + e.getMessage(), e);
                     return false;
                 }
             }
@@ -271,7 +306,7 @@ public class MainActivity extends AppCompatActivity implements SettingsFragment.
                     startActivity(intent);
                     return true;
                 } catch (Exception e) {
-                    LogManager.logE(TAG, "恢复电池优化失败: " + e.getMessage(), e);
+                    LogManager.logE(TAG, "Failed to restore battery optimization: " + e.getMessage(), e);
                     return false;
                 }
             }
@@ -286,14 +321,14 @@ public class MainActivity extends AppCompatActivity implements SettingsFragment.
         try {
             // 加载配置，如果不存在会创建默认配置
             JSONObject config = ConfigManager.loadConfig(this);
-            LogManager.logD(TAG, "应用启动时加载配置: " + config.toString(2));
+            LogManager.logD(TAG, "Loading configuration at app startup: " + config.toString(2));
             
             // 确保配置文件存在
             File configFile = new File(getFilesDir(), ".config");
             if (configFile.exists()) {
-                LogManager.logD(TAG, "配置文件已存在: " + configFile.getAbsolutePath());
+                LogManager.logD(TAG, "Configuration file exists: " + configFile.getAbsolutePath());
             } else {
-                LogManager.logD(TAG, "配置文件不存在，创建默认配置");
+                LogManager.logD(TAG, "Configuration file does not exist, creating default configuration");
                 ConfigManager.saveConfig(this, config);
             }
             
@@ -308,7 +343,7 @@ public class MainActivity extends AppCompatActivity implements SettingsFragment.
                 ConfigManager.setInt(this, ConfigManager.KEY_OVERLAP_SIZE, 200);
             }
         } catch (Exception e) {
-            LogManager.logE(TAG, "初始化配置失败", e);
+            LogManager.logE(TAG, "Failed to initialize configuration", e);
         }
     }
     
@@ -325,11 +360,11 @@ public class MainActivity extends AppCompatActivity implements SettingsFragment.
             }
             
             if (allGranted) {
-                LogManager.logD(TAG, "所有权限已授予");
+                LogManager.logD(TAG, "All permissions granted");
                 // 重新加载配置
                 initializeConfig();
             } else {
-                LogManager.logE(TAG, "权限被拒绝");
+                LogManager.logE(TAG, "Permissions denied");
                 Toast.makeText(this, "需要存储权限才能访问模型和知识库文件", Toast.LENGTH_LONG).show();
                 
                 // 显示权限说明对话框
@@ -347,20 +382,20 @@ public class MainActivity extends AppCompatActivity implements SettingsFragment.
                 if (Environment.isExternalStorageManager()) {
                     // 已获得权限，保存状态
                     ConfigManager.setBoolean(this, "has_storage_permission", true);
-                    LogManager.logD(TAG, "已获得完全文件访问权限");
-                    Toast.makeText(this, "已获得文件访问权限", Toast.LENGTH_SHORT).show();
+                    LogManager.logD(TAG, "Obtained full file access permission");
+                    Toast.makeText(this, getString(R.string.toast_file_access_permission_granted), Toast.LENGTH_SHORT).show();
                 } else {
                     // 未获得权限
-                    LogManager.logW(TAG, "未获得完全文件访问权限");
-                    Toast.makeText(this, "未获得文件访问权限，应用可能无法正常工作", Toast.LENGTH_LONG).show();
+                    LogManager.logW(TAG, "Did not obtain full file access permission");
+                    Toast.makeText(this, getString(R.string.toast_file_access_permission_denied), Toast.LENGTH_LONG).show();
                 }
             }
         } else if (requestCode == BATTERY_OPTIMIZATION_REQUEST_CODE) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 if (isIgnoringBatteryOptimizations()) {
-                    LogManager.logD(TAG, "已忽略电池优化");
+                    LogManager.logD(TAG, "Battery optimization ignored");
                 } else {
-                    LogManager.logW(TAG, "未忽略电池优化");
+                    LogManager.logW(TAG, "Battery optimization not ignored");
                 }
             }
         }
@@ -371,18 +406,17 @@ public class MainActivity extends AppCompatActivity implements SettingsFragment.
      */
     private void showPermissionExplanationDialog() {
         androidx.appcompat.app.AlertDialog.Builder builder = new androidx.appcompat.app.AlertDialog.Builder(this);
-        builder.setTitle("需要存储权限");
-        builder.setMessage("StarLocalRAG 需要访问外部存储权限才能读取和保存模型文件、知识库文件等。\n\n" +
-                "请在设置中授予应用存储权限，否则应用将无法正常工作。");
-        builder.setPositiveButton("前往设置", (dialog, which) -> {
+        builder.setTitle(stateDisplayManager.getDialogDisplay(AppConstants.DIALOG_TITLE_NEED_STORAGE_PERMISSION));
+        builder.setMessage(stateDisplayManager.getDialogDisplay(AppConstants.DIALOG_MESSAGE_NEED_STORAGE_PERMISSION));
+        builder.setPositiveButton(stateDisplayManager.getButtonDisplay(AppConstants.BUTTON_TEXT_GO_TO_SETTINGS), (dialog, which) -> {
             // 打开应用设置页面
             Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
             Uri uri = Uri.fromParts("package", getPackageName(), null);
             intent.setData(uri);
             startActivity(intent);
         });
-        builder.setNegativeButton("取消", (dialog, which) -> {
-            Toast.makeText(this, "应用可能无法正常工作", Toast.LENGTH_SHORT).show();
+        builder.setNegativeButton(stateDisplayManager.getButtonDisplay(AppConstants.BUTTON_TEXT_CANCEL), (dialog, which) -> {
+            Toast.makeText(this, getString(R.string.toast_app_may_not_work_short), Toast.LENGTH_SHORT).show();
         });
         builder.setCancelable(false);
         builder.show();
@@ -391,6 +425,18 @@ public class MainActivity extends AppCompatActivity implements SettingsFragment.
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
         getMenuInflater().inflate(R.menu.main_menu, menu);
+        
+        // 动态设置语言切换菜单项的标题
+        MenuItem languageItem = menu.findItem(R.id.action_switch_language);
+        if (languageItem != null) {
+            String currentLanguage = ConfigManager.getString(this, ConfigManager.KEY_LANGUAGE, ConfigManager.DEFAULT_LANGUAGE);
+            if ("CHN".equals(currentLanguage)) {
+                languageItem.setTitle(stateDisplayManager.getMenuDisplay(AppConstants.MENU_SWITCH_TO_ENGLISH));
+            } else {
+                languageItem.setTitle(stateDisplayManager.getMenuDisplay(AppConstants.MENU_SWITCH_TO_CHINESE));
+            }
+        }
+        
         return true;
     }
     
@@ -446,6 +492,23 @@ public class MainActivity extends AppCompatActivity implements SettingsFragment.
             transaction.addToBackStack("log_view");
             transaction.commit();
             return true;
+        } else if (id == R.id.action_switch_language) {
+            // 切换语言设置
+            String currentLanguage = ConfigManager.getString(this, ConfigManager.KEY_LANGUAGE, ConfigManager.DEFAULT_LANGUAGE);
+            String newLanguage = "CHN".equals(currentLanguage) ? "ENG" : "CHN";
+            ConfigManager.setString(this, ConfigManager.KEY_LANGUAGE, newLanguage);
+            
+            // 更新应用语言设置
+            GlobalApplication.updateAppLocale(newLanguage);
+            
+            // 显示切换成功的提示
+            String message = "ENG".equals(newLanguage) ? "Language switched to English" : "语言已切换为中文";
+            Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
+            
+            // 重新创建Activity以应用新的语言设置
+            recreate();
+            
+            return true;
         }
         
         return super.onOptionsItemSelected(item);
@@ -458,20 +521,20 @@ public class MainActivity extends AppCompatActivity implements SettingsFragment.
         String versionInfo = BUILD_VERSION;
         
         androidx.appcompat.app.AlertDialog.Builder builder = new androidx.appcompat.app.AlertDialog.Builder(this);
-        builder.setTitle("关于 StarLocalRAG");
-        builder.setMessage("版本: " + versionInfo + "\n\n本地RAG (检索增强生成) 应用");
-        builder.setPositiveButton("确定", null);
+        builder.setTitle(stateDisplayManager.getDialogDisplay(AppConstants.DIALOG_TITLE_ABOUT));
+        builder.setMessage(String.format(stateDisplayManager.getDialogDisplay(AppConstants.DIALOG_MESSAGE_ABOUT), versionInfo));
+        builder.setPositiveButton(stateDisplayManager.getButtonDisplay(AppConstants.BUTTON_TEXT_OK), null);
         builder.show();
     }
     
     @Override
     public void onSettingsChanged() {
         // 设置已更改，刷新相关数据
-        LogManager.logD(TAG, "设置已更改，刷新数据");
+        LogManager.logD(TAG, "Settings changed, refreshing data");
         
         // 获取最新的GPU设置
         boolean useGpu = ConfigManager.getBoolean(this, ConfigManager.KEY_USE_GPU, false);
-        LogManager.logI(TAG, "GPU设置变更通知: " + (useGpu ? "启用" : "禁用") + "GPU加速");
+        LogManager.logI(TAG, "GPU setting change notification: " + (useGpu ? "enabled" : "disabled") + " GPU acceleration");
         
         // 更新LocalLlmAdapter的GPU设置
         try {
@@ -479,10 +542,10 @@ public class MainActivity extends AppCompatActivity implements SettingsFragment.
             if (localLlmAdapter != null) {
                 localLlmAdapter.updateGpuSetting(useGpu);
             } else {
-                LogManager.logW(TAG, "GPU设置变更: LocalLlmAdapter实例为null，无法更新GPU设置");
+                LogManager.logW(TAG, "GPU setting change: LocalLlmAdapter instance is null, cannot update GPU settings");
             }
         } catch (Exception e) {
-            LogManager.logE(TAG, "GPU设置变更: 更新LocalLlmAdapter GPU设置失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "GPU setting change: Failed to update LocalLlmAdapter GPU settings: " + e.getMessage(), e);
         }
         
         // 更新EmbeddingModelManager的GPU设置
@@ -490,12 +553,12 @@ public class MainActivity extends AppCompatActivity implements SettingsFragment.
             EmbeddingModelManager embeddingModelManager = EmbeddingModelManager.getInstance(this);
             if (embeddingModelManager != null) {
                 embeddingModelManager.updateGpuSetting(useGpu);
-                LogManager.logI(TAG, "GPU设置变更: 成功更新EmbeddingModelManager GPU设置");
+                LogManager.logI(TAG, "GPU setting change: Successfully updated EmbeddingModelManager GPU settings");
             } else {
-                LogManager.logW(TAG, "GPU设置变更: EmbeddingModelManager实例为null，无法更新GPU设置");
+                LogManager.logW(TAG, "GPU setting change: EmbeddingModelManager instance is null, cannot update GPU settings");
             }
         } catch (Exception e) {
-            LogManager.logE(TAG, "GPU设置变更: 更新EmbeddingModelManager GPU设置失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "GPU setting change: Failed to update EmbeddingModelManager GPU settings: " + e.getMessage(), e);
         }
         
         // 重新加载当前Fragment
@@ -530,7 +593,7 @@ public class MainActivity extends AppCompatActivity implements SettingsFragment.
         // 如果服务正在运行，通知服务应用已切换到前台
         if (knowledgeBaseBuilderService != null) {
             knowledgeBaseBuilderService.onAppForegrounded();
-            LogManager.logD(TAG, "已通知知识库构建服务：应用切换到前台");
+            LogManager.logD(TAG, "Notified knowledge base build service: app switched to foreground");
         }
     }
     
@@ -543,7 +606,7 @@ public class MainActivity extends AppCompatActivity implements SettingsFragment.
         // 如果服务正在运行，通知服务应用已切换到后台
         if (knowledgeBaseBuilderService != null) {
             knowledgeBaseBuilderService.onAppBackgrounded();
-            LogManager.logD(TAG, "已通知知识库构建服务：应用切换到后台");
+            LogManager.logD(TAG, "Notified knowledge base build service: app switched to background");
         }
     }
     

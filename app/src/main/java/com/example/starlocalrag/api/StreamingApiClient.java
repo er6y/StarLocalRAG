@@ -118,9 +118,9 @@ public class StreamingApiClient {
                 @Override
                 public void onResponse(Call call, Response response) throws IOException {
                     if (!response.isSuccessful()) {
-                        LogManager.logE(TAG, "请求失败，状态码: " + response.code());
+                        LogManager.logE(TAG, "Request failed, status code: " + response.code());
                         new Handler(Looper.getMainLooper()).post(() -> {
-                            callback.onError("请求失败，状态码: " + response.code());
+                            callback.onError("Request failed, status code: " + response.code());
                         });
                         return;
                     }

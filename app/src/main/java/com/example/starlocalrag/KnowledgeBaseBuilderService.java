@@ -46,6 +46,9 @@ public class KnowledgeBaseBuilderService extends Service {
     private int currentProgress = 0;
     private String currentStatus = "准备中...";
     
+    // Progress manager instance
+    private ProgressManager progressManager;
+    
     // 唤醒锁
     private PowerManager.WakeLock wakeLock;
     
@@ -108,13 +111,13 @@ public class KnowledgeBaseBuilderService extends Service {
     
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        LogManager.logD(TAG, "知识库构建服务已启动，startId: " + startId + ", flags: " + flags);
+        LogManager.logD(TAG, "服务启动命令接收");
         
-        // 不在这里启动前台服务，而是在实际开始构建知识库时才启动
-        // startForeground(NOTIFICATION_ID, createNotification("准备构建知识库...", 0));
-        // LogManager.logD(TAG, "已启动前台服务，通知ID: " + NOTIFICATION_ID);
+        // 立即启动前台服务以避免ANR错误
+        startForeground(NOTIFICATION_ID, createNotification("准备构建知识库...", 0));
+        LogManager.logD(TAG, "前台服务已启动");
         
-        return START_REDELIVER_INTENT; // 如果服务被系统杀死，重新传递Intent
+        return START_NOT_STICKY; // 服务被杀死后不自动重启
     }
     
     @Override
@@ -214,7 +217,7 @@ public class KnowledgeBaseBuilderService extends Service {
         int displayTotal = totalFiles > 0 ? totalFiles : 1;
         
         // 使用一致的格式"(已处理文件数/总文件数)"
-        String status = String.format("正在提取文本 (%d/%d): %s", 
+        String status = String.format(getString(R.string.progress_text_extraction_keyword) + " (%d/%d): %s", 
                 processedFiles, displayTotal, currentFile);
         
         // 为通知栏保留百分比进度
@@ -302,9 +305,14 @@ public class KnowledgeBaseBuilderService extends Service {
             LogManager.logD(TAG, "唤醒锁已经持有，无需重新获取");
         }
         
-        // 启动前台服务 - 已注释掉通知弹出
-        // startForeground(NOTIFICATION_ID, createNotification("开始构建知识库: " + knowledgeBaseName, 0));
-        LogManager.logD(TAG, "知识库构建开始，已跳过前台服务通知");
+        // 更新前台服务通知内容
+        try {
+            NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            notificationManager.notify(NOTIFICATION_ID, createNotification("开始构建知识库: " + knowledgeBaseName, 0));
+            LogManager.logD(TAG, "已更新前台服务通知内容");
+        } catch (Exception e) {
+            LogManager.logE(TAG, "更新通知失败: " + e.getMessage());
+        }
         
         // 在后台线程中执行构建任务
         executor.execute(() -> {
@@ -403,58 +411,76 @@ public class KnowledgeBaseBuilderService extends Service {
         // 1. 初始化文本处理器
         TextChunkProcessor textChunkProcessor = new TextChunkProcessor(this, isTaskCancelled);
         
-        // 2. 设置进度回调
+        // 2. Initialize progress manager
+        progressManager = ProgressManager.getInstance();
+        progressManager.reset();
+        
+        // 3. Set progress callback
         textChunkProcessor.setProgressCallback(new TextChunkProcessor.ProgressCallback() {
             @Override
             public void onTextExtractionProgress(int processedFiles, int totalFiles, String currentFile) {
-                // 更新通知栏进度
+                // Update progress manager
+                if (processedFiles == 1 && totalFiles > 0) {
+                    progressManager.initFileProcessing(totalFiles);
+                }
+                progressManager.updateFileProgress(processedFiles, currentFile);
+                
+                // Update notification progress
                 updateTextExtractionProgress(processedFiles, totalFiles, currentFile);
                 
-                // 记录日志，但不再重复发送进度更新到UI
-                LogManager.logD(TAG, "文本提取进度: " + processedFiles + "/" + totalFiles + ", 当前文件: " + currentFile);
+                // Log progress
+                LogManager.logD(TAG, "Text extraction progress: " + processedFiles + "/" + totalFiles + ", current file: " + currentFile);
             }
             
             @Override
             public void onVectorizationProgress(int processedChunks, int totalChunks, float percentage) {
-                // 向量化进度
-                int progress = 50 + (int) (percentage / 2); // 50-100%
+                // Update progress manager
+                progressManager.updateVectorizationProgress(processedChunks, totalChunks, percentage);
                 
-                // 更新通知栏进度 - 已注释掉通知更新
-                // updateNotification("正在生成向量: " + processedChunks + "/" + totalChunks, progress);
+                // Calculate overall progress (50-100%)
+                int progress = 50 + (int) (percentage / 2);
                 
-                // // 更新进度标签，恢复原来的格式：正在生成向量 (x/y): z%
-                // if (progressCallback != null) {
-                //     sprogressCallback.onProgressUpdate(progress, 
-                //         String.format(Locale.getDefault(), "正在生成向量 (%d/%d): %.1f%%", 
-                //             processedChunks, totalChunks, percentage));
-                // }
+                // Update progress with localized status
+                String status = StateDisplayManager.getProcessingStatusDisplayText(getApplicationContext(), 
+                    AppConstants.PROCESSING_STATUS_GENERATING_VECTORS) + " (" + processedChunks + "/" + totalChunks + ")";
+                updateProgress(progress, status);
                 
-                
-                // 更新进度（这里会生成包含"正在生成向量"的状态信息）
-                 updateProgress(50 + (int) (percentage / 2), String.format(Locale.getDefault(), "正在生成向量 (%d/%d)",  processedChunks, totalChunks));
-                // 注意：进度文本框的更新由TextChunkProcessor中的onLog回调处理
-                // 那里会显示"向量化进度..........10%..........20%..."格式
+                LogManager.logD(TAG, "Vectorization progress: " + processedChunks + "/" + totalChunks + " (" + percentage + "%)");
             }
             
             @Override
             public void onTextExtractionComplete(int totalChunks) {
-                // 文本提取完成
-                LogManager.logD(TAG, "文本提取完成，共 " + totalChunks + " 个文本块. 开始向量化...");
-                updateProgress(50, "文本提取完成，共 " + totalChunks + " 个文本块. 开始向量化...");
+                // Initialize vectorization in progress manager
+                progressManager.initVectorization(totalChunks);
+                
+                // Update progress with localized status
+                String status = StateDisplayManager.getProcessingStatusDisplayText(getApplicationContext(), 
+                    AppConstants.PROCESSING_STATUS_TEXT_EXTRACTION_COMPLETE) + ", " + 
+                    getString(R.string.text_extraction_complete_chunks, totalChunks);
+                
+                LogManager.logD(TAG, "Text extraction completed, total chunks: " + totalChunks + ". Starting vectorization...");
+                updateProgress(50, status);
             }
             
             @Override
             public void onVectorizationComplete(int vectorCount) {
-                // 向量化完成
-                LogManager.logD(TAG, "向量化处理完成，共生成 " + vectorCount + " 个向量");
-                updateProgress(100, "向量化处理完成，共生成 " + vectorCount + " 个向量");
+                // Mark completion in progress manager
+                progressManager.markCompleted();
+                
+                // Update progress with localized status
+                String status = StateDisplayManager.getProcessingStatusDisplayText(getApplicationContext(), 
+                    AppConstants.PROCESSING_STATUS_VECTORIZATION_COMPLETE) + ", " + 
+                    getString(R.string.vectorization_complete_vectors, vectorCount);
+                
+                LogManager.logD(TAG, "Vectorization completed, total vectors: " + vectorCount);
+                updateProgress(100, status);
             }
             
             @Override
             public void onError(String errorMessage) {
                 // 处理错误
                 LogManager.logE(TAG, "错误: " + errorMessage);
-                updateProgress(0, "错误: " + errorMessage);
+                updateProgress(0, getString(R.string.error_message, errorMessage));
             }
             
             @Override

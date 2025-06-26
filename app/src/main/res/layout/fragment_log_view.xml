@@ -55,7 +55,7 @@
         android:src="@android:drawable/arrow_up_float"
         android:scaleType="fitCenter"
         android:padding="2dp"
-        android:contentDescription="向上滚动"
+        android:contentDescription="@string/content_description_scroll_up"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toEndOf="@id/textViewLog" />
@@ -69,7 +69,7 @@
         android:src="@android:drawable/arrow_down_float"
         android:scaleType="fitCenter"
         android:padding="2dp"
-        android:contentDescription="向下滚动"
+        android:contentDescription="@string/content_description_scroll_down"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toEndOf="@id/textViewLog" />

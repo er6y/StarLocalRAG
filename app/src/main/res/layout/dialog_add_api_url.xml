@@ -8,7 +8,7 @@
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="API地址"
+        android:text="@string/label_api_url"
         android:textSize="16sp"
         android:layout_marginBottom="8dp" />
 
@@ -16,14 +16,14 @@
         android:id="@+id/editTextNewApiUrl"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:hint="例如: https://api.example.com"
+        android:hint="@string/hint_api_url_example"
         android:inputType="textUri"
         android:layout_marginBottom="16dp" />
 
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="API密钥 (可选)"
+        android:text="@string/label_api_key_optional"
         android:textSize="16sp"
         android:layout_marginBottom="8dp" />
 
@@ -31,7 +31,7 @@
         android:id="@+id/editTextNewApiKey"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:hint="例如: sk-abcdefg123456"
+        android:hint="@string/hint_api_key_example"
         android:inputType="textPassword" />
 
 </LinearLayout>

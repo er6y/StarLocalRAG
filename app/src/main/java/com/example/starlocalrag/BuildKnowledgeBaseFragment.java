@@ -51,11 +51,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import com.example.starlocalrag.ConfigManager;
 import com.example.starlocalrag.EmbeddingModelHandler;
 import com.example.starlocalrag.EmbeddingModelManager.ModelCallback;
+import com.example.starlocalrag.ProgressManager;
 import com.example.starlocalrag.SQLiteVectorDatabaseHandler;
 import com.example.starlocalrag.SettingsFragment;
 import com.example.starlocalrag.TextChunkProcessor.ProgressCallback;
 import com.example.starlocalrag.api.TokenizerManager;
 import com.example.starlocalrag.Utils;
+import com.example.starlocalrag.AppConstants;
+import com.example.starlocalrag.StateDisplayManager;
 
 public class BuildKnowledgeBaseFragment extends Fragment {
 
@@ -137,6 +140,9 @@ public class BuildKnowledgeBaseFragment extends Fragment {
     // 跟踪电池优化状态
     private boolean batteryOptimizationDisabled = false;
     
+    // 状态显示管理器
+    private StateDisplayManager stateDisplayManager;
+    
     // 知识库构建服务
     private KnowledgeBaseBuilderService builderService;
     private boolean isServiceBound = false;
@@ -160,141 +166,52 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                             LogManager.logD(TAG, "Fragment已分离，跳过进度更新");
                             return;
                         }
-                        // 如果状态不为空，则更新进度标签和处理进度信息
-                        if (status != null) {
-                            // 更新进度标签
-                            textViewProgressLabel.setText(status);
-                            
-                            // 根据状态信息更新内部进度变量
-                            if (status.contains("正在提取文本")) {
-                                // 确保startTime已初始化
-                                if (startTime <= 0) {
-                                    startTime = System.currentTimeMillis();
-                                    isProcessing = true;
-                                }
-                                
-                                // 文本提取阶段
+                        
+                        // 获取ProgressManager实例
+                        ProgressManager progressManager = ProgressManager.getInstance();
+                        ProgressManager.ProgressData progressData = progressManager.getCurrentProgress();
+                        
+                        // 确保startTime已初始化
+                        if (startTime <= 0 && progressData.currentStage != ProgressManager.ProcessingStage.IDLE) {
+                            startTime = System.currentTimeMillis();
+                            isProcessing = true;
+                        }
+                        
+                        // 根据ProgressManager的数据更新内部变量
+                        switch (progressData.currentStage) {
+                            case TEXT_EXTRACTION:
                                 currentStage = ProcessingStage.TEXT_EXTRACTION;
+                                processedFilesCount = progressData.processedFiles;
+                                totalFiles = progressData.totalFiles;
+                                LogManager.logD(TAG, "文本提取进度: " + processedFilesCount + "/" + totalFiles + " " + formatElapsedTime());
+                                break;
                                 
-                                // 解析文件计数信息，新格式：正在提取文本 (N/M): xxx
-                                try {
-                                    // 检查是否包含文件块信息
-                                    if (status.contains("(生成了")) {
-                                        // 包含文本块信息，尝试提取
-                                        int blocksStart = status.indexOf("(生成了");
-                                        int blocksEnd = status.indexOf("个文本块)");
-                                        if (blocksStart > 0 && blocksEnd > blocksStart) {
-                                            String blocksStr = status.substring(blocksStart + 4, blocksEnd).trim();
-                                            try {
-                                                int extractedTextBlocks = Integer.parseInt(blocksStr);
-                                                LogManager.logD(TAG, "提取到文本块数量: " + extractedTextBlocks);
-                                            } catch (NumberFormatException e) {
-                                                LogManager.logE(TAG, "解析文本块数量失败: " + e.getMessage());
-                                            }
-                                        }
-                                    }
-                                    
-                                    // 解析处理文件数量信息
-                                    // 格式: 正在提取文本 (N/M): xxx
-                                    int startIdx = status.indexOf("(") + 1;
-                                    int endIdx = status.indexOf(")");
-                                    if (startIdx > 0 && endIdx > startIdx) {
-                                        String countPart = status.substring(startIdx, endIdx);
-                                        String[] parts = countPart.split("/");
-                                        if (parts.length == 2) {
-                                            int processed = Integer.parseInt(parts[0].trim());
-                                            int total = Integer.parseInt(parts[1].trim());
-                                            
-                                            // 更新进度变量
-                                            processedFilesCount = processed;
-                                            totalFiles = total;
-                                            
-                                            LogManager.logD(TAG, "文本提取进度变量: " + processedFilesCount + "/" + totalFiles + " " + formatElapsedTime());
-                                        }
-                                    }
-                                } catch (Exception e) {
-                                    LogManager.logE(TAG, "解析文本提取进度信息失败: " + status, e);
-                                }
-                                updateProgressUI(progress, status);
-                            } else if (status.contains("正在生成向量")) {
-                                // 确保startTime已初始化
-                                if (startTime <= 0) {
-                                    startTime = System.currentTimeMillis();
-                                    isProcessing = true;
-                                }
-                                
-                                // 向量化阶段
+                            case VECTORIZATION:
                                 currentStage = ProcessingStage.VECTORIZATION;
-
-                                // 解析向量化进度信息，格式：正在生成向量 (N/M)
-                                try {
-                                    int startIndex = status.indexOf("(") + 1;
-                                    int endIndex = status.indexOf(")");
-                                    if (startIndex > 0 && endIndex > startIndex) {
-                                        String countPart = status.substring(startIndex, endIndex);
-                                        String[] parts = countPart.split("/");
-                                        if (parts.length == 2) {
-                                            int processed = Integer.parseInt(parts[0].trim());
-                                            int total = Integer.parseInt(parts[1].trim());
-                                            
-                                            // 更新进度变量
-                                            processedChunks = processed;
-                                            totalChunks = total;
-                                            vectorizationPercentage = (float) processed / total * 100;
-                                            
-                                        }
-                                    }
-                                } catch (Exception e) {
-                                    LogManager.logE(TAG, "向量化进度信息失败: " + status, e);
-                                }
-                                updateProgressLabel();
-                                //updateProgressUI(progress, status);
-                            } else if (status.contains("文本提取完成")) {
-                                // 文本提取完成
-                                currentStage = ProcessingStage.VECTORIZATION;
+                                processedChunks = progressData.processedChunks;
+                                totalChunks = progressData.totalChunks;
+                                vectorizationPercentage = progressData.vectorizationPercentage;
+                                LogManager.logD(TAG, "向量化进度: " + processedChunks + "/" + totalChunks + " (" + vectorizationPercentage + "%) " + formatElapsedTime());
+                                break;
                                 
-                                // 解析总块数
-                                try {
-                                    String totalStr = status.substring(status.indexOf("共") + 1, status.indexOf("个文本块")).trim();
-                                    totalChunks = Integer.parseInt(totalStr);
-                                    processedChunks = 0;
-                                    vectorizationPercentage = 0;
-                                    
-                                    LogManager.logD(TAG, "文本提取完成，获取到总块数: " + totalChunks + " " + formatElapsedTime());
-                                } catch (Exception e) {
-                                    LogManager.logE(TAG, "解析文本块总数失败: " + status, e);
-                                }
-                                updateProgressUI(progress, status);
-                            } else if (status.contains("向量化处理完成")) {
-                                // 向量化完成
+                            case COMPLETED:
                                 currentStage = ProcessingStage.COMPLETED;
-                                // 确保显示100%完成
-                                processedChunks = totalChunks;
-                                totalChunks = totalChunks;
+                                processedChunks = progressData.totalChunks;
+                                totalChunks = progressData.totalChunks;
                                 vectorizationPercentage = 100;
+                                LogManager.logD(TAG, "处理完成 " + formatElapsedTime());
+                                break;
                                 
-                                LogManager.logD(TAG, "向量化处理完成 " + formatElapsedTime());
-                                updateProgressUI(progress, status + " Total:" + totalChunks + " " + formatElapsedTime());
-                            }
-                            else
-                            {
-                                // 更新UI，只有当status不为null时才更新文本内容
-                                updateProgressUI(progress, status);
-                            }
+                            default:
+                                // IDLE or other states
+                                break;
+                        }
+                        
+                        // 更新UI显示
+                        if (status != null) {
+                            updateProgressUI(progress, status);
                         } else {
-                            // 即使status为null，也要更新进度标签显示当前进度
-                            // 这里使用内部进度变量来构造进度标签
-
-                            if (currentStage == ProcessingStage.VECTORIZATION && totalChunks > 0) {
-                                //String progressText = String.format(Locale.getDefault(), 
-                                //    "正在生成向量 (%d/%d): %.1f%%", 
-                                //    processedChunks, totalChunks, vectorizationPercentage);
-                                //textViewProgressLabel.setText(progressText);
-                            }
-                            
-                            // 只更新进度标签，不更新文本内容
                             updateProgressLabel();
-
                         }
                     });
                 }
@@ -353,6 +270,9 @@ public class BuildKnowledgeBaseFragment extends Fragment {
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle savedInstanceState) {
         View view = inflater.inflate(R.layout.fragment_build_knowledge_base, container, false);
         
+        // 初始化StateDisplayManager
+        stateDisplayManager = new StateDisplayManager(requireContext());
+        
         // 初始化ActivityResultLauncher
         initializeActivityResultLauncher();
         
@@ -379,12 +299,12 @@ public class BuildKnowledgeBaseFragment extends Fragment {
             if (isProcessing) {
                 // 显示确认对话框
                 new AlertDialog.Builder(requireContext())
-                    .setTitle("确认中断")
-                    .setMessage("确定要中断当前知识库创建过程吗？已处理的数据将被保留。")
-                    .setPositiveButton("确定", (dialog, which) -> {
+                    .setTitle(stateDisplayManager.getDialogDisplay(AppConstants.DIALOG_TITLE_CONFIRM_INTERRUPT))
+                    .setMessage(stateDisplayManager.getDialogDisplay(AppConstants.DIALOG_MESSAGE_CONFIRM_INTERRUPT))
+                    .setPositiveButton(stateDisplayManager.getButtonDisplay(AppConstants.BUTTON_TEXT_OK), (dialog, which) -> {
                         cancelProcessing();
                     })
-                    .setNegativeButton("取消", null)
+                    .setNegativeButton(stateDisplayManager.getButtonDisplay(AppConstants.BUTTON_TEXT_CANCEL), null)
                     .show();
             } else {
                 createKnowledgeBase();
@@ -400,7 +320,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                 LogManager.logD(TAG, "选择了词嵌入模型: " + selectedModel);
                 
                 // 保存用户选择的模型到ConfigManager（排除加载状态和错误状态）
-                if ( !selectedModel.contains("加载") && !selectedModel.contains("无可用") && !selectedModel.contains("获取") && !selectedModel.contains("失败")) {
+                if (!StateDisplayManager.isModelStatusDisplayText(requireContext(), selectedModel)) {
                     ConfigManager.setLastSelectedEmbeddingModel(requireContext(), selectedModel);
                     LogManager.logD(TAG, "已保存词嵌入模型选择: " + selectedModel);
                 }
@@ -420,8 +340,8 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                 LogManager.logD(TAG, "选择了重排模型: " + selectedModel);
                 
                 // 保存用户选择的重排模型到ConfigManager（排除加载状态和错误状态）
-                if (!selectedModel.contains("加载") && !selectedModel.contains("无可用") && !selectedModel.contains("获取") && !selectedModel.contains("失败")) {
-                    if ("无".equals(selectedModel)) {
+                if (!StateDisplayManager.isModelStatusDisplayText(requireContext(), selectedModel)) {
+                    if (StateDisplayManager.getRerankerModelDisplayText(requireContext(), AppConstants.RERANKER_MODEL_NONE).equals(selectedModel)) {
                         // 用户选择"无"时，保存空字符串
                         ConfigManager.setLastSelectedRerankerModel(requireContext(), "");
                         LogManager.logD(TAG, "用户选择无重排模型，已保存空字符串");
@@ -609,7 +529,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
             LogManager.logD(TAG, "重排模型目录路径: " + rerankerModelPath);
             
             List<String> rerankerOptions = new ArrayList<>();
-            rerankerOptions.add("无"); // 默认选项
+            rerankerOptions.add(getString(R.string.common_none)); // 默认选项
             
             // 获取reranker目录
             File rerankerDir = new File(rerankerModelPath);
@@ -784,9 +704,9 @@ public class BuildKnowledgeBaseFragment extends Fragment {
         
         // 创建并显示对话框
         new AlertDialog.Builder(requireContext())
-            .setTitle("新建知识库")
+            .setTitle(StateDisplayManager.getDialogDisplayText(requireContext(), AppConstants.DIALOG_TITLE_NEW_KB))
             .setView(container)
-            .setPositiveButton("确定", (dialog, which) -> {
+            .setPositiveButton(StateDisplayManager.getButtonDisplayText(requireContext(), AppConstants.BUTTON_TEXT_OK), (dialog, which) -> {
                 String newKnowledgeBaseName = input.getText().toString().trim();
                 if (!newKnowledgeBaseName.isEmpty()) {
                     // 将新知识库名称添加到下拉框并选中
@@ -804,12 +724,12 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                         spinnerKnowledgeBaseName.setSelection(position);
                     }
                     
-                    Utils.showToastSafely(requireContext(), "已添加新知识库名称: " + newKnowledgeBaseName, Toast.LENGTH_SHORT);
+                    Utils.showToastSafely(requireContext(), "知识库名称已添加: " + newKnowledgeBaseName, Toast.LENGTH_SHORT);
                 } else {
                     Utils.showToastSafely(requireContext(), "知识库名称不能为空", Toast.LENGTH_SHORT);
                 }
             })
-            .setNegativeButton("取消", null)
+            .setNegativeButton(StateDisplayManager.getButtonDisplayText(requireContext(), AppConstants.BUTTON_TEXT_CANCEL), null)
             .show();
     }
     
@@ -817,17 +737,13 @@ public class BuildKnowledgeBaseFragment extends Fragment {
     private void createKnowledgeBase() {
         // 基本验证
         if (selectedFiles.isEmpty()) {
-            Utils.showToastSafely(requireContext(), "请先选择文件", Toast.LENGTH_SHORT);
+            Utils.showToastSafely(requireContext(), StateDisplayManager.getValidationDisplayText(requireContext(), AppConstants.VALIDATION_PLEASE_SELECT_FILES), Toast.LENGTH_SHORT);
             return;
         }
         
         String embeddingModel = spinnerEmbeddingModel.getSelectedItem().toString();
-        if (spinnerEmbeddingModel.getSelectedItemPosition() <= 0 || 
-            embeddingModel.contains("加载") || 
-            embeddingModel.contains("无可用") || 
-            embeddingModel.contains("获取") || 
-            embeddingModel.contains("失败")) {
-            Utils.showToastSafely(requireContext(), "请先选择有效的词嵌入模型", Toast.LENGTH_SHORT);
+        if (StateDisplayManager.isModelStatusDisplayText(requireContext(), embeddingModel)) {
+            Utils.showToastSafely(requireContext(), StateDisplayManager.getValidationDisplayText(requireContext(), AppConstants.VALIDATION_PLEASE_SELECT_VALID_EMBEDDING), Toast.LENGTH_SHORT);
             return;
         }
         
@@ -842,18 +758,18 @@ public class BuildKnowledgeBaseFragment extends Fragment {
             input.setInputType(InputType.TYPE_CLASS_TEXT);
             
             new AlertDialog.Builder(requireContext())
-                .setTitle("新建知识库")
-                .setMessage("请输入知识库名称")
+                .setTitle(StateDisplayManager.getDialogDisplayText(requireContext(), AppConstants.DIALOG_TITLE_NEW_KB))
+                .setMessage(StateDisplayManager.getDialogDisplayText(requireContext(), AppConstants.DIALOG_MESSAGE_ENTER_KB_NAME))
                 .setView(input)
-                .setPositiveButton("确定", (dialog, which) -> {
+                .setPositiveButton(StateDisplayManager.getButtonDisplayText(requireContext(), AppConstants.BUTTON_TEXT_OK), (dialog, which) -> {
                     String newName = input.getText().toString().trim();
                     if (!newName.isEmpty()) {
                         checkAndProcessKnowledgeBase(newName, embeddingModel);
                     } else {
-                        Utils.showToastSafely(requireContext(), "知识库名称不能为空", Toast.LENGTH_SHORT);
+                        Utils.showToastSafely(requireContext(), StateDisplayManager.getValidationDisplayText(requireContext(), AppConstants.VALIDATION_KB_NAME_CANNOT_BE_EMPTY), Toast.LENGTH_SHORT);
                     }
                 })
-                .setNegativeButton("取消", null)
+                .setNegativeButton(StateDisplayManager.getButtonDisplayText(requireContext(), AppConstants.BUTTON_TEXT_CANCEL), null)
                 .show();
         } else {
             checkAndProcessKnowledgeBase(knowledgeBaseName, embeddingModel);
@@ -885,15 +801,15 @@ public class BuildKnowledgeBaseFragment extends Fragment {
         if (knowledgeBaseDir.exists()) {
             // 显示确认对话框
             new AlertDialog.Builder(requireContext())
-                .setTitle("知识库已存在")
-                .setMessage("知识库 '" + knowledgeBaseName + "' 已存在，您想要如何处理？")
-                .setPositiveButton("覆盖", (dialog, which) -> {
+                .setTitle(stateDisplayManager.getDialogDisplay(AppConstants.DIALOG_TITLE_KB_EXISTS))
+                .setMessage(String.format(stateDisplayManager.getDialogDisplay(AppConstants.DIALOG_MESSAGE_KB_EXISTS), knowledgeBaseName))
+                .setPositiveButton(stateDisplayManager.getButtonDisplay(AppConstants.BUTTON_TEXT_OVERWRITE), (dialog, which) -> {
                     processKnowledgeBase(knowledgeBaseName, embeddingModel, true);
                 })
-                .setNeutralButton("追加", (dialog, which) -> {
+                .setNeutralButton(stateDisplayManager.getButtonDisplay(AppConstants.BUTTON_TEXT_APPEND), (dialog, which) -> {
                     processKnowledgeBase(knowledgeBaseName, embeddingModel, false);
                 })
-                .setNegativeButton("取消", null)
+                .setNegativeButton(stateDisplayManager.getButtonDisplay(AppConstants.BUTTON_TEXT_CANCEL), null)
                 .show();
         } else {
             // 直接创建新知识库
@@ -929,7 +845,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
         // 如果已经在处理中，则取消当前任务
         if (isProcessing) {
             // 更改按钮文本
-            buttonCreateKnowledgeBase.setText("创建知识库");
+            buttonCreateKnowledgeBase.setText(StateDisplayManager.getButtonDisplayText(requireContext(), AppConstants.BUTTON_TEXT_CREATE_KB));
             
             // 设置取消标志
             isTaskCancelledAtomic.set(true);
@@ -948,7 +864,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                 }
             }
             
-            Utils.showToastSafely(requireContext(), "已取消知识库构建", Toast.LENGTH_SHORT);
+            Utils.showToastSafely(requireContext(), "任务已取消", Toast.LENGTH_SHORT);
             isProcessing = false;
             
             return;
@@ -960,7 +876,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
         currentStage = ProcessingStage.IDLE;
         
         // 更改按钮文本
-        buttonCreateKnowledgeBase.setText("取消");
+        buttonCreateKnowledgeBase.setText(StateDisplayManager.getButtonDisplayText(requireContext(), AppConstants.BUTTON_TEXT_CANCEL));
         
         // 记录开始时间
         startTime = System.currentTimeMillis();
@@ -974,8 +890,8 @@ public class BuildKnowledgeBaseFragment extends Fragment {
         int minChunkSize = ConfigManager.getInt(requireContext(), ConfigManager.KEY_MIN_CHUNK_SIZE, ConfigManager.DEFAULT_MIN_CHUNK_SIZE);
         
         // 清空进度显示
-        textViewProgress.setText("正在准备构建知识库...\n" +
-                "分块大小: " + chunkSize + ", 重叠大小: " + chunkOverlap + ", 最小分块限制: " + minChunkSize);
+        textViewProgress.setText(StateDisplayManager.getProcessingStatusDisplayText(requireContext(), AppConstants.PROCESSING_STATUS_PREPARING) + "\n" +
+                getString(R.string.chunk_size_info, chunkSize, chunkOverlap, minChunkSize));
         
         // 保存最后选择的知识库名称
         ConfigManager.setString(requireContext(), ConfigManager.KEY_LAST_SELECTED_KB, knowledgeBaseName);
@@ -1010,14 +926,14 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                 
                 if (existingDimension > 0 && existingDimension != modelDimension) {
                     // 在追加模式下，如果维度不匹配，显示错误并停止
-                    String errorMsg = "错误: 向量维度不匹配! 现有知识库维度: " + existingDimension + 
-                                     ", 当前模型维度: " + modelDimension;
+                    String errorMsg = StateDisplayManager.getErrorDisplayText(requireContext(), AppConstants.ERROR_VECTOR_DIMENSION_MISMATCH) + 
+                                     " " + getString(R.string.existing_kb_dimension) + ": " + existingDimension + ", " + getString(R.string.current_model_dimension) + ": " + modelDimension;
                     LogManager.logE(TAG, errorMsg);
-                    textViewProgress.append("\n" + errorMsg + "\n追加模式下维度必须匹配，请使用覆盖模式或选择匹配维度的模型。");
+                    textViewProgress.append("\n" + errorMsg + "\n" + StateDisplayManager.getErrorDisplayText(requireContext(), AppConstants.ERROR_DIMENSION_MUST_MATCH));
                     
                     // 恢复UI状态
                     isProcessing = false;
-                    buttonCreateKnowledgeBase.setText("创建知识库");
+                    buttonCreateKnowledgeBase.setText(StateDisplayManager.getButtonDisplayText(requireContext(), AppConstants.BUTTON_TEXT_CREATE_KB));
                     
                     // 标记模型不再使用
                     EmbeddingModelManager.getInstance(requireContext()).markModelNotInUse();
@@ -1026,15 +942,17 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                 } else if (!existingModel.equals(embeddingModel)) {
                     // 模型不匹配，弹出警告对话框
                     new AlertDialog.Builder(requireContext())
-                        .setTitle("模型不匹配警告")
-                        .setMessage("现有知识库使用的模型(" + existingModel + ")与当前选择的模型(" + embeddingModel + ")不匹配。\n\n继续使用当前模型可能会导致检索结果不准确。")
-                        .setPositiveButton("继续", (dialog, which) -> {
+                        .setTitle(StateDisplayManager.getDialogDisplayText(requireContext(), AppConstants.DIALOG_TITLE_MODEL_MISMATCH_WARNING))
+                        .setMessage(StateDisplayManager.getDialogDisplayText(requireContext(), AppConstants.DIALOG_MESSAGE_MODEL_MISMATCH) + 
+                                   "(" + existingModel + ")" + StateDisplayManager.getDialogDisplayText(requireContext(), AppConstants.DIALOG_MESSAGE_CURRENT_MODEL) + 
+                                   "(" + embeddingModel + ")" + StateDisplayManager.getDialogDisplayText(requireContext(), AppConstants.DIALOG_MESSAGE_MISMATCH_WARNING))
+                        .setPositiveButton(StateDisplayManager.getButtonDisplayText(requireContext(), AppConstants.BUTTON_TEXT_CONTINUE), (dialog, which) -> {
                             // 用户确认继续，不做任何处理
                         })
-                        .setNegativeButton("取消", (dialog, which) -> {
+                        .setNegativeButton(StateDisplayManager.getButtonDisplayText(requireContext(), AppConstants.BUTTON_TEXT_CANCEL), (dialog, which) -> {
                             // 恢复UI状态
                             isProcessing = false;
-                            buttonCreateKnowledgeBase.setText("创建知识库");
+                            buttonCreateKnowledgeBase.setText(StateDisplayManager.getButtonDisplayText(requireContext(), AppConstants.BUTTON_TEXT_CREATE_KB));
                             EmbeddingModelManager.getInstance(requireContext()).markModelNotInUse();
                         })
                         .show();
@@ -1050,11 +968,11 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                     metadataFile.delete();
                 }
                 
-                textViewProgress.append("\n覆盖模式: 已删除现有数据库文件");
+                textViewProgress.append("\n" + StateDisplayManager.getProcessingStatusDisplayText(requireContext(), AppConstants.PROCESSING_STATUS_OVERWRITE_DELETED));
             }
         } catch (Exception e) {
             LogManager.logE(TAG, "检查向量维度时出错: " + e.getMessage(), e);
-            textViewProgress.append("\n检查向量维度时出错: " + e.getMessage());
+            textViewProgress.append("\n" + StateDisplayManager.getErrorDisplayText(requireContext(), AppConstants.ERROR_CHECK_VECTOR_DIMENSION) + ": " + e.getMessage());
         }
         
         // 请求忽略电池优化
@@ -1062,7 +980,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
         if (activity != null) {
             batteryOptimizationDisabled = activity.requestIgnoreBatteryOptimizationIfNeeded();
             if (batteryOptimizationDisabled) {
-                Utils.showToastSafely(requireContext(), "已请求忽略电池优化，构建过程将在后台继续", Toast.LENGTH_SHORT);
+                Utils.showToastSafely(requireContext(), "已请求忽略电池优化", Toast.LENGTH_SHORT);
             }
         }
         
@@ -1082,13 +1000,13 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                 // 使用前台服务开始构建知识库
                 builderService.startBuildKnowledgeBase(knowledgeBaseName, embeddingModel, selectedRerankerModel, selectedFiles);
                 
-                LogManager.logD(TAG, "已通过前台服务开始构建知识库: " + knowledgeBaseName);
+                LogManager.logD(TAG, "Started building knowledge base via foreground service: " + knowledgeBaseName);
             } else {
-                // 服务绑定失败，回退到传统方式
-                LogManager.logE(TAG, "服务绑定失败，回退到传统方式构建知识库");
-                Utils.showToastSafely(requireContext(), "无法启动前台服务，构建过程可能会在应用切换到后台时暂停", Toast.LENGTH_LONG);
+                // Service binding failed, fallback to traditional method
+                LogManager.logE(TAG, "Service binding failed, fallback to traditional method");
+                Utils.showToastSafely(requireContext(), "Unable to start foreground service, build process may pause when app goes to background", Toast.LENGTH_LONG);
                 
-                // 使用传统方式构建知识库（在UI线程中执行）
+                // Use traditional method to build knowledge base
                 processKnowledgeBaseTraditional(knowledgeBaseName, embeddingModel, overwrite);
             }
         }, 500); // 给服务绑定一些时间
@@ -1136,7 +1054,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                         mainHandler.post(() -> {
                             // 构建进度信息
                             String progressInfo = String.format(Locale.getDefault(), 
-                                                "正在提取文本 (%d/%d): %s", 
+                                                getString(R.string.progress_text_extraction_keyword) + " (%d/%d): %s", 
                                                 processedFiles, totalFiles, currentFile);
                             
                             // 更新进度UI，文本提取阶段进度条显示为0
@@ -1181,44 +1099,45 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                     public void onTextExtractionComplete(int totalChunks) {
                         mainHandler.post(() -> {
                             currentStage = ProcessingStage.VECTORIZATION;
-                            appendToProgress("文本提取完成，共生成 " + totalChunks + " 个文本块，开始向量化处理...");
+                            appendToProgress("Text extraction completed, generated " + totalChunks + " text chunks, starting vectorization...");
                         });
                     }
                     
                     @Override
                     public void onVectorizationComplete(int vectorCount) {
                         mainHandler.post(() -> {
-                            appendToProgress("向量化处理完成，共生成 " + vectorCount + " 个向量");
+                            appendToProgress("Vectorization completed, generated " + vectorCount + " vectors");
                         });
                     }
                     
                     @Override
                     public void onError(String errorMessage) {
-                        // 处理错误
-                        LogManager.logE(TAG, "错误: " + errorMessage);
+                        // Handle error
+                        LogManager.logE(TAG, "Error: " + errorMessage);
                         mainHandler.post(() -> {
-                            appendToProgress("错误: " + errorMessage);
+                            appendToProgress("Error: " + errorMessage);
                         });
                     }
                     
                     @Override
                     public void onLog(String message) {
-                        // 记录日志
+                        // Log message
                         LogManager.logD(TAG, message);
                         mainHandler.post(() -> {
-                            // 检查是否是向量化进度信息
-                            if (message != null && message.startsWith("向量化进度")) {
-                                // 使用专门的方法处理向量化进度
+                            // Check if this is vectorization progress info
+                            String vectorizationProgress = getString(R.string.status_vectorization_progress);
+                            if (message != null && message.startsWith(vectorizationProgress)) {
+                                // Use specialized method to handle vectorization progress
                                 appendVectorizationProgress(message);
                             } else {
-                                // 其他日志信息正常追加
+                                // Append other log messages normally
                                 appendToProgress(message);
                             }
                         });
                     }
                 });
                 
-                // 处理文件并构建知识库
+                // Process files and build knowledge base
                 boolean success = textChunkProcessor.processFilesAndBuildKnowledgeBase(
                     knowledgeBaseName, 
                     embeddingModel,
@@ -1228,56 +1147,56 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                     chunkOverlap
                 );
                 
-                // 处理完成后的操作
+                // Operations after processing completion
                 mainHandler.post(() -> {
-                    // 标记嵌入模型不再使用
+                    // Mark embedding model as not in use
                     EmbeddingModelManager.getInstance(requireContext()).markModelNotInUse();
                     
                     isProcessing = false;
                     isTaskCancelledAtomic.set(false);
                     currentStage = ProcessingStage.COMPLETED;
                     
-                    // 停止计时器
+                    // Stop timer
                     timerHandler.removeCallbacks(timerRunnable);
                     
-                    // 更新UI
+                    // Update UI
                     if (success) {
-                        appendToProgress("知识库构建完成: " + knowledgeBaseName);
-                        Utils.showToastSafely(requireContext(), "知识库构建完成", Toast.LENGTH_SHORT);
+                        appendToProgress("Knowledge base construction completed: " + knowledgeBaseName);
+                        Utils.showToastSafely(requireContext(), "Knowledge base construction completed", Toast.LENGTH_SHORT);
                     } else {
-                        appendToProgress("知识库构建已取消");
-                        Utils.showToastSafely(requireContext(), "知识库构建已取消", Toast.LENGTH_SHORT);
+                        appendToProgress("Knowledge base construction cancelled");
+                        Utils.showToastSafely(requireContext(), "Knowledge base construction cancelled", Toast.LENGTH_SHORT);
                     }
                     
-                    // 恢复按钮状态
-                    buttonCreateKnowledgeBase.setText("创建知识库");
+                    // Restore button state
+                    buttonCreateKnowledgeBase.setText("Create Knowledge Base");
                     
-                    // 刷新知识库列表
+                    // Refresh knowledge base list
                     loadKnowledgeBaseNames();
                 });
                 
             } catch (Exception e) {
-                LogManager.logE(TAG, "知识库构建失败", e);
+                LogManager.logE(TAG, "Knowledge base construction failed", e);
                 
-                // 在UI线程中处理异常
+                // Handle exception in UI thread
                 mainHandler.post(() -> {
-                    // 标记嵌入模型不再使用
+                    // Mark embedding model as not in use
                     EmbeddingModelManager.getInstance(requireContext()).markModelNotInUse();
                     
                     isProcessing = false;
                     isTaskCancelledAtomic.set(false);
                     
-                    // 停止计时器
+                    // Stop timer
                     timerHandler.removeCallbacks(timerRunnable);
                     
-                    // 更新UI
-                    appendToProgress("知识库构建失败: " + e.getMessage());
-                    Utils.showToastSafely(requireContext(), "知识库构建失败: " + e.getMessage(), Toast.LENGTH_LONG);
+                    // Update UI
+                    appendToProgress("Knowledge base construction failed: " + e.getMessage());
+                    Utils.showToastSafely(requireContext(), "Knowledge base construction failed: " + e.getMessage(), Toast.LENGTH_LONG);
                     
-                    // 恢复按钮状态
-                    buttonCreateKnowledgeBase.setText("创建知识库");
+                    // Restore button state
+                    buttonCreateKnowledgeBase.setText("Create Knowledge Base");
                     
-                    // 恢复电池优化设置
+                    // Restore battery optimization settings
                     if (batteryOptimizationDisabled) {
                         MainActivity activity = (MainActivity) getActivity();
                         if (activity != null) {
@@ -1312,7 +1231,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
         if (isProcessing) {
             isTaskCancelled = true;
             isTaskCancelledAtomic.set(true);
-            appendToProgress("正在中断处理...");
+            appendToProgress(getString(R.string.interrupting_processing));
             
             // 如果服务已绑定，通知服务取消任务
             if (isServiceBound && builderService != null) {
@@ -1336,7 +1255,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
             // 更新按钮状态
             mainHandler.post(() -> {
                 if (isAdded() && getActivity() != null) {
-                    buttonCreateKnowledgeBase.setText("新建知识库");
+                    buttonCreateKnowledgeBase.setText(StateDisplayManager.getButtonDisplayText(requireContext(), AppConstants.BUTTON_TEXT_NEW_KB));
                 }
             });
             
@@ -1349,7 +1268,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
         mainHandler.post(() -> {
             // 检查Fragment是否仍然附加到Context
             if (isAdded() && getActivity() != null) {
-                buttonCreateKnowledgeBase.setText("新建知识库");
+                buttonCreateKnowledgeBase.setText(StateDisplayManager.getButtonDisplayText(getActivity(), AppConstants.BUTTON_TEXT_NEW_KB));
                 Utils.showToastSafely(getActivity(), isTaskCancelled ? "任务已中断" : "知识库创建完成", Toast.LENGTH_SHORT);
             } else {
                 LogManager.logW(TAG, "Fragment未附加到Context，无法更新UI");
@@ -1402,23 +1321,28 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                 return;
             }
             
+            // 获取ProgressManager的数据
+            ProgressManager progressManager = ProgressManager.getInstance();
+            ProgressManager.ProgressData progressData = progressManager.getCurrentProgress();
+            
             String progressText;
             
             // 根据当前阶段显示不同的进度格式
-            switch (currentStage) {
+            switch (progressData.currentStage) {
                 case TEXT_EXTRACTION:
                     // 文本提取阶段：显示 [已经提取文件计数]/[总计数] + 构建时间
                     // 确保分母不为0，避免显示0/0
-                    int displayTotal = totalFiles > 0 ? totalFiles : 1;
+                    int displayTotal = progressData.totalFiles > 0 ? progressData.totalFiles : 1;
                     progressText = String.format(Locale.getDefault(), "[%d/%d] %s", 
-                            processedFilesCount, displayTotal, formatElapsedTime());
+                            progressData.processedFiles, displayTotal, formatElapsedTime());
                     break;
                     
                 case VECTORIZATION:
-                case COMPLETED :
+                case COMPLETED:
                     // 向量化阶段：显示已处理块数/总块数、百分比和构建时间，保留一位小数
                     progressText = String.format(Locale.getDefault(), "[%d/%d] %.1f%% %s", 
-                            processedChunks, totalChunks, vectorizationPercentage, formatElapsedTime());
+                            progressData.processedChunks, progressData.totalChunks, 
+                            progressData.vectorizationPercentage, formatElapsedTime());
                     break;
                     
                 default:
@@ -1431,8 +1355,8 @@ public class BuildKnowledgeBaseFragment extends Fragment {
             
             // 添加详细日志，记录进度状态
             if (LogManager.logIsLoggable(TAG, LogManager.LOG_LEVEL_DEBUG)) {
-                LogManager.logD(TAG, "更新进度标签 - 阶段: " + currentStage + ", 文件进度: " + processedFilesCount + "/" + totalFiles + 
-                      ", 向量化进度: " + processedChunks + "/" + totalChunks + " (" + vectorizationPercentage + "%)");
+                LogManager.logD(TAG, "Update progress label - Stage: " + progressData.currentStage + ", File progress: " + progressData.processedFiles + "/" + progressData.totalFiles + 
+                      ", 向量化进度: " + progressData.processedChunks + "/" + progressData.totalChunks + " (" + progressData.vectorizationPercentage + "%)");
             }
         }
     }
@@ -1603,7 +1527,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
         if (oldDir.exists()) {
             if (oldDir.renameTo(newDir)) {
                 // 重命名成功，更新UI
-                Utils.showToastSafely(requireContext(), "知识库重命名成功", Toast.LENGTH_SHORT);
+                Utils.showToastSafely(requireContext(), getString(R.string.kb_rename_success), Toast.LENGTH_SHORT);
                 
                 // 更新下拉列表
                 loadKnowledgeBaseNames();
@@ -1725,7 +1649,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
         
         // 恢复按钮状态
         if (buttonCreateKnowledgeBase != null) {
-            buttonCreateKnowledgeBase.setText("创建知识库");
+            buttonCreateKnowledgeBase.setText(getString(R.string.create_knowledge_base));
             buttonCreateKnowledgeBase.setEnabled(true);
         }
         
@@ -1758,11 +1682,13 @@ public class BuildKnowledgeBaseFragment extends Fragment {
     
     // 重置进度计数和计时器
     private void resetProgress() {
+        // 重置ProgressManager
+        ProgressManager.getInstance().reset();
+        
+        // 重置本地变量（保留用于兼容性）
         processedFiles = 0;
         totalFiles = 0;
         processedFilesCount = 0;
-        
-        // 重置向量化进度变量
         processedChunks = 0;
         totalChunks = 0;
         vectorizationPercentage = 0;
@@ -1777,18 +1703,21 @@ public class BuildKnowledgeBaseFragment extends Fragment {
         // 重置UI显示
         mainHandler.post(() -> {
             textViewProgressLabel.setText("0/0 00:00:00");
-            textViewProgress.setText("准备就绪，等待创建知识库...");
+            textViewProgress.setText(getString(R.string.ready_waiting_create_kb));
         });
     }
 
     // 在开始处理前初始化进度
     private void initProgress(int total) {
-        // 重置所有进度变量
+        // 重置ProgressManager并初始化文件处理
+        ProgressManager progressManager = ProgressManager.getInstance();
+        progressManager.reset();
+        progressManager.initFileProcessing(total);
+        
+        // 重置本地变量（保留用于兼容性）
         processedFiles = 0;
         totalFiles = total;
         processedFilesCount = 0;
-        
-        // 重置向量化进度变量
         processedChunks = 0;
         totalChunks = 0;
         vectorizationPercentage = 0;

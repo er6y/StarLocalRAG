@@ -31,6 +31,11 @@ public class LogManager {
     public static final String LOG_FILE_NAME = ".log";
     private static final long MAX_LOG_SIZE = 1024 * 1024; // 1MB
     
+    // 日志消息常量
+    private static final String LOG_FORCE_LOG_TO_FILE_SET = "Force log to file set to";
+    
+    // 1MB
+    
     // 日志级别常量
     public static final int LOG_LEVEL_VERBOSE = 0;
     public static final int LOG_LEVEL_DEBUG = 1;
@@ -183,7 +188,7 @@ public class LogManager {
                 writer.write(logMessage);
             }
         } catch (IOException e) {
-            LogManager.logE(TAG, "写入日志文件失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "Failed to write to log file: " + e.getMessage(), e);
         }
     }
     
@@ -199,7 +204,7 @@ public class LogManager {
                 }
                 
                 // 记录清空信息
-                String clearMessage = "日志文件已超过1MB，已清空";
+                String clearMessage = "Log file exceeded 1MB, cleared";
                 LogManager.logI(TAG, clearMessage);
                 
                 // 写入清空信息作为新日志的第一条
@@ -210,7 +215,7 @@ public class LogManager {
                     writer.write(logMessage);
                 }
             } catch (IOException e) {
-                LogManager.logE(TAG, "清空日志文件失败: " + e.getMessage(), e);
+                LogManager.logE(TAG, "Failed to clear log file: " + e.getMessage(), e);
             }
         }
     }
@@ -229,7 +234,7 @@ public class LogManager {
                     executor.submit(() -> {}).get(2000, TimeUnit.MILLISECONDS);
                 } catch (TimeoutException e) {
                     // 如果等待超时，记录警告但继续尝试读取文件
-                    LogManager.logW(TAG, "等待写入操作完成超时，继续尝试读取文件", e);
+                    LogManager.logW(TAG, "Timeout waiting for write operations to complete, continuing to read file", e);
                 }
                 
                 // 使用 FileInputStream 而不是 FileReader 来避免潜在的缓存问题
@@ -240,14 +245,14 @@ public class LogManager {
                     }
                 }
             } catch (IOException e) {
-                LogManager.logE(TAG, "读取日志文件失败: " + e.getMessage(), e);
-                return "读取日志文件失败: " + e.getMessage();
+                LogManager.logE(TAG, "Failed to read log file: " + e.getMessage(), e);
+                return "Failed to read log file: " + e.getMessage();
             } catch (InterruptedException | ExecutionException e) {
-                LogManager.logE(TAG, "等待写入操作完成失败: " + e.getMessage(), e);
+                LogManager.logE(TAG, "Failed to wait for write operations to complete: " + e.getMessage(), e);
                 // 继续尝试读取文件
             }
         } else {
-            return "日志文件不存在";
+            return "Log file does not exist";
         }
         
         return content.toString();
@@ -266,7 +271,7 @@ public class LogManager {
                 }
                 
                 // 记录清空信息
-                String clearMessage = "日志文件已被用户手动清空";
+                String clearMessage = "Log file manually cleared by user";
                 LogManager.logI(TAG, clearMessage);
                 
                 // 写入清空信息作为新日志的第一条
@@ -279,7 +284,7 @@ public class LogManager {
                 
                 return true;
             } catch (IOException e) {
-                LogManager.logE(TAG, "清空日志文件失败: " + e.getMessage(), e);
+                LogManager.logE(TAG, "Failed to clear log file: " + e.getMessage(), e);
                 return false;
             }
         }
@@ -301,7 +306,7 @@ public class LogManager {
     public static void setLogLevel(int logLevel) {
         if (logLevel >= LOG_LEVEL_VERBOSE && logLevel <= LOG_LEVEL_NONE) {
             currentLogLevel = logLevel;
-            LogManager.logI(TAG, "日志级别已设置为: " + logLevel);
+            LogManager.logI(TAG, "Log level set to: " + logLevel);
         }
     }
     
@@ -319,7 +324,7 @@ public class LogManager {
      */
     public static void setForceLogToFile(boolean force) {
         forceLogToFile = force;
-        LogManager.logI(TAG, "强制记录日志到文件已设置为: " + force);
+        LogManager.logI(TAG, LOG_FORCE_LOG_TO_FILE_SET + ": " + force);
     }
     
     /**

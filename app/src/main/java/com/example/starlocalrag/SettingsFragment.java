@@ -320,7 +320,7 @@ public class SettingsFragment extends Fragment {
     
     private void updateFontSizeText(int progress) {
         float fontSize = progress + 10;
-        textViewFontSizeValue.setText(String.format("字体大小: %.0fsp", fontSize));
+        textViewFontSizeValue.setText(String.format("Font Size: %.0fsp", fontSize));
         // 应用字体大小到预览文本
         textViewFontSizeValue.setTextSize(fontSize);
     }
@@ -431,9 +431,9 @@ public class SettingsFragment extends Fragment {
             updateManualRepeatPenaltyText((int)(manualRepeatPenalty * 10));
             switchPriorityManualParams.setChecked(priorityManualParams);
             
-            LogManager.logD(TAG, "设置加载完成");
+            LogManager.logD(TAG, "Settings loaded successfully");
         } catch (Exception e) {
-            LogManager.logE(TAG, "加载设置失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "Failed to load settings: " + e.getMessage(), e);
             Toast.makeText(requireContext(), "加载设置失败", Toast.LENGTH_SHORT).show();
         }
     }
@@ -455,17 +455,17 @@ public class SettingsFragment extends Fragment {
             
             // 验证值范围
             if (chunkSize < 100 || chunkSize > 4000) {
-                Toast.makeText(context, "分块大小应在100-4000之间", Toast.LENGTH_SHORT).show();
+                Toast.makeText(context, "分块大小必须在100-8192之间", Toast.LENGTH_SHORT).show();
                 return;
             }
             
             if (overlapSize < 20 || overlapSize > 800 || overlapSize >= chunkSize) {
-                Toast.makeText(context, "重叠大小应在20-800之间且小于分块大小", Toast.LENGTH_SHORT).show();
+                Toast.makeText(context, "重叠大小必须在0-512之间", Toast.LENGTH_SHORT).show();
                 return;
             }
             
             if (minChunkSize < 10 || minChunkSize > 200 || minChunkSize >= chunkSize) {
-                Toast.makeText(context, "最小分块限制应在10-200之间且小于分块大小", Toast.LENGTH_SHORT).show();
+                Toast.makeText(context, "最小分块限制必须在50-1024之间", Toast.LENGTH_SHORT).show();
                 return;
             }
             
@@ -477,7 +477,7 @@ public class SettingsFragment extends Fragment {
             
             // 验证路径
             if (modelPath.isEmpty() || embeddingModelPath.isEmpty() || rerankerModelPath.isEmpty() || knowledgeBasePath.isEmpty()) {
-                Toast.makeText(context, "请设置所有路径", Toast.LENGTH_SHORT).show();
+                Toast.makeText(context, getString(R.string.toast_please_set_all_paths), Toast.LENGTH_SHORT).show();
                 return;
             }
             
@@ -513,38 +513,38 @@ public class SettingsFragment extends Fragment {
             
             // 验证值范围
             if (maxSequenceLength < 100 || maxSequenceLength > 8192) {
-                Toast.makeText(context, "最大序列长度应在100-8192之间", Toast.LENGTH_SHORT).show();
+                Toast.makeText(context, getString(R.string.toast_max_seq_length_range), Toast.LENGTH_SHORT).show();
                 return;
             }
             
             if (threads < 1 || threads > 16) {
-                Toast.makeText(context, "推理线程数应在1-16之间", Toast.LENGTH_SHORT).show();
+                Toast.makeText(context, getString(R.string.toast_inference_threads_range), Toast.LENGTH_SHORT).show();
                 return;
             }
             
             if (maxNewTokens < 512 || maxNewTokens > 4096) {
-                Toast.makeText(context, "最大输出token数应在512-4096之间", Toast.LENGTH_SHORT).show();
+                Toast.makeText(context, getString(R.string.toast_max_output_tokens_range), Toast.LENGTH_SHORT).show();
                 return;
             }
             
             // 验证手动推理参数范围
             if (manualTemperature < 0.0f || manualTemperature > 2.0f) {
-                Toast.makeText(context, "手动温度参数应在0.0-2.0之间", Toast.LENGTH_SHORT).show();
+                Toast.makeText(context, getString(R.string.toast_manual_temperature_range), Toast.LENGTH_SHORT).show();
                 return;
             }
             
             if (manualTopP < 0.0f || manualTopP > 1.0f) {
-                Toast.makeText(context, "手动Top-P参数应在0.0-1.0之间", Toast.LENGTH_SHORT).show();
+                Toast.makeText(context, getString(R.string.toast_manual_top_p_range), Toast.LENGTH_SHORT).show();
                 return;
             }
             
             if (manualTopK < 1 || manualTopK > 100) {
-                Toast.makeText(context, "手动Top-K参数应在1-100之间", Toast.LENGTH_SHORT).show();
+                Toast.makeText(context, getString(R.string.toast_manual_top_k_range), Toast.LENGTH_SHORT).show();
                 return;
             }
             
             if (manualRepeatPenalty < 0.0f || manualRepeatPenalty > 2.0f) {
-                Toast.makeText(context, "手动重复惩罚参数应在0.0-2.0之间", Toast.LENGTH_SHORT).show();
+                Toast.makeText(context, getString(R.string.toast_manual_repeat_penalty_range), Toast.LENGTH_SHORT).show();
                 return;
             }
             
@@ -552,7 +552,7 @@ public class SettingsFragment extends Fragment {
             // maxSequenceLength是总的上下文长度，maxNewTokens是最大输出token数
         // 输入token数 = maxSequenceLength - maxNewTokens，需要预留一定缓冲区
         if (maxSequenceLength <= maxNewTokens + 256) {
-            Toast.makeText(context, "最大序列长度必须大于最大输出token数加上256 (当前需要大于" + (maxNewTokens + 256) + ")", Toast.LENGTH_LONG).show();
+            Toast.makeText(context, getString(R.string.toast_max_seq_length_must_be_greater, maxNewTokens + 256), Toast.LENGTH_LONG).show();
                 return;
             }
             
@@ -602,18 +602,18 @@ public class SettingsFragment extends Fragment {
             settingsSummary.put("threads", threads);
             // noThinking已移动到RAG问答界面
             
-            LogManager.logD(TAG, "设置已保存: " + settingsSummary.toString());
+            LogManager.logD(TAG, "Settings saved: " + settingsSummary.toString());
             
             // 显示成功消息
-            Toast.makeText(context, "设置已保存", Toast.LENGTH_SHORT).show();
+            Toast.makeText(context, getString(R.string.toast_settings_saved), Toast.LENGTH_SHORT).show();
             
             // 更新LocalLlmHandler的推理引擎配置
             try {
                 LocalLlmHandler localLlmHandler = LocalLlmHandler.getInstance(context);
                 localLlmHandler.updateEngineFromConfig();
-                LogManager.logI(TAG, "推理引擎配置已更新");
+                LogManager.logI(TAG, "Inference engine configuration updated");
             } catch (Exception e) {
-                LogManager.logE(TAG, "更新推理引擎配置失败: " + e.getMessage(), e);
+                LogManager.logE(TAG, "Failed to update inference engine configuration: " + e.getMessage(), e);
             }
             
             // 通知监听器
@@ -621,11 +621,11 @@ public class SettingsFragment extends Fragment {
                 settingsChangeListener.onSettingsChanged();
             }
         } catch (NumberFormatException e) {
-            LogManager.logE(TAG, "解析数字失败: " + e.getMessage(), e);
-            Toast.makeText(context, "请输入有效的数字", Toast.LENGTH_SHORT).show();
+            LogManager.logE(TAG, "Failed to parse number: " + e.getMessage(), e);
+            Toast.makeText(context, getString(R.string.toast_please_enter_valid_number), Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
-            LogManager.logE(TAG, "保存设置失败: " + e.getMessage(), e);
-            Toast.makeText(context, "保存设置失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            LogManager.logE(TAG, "Failed to save settings: " + e.getMessage(), e);
+            Toast.makeText(context, getString(R.string.toast_save_settings_failed, e.getMessage()), Toast.LENGTH_SHORT).show();
         }
     }
     
@@ -634,13 +634,13 @@ public class SettingsFragment extends Fragment {
             try {
                 // 将 URI 转换为实际可用的文件路径
                 String realPath = getPathFromUri(uri);
-                LogManager.logD(TAG, "选择的路径 URI: " + uri);
-                LogManager.logD(TAG, "转换后的实际路径: " + realPath);
+                LogManager.logD(TAG, "Selected path URI: " + uri);
+                LogManager.logD(TAG, "Converted actual path: " + realPath);
                 
                 targetEditText.setText(realPath);
             } catch (Exception e) {
-                LogManager.logE(TAG, "转换路径失败: " + e.getMessage(), e);
-                Toast.makeText(requireContext(), "无法获取选择的路径", Toast.LENGTH_SHORT).show();
+                LogManager.logE(TAG, "Failed to convert path: " + e.getMessage(), e);
+                Toast.makeText(requireContext(), getString(R.string.toast_cannot_get_selected_path), Toast.LENGTH_SHORT).show();
             }
         }
     }
@@ -670,7 +670,7 @@ public class SettingsFragment extends Fragment {
                     // 构建实际路径
                     File externalStorage = Environment.getExternalStorageDirectory();
                     path = new File(externalStorage, relativePath).getAbsolutePath();
-                    LogManager.logD(TAG, "转换 primary: 路径: " + path);
+                    LogManager.logD(TAG, "Converting primary: path: " + path);
                 }
             }
         }

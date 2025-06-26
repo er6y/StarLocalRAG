@@ -27,17 +27,17 @@ android {
     }
 
     buildTypes {
-        debug {
-            externalNativeBuild {
-                cmake {
-                    cppFlags "-std=c++17 -frtti -fexceptions -O0 -g"
-                    arguments "-DANDROID_STL=c++_static", "-DCMAKE_BUILD_TYPE=Debug"
-                }
-            }
-        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            externalNativeBuild {
+                cmake {
+                    cppFlags "-std=c++17 -frtti -fexceptions -O3 -DNDEBUG"
+                    arguments "-DANDROID_STL=c++_static", "-DCMAKE_BUILD_TYPE=Release"
+                }
+            }
+        }
+        debug {
             externalNativeBuild {
                 cmake {
                     cppFlags "-std=c++17 -frtti -fexceptions -O3 -DNDEBUG"

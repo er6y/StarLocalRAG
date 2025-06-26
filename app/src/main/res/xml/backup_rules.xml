@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
-    <!-- TODO: Define backup rules if needed -->
-    <!-- Example: <exclude domain="database" path="my_db.db"/> -->
+    <!-- 默认情况下，所有文件都被备份 -->
+    <include domain="root" path="."/>
+    <!-- 排除可能包含敏感信息的文件 -->
+    <exclude domain="sharedpref" path="sensitive_data.xml"/>
+    <exclude domain="database" path="user_credentials.db"/>
 </full-backup-content>

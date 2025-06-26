@@ -48,6 +48,8 @@ import org.json.JSONObject;
 
 import com.example.starlocalrag.ConfigManager; // 添加 ConfigManager 的导入
 import com.example.starlocalrag.EmbeddingModelManager; // 导入 EmbeddingModelManager
+import com.example.starlocalrag.StateDisplayManager;
+import com.example.starlocalrag.AppConstants;
 import com.example.starlocalrag.EmbeddingModelHandler; // 导入 EmbeddingModelHandler
 import com.example.starlocalrag.SQLiteVectorDatabaseHandler; // 导入 SQLiteVectorDatabaseHandler
 import com.example.starlocalrag.EmbeddingModelUtils; // 导入词嵌入模型工具类
@@ -56,6 +58,35 @@ import com.example.starlocalrag.TextChunkProcessor; // 导入文本处理器
 
 public class KnowledgeNoteFragment extends Fragment {
     private static final String TAG = "KnowledgeNoteFragment";
+    
+    // 状态常量
+    private static final String STATUS_LOADING_KB_LIST = "开始加载知识库名称列表";
+    private static final String STATUS_GETTING_KB_PATH = "从设置中获取知识库路径";
+    private static final String STATUS_KB_DIR_NOT_EXIST = "知识库目录不存在，尝试创建";
+    private static final String STATUS_FOUND_KB_COUNT = "找到%d个知识库";
+    private static final String STATUS_NO_KB_FOUND = "未找到知识库，已禁用添加按钮";
+    private static final String STATUS_KB_SELECTED = "已选择知识库";
+    private static final String STATUS_PROMPT_SELECTED = "选择了提示项，已清空知识库配置";
+    private static final String STATUS_KB_SAVED = "已保存知识库选择到ConfigManager";
+    private static final String STATUS_LOADING_LAST_KB = "从ConfigManager加载上次选择的知识库";
+    private static final String STATUS_LAST_KB_SELECTED = "已选择上次使用的知识库";
+    private static final String STATUS_LOAD_KB_FAILED = "加载知识库选择失败";
+    private static final String STATUS_KB_NOT_EXIST = "错误：知识库不存在";
+    private static final String STATUS_CHECK_MODEL_TIMEOUT = "错误：检查嵌入模型超时";
+    private static final String STATUS_MODEL_CHECK_INTERRUPTED = "错误：等待模型检查被中断";
+    private static final String STATUS_NO_EMBEDDING_MODEL = "错误：未找到可用的嵌入模型";
+    private static final String STATUS_GET_MODEL_FROM_CONFIG = "从SQLite数据库中获取嵌入模型失败，尝试从ConfigManager中获取";
+    private static final String STATUS_MODEL_FILE_NOT_EXIST = "模型文件不存在";
+    private static final String STATUS_KB_MODEL_NOT_EXIST = "知识库的嵌入模型不存在，需要选择新的模型";
+    private static final String STATUS_NO_MODEL_CONFIG = "错误：未找到可用的嵌入模型，请在设置中配置嵌入模型路径";
+    private static final String STATUS_SELECT_MODEL_TIMEOUT = "错误：选择模型超时";
+    private static final String STATUS_MODEL_SELECT_INTERRUPTED = "错误：等待模型选择被中断";
+    private static final String STATUS_NO_MODEL_SELECTED = "错误：未选择嵌入模型";
+    
+    // 提示文本常量
+    private static final String PROMPT_ENTER_TITLE = "请输入标题";
+    private static final String PROMPT_ENTER_CONTENT = "请输入内容";
+    // 移除硬编码常量，改用资源引用
 
     private EditText editTextTitle;
     private EditText editTextContent;
@@ -65,6 +96,7 @@ public class KnowledgeNoteFragment extends Fragment {
     private ExecutorService executorService;
     private List<String> knowledgeBaseNames = new ArrayList<>();
     private Handler mainHandler = new Handler(Looper.getMainLooper()); // 主线程Handler
+    private StateDisplayManager stateDisplayManager;
 
     @Nullable
     @Override
@@ -82,6 +114,9 @@ public class KnowledgeNoteFragment extends Fragment {
         textViewProgress = view.findViewById(R.id.textViewProgress);
         spinnerKnowledgeBase = view.findViewById(R.id.spinnerNoteKnowledgeBase);
         buttonAddToKnowledgeBase = view.findViewById(R.id.buttonAddToKnowledgeBase);
+        
+        // 初始化StateDisplayManager
+        stateDisplayManager = new StateDisplayManager(requireContext());
         
         // 设置文本框可长按选择
         editTextContent.setLongClickable(true);
@@ -120,17 +155,17 @@ public class KnowledgeNoteFragment extends Fragment {
 
     // 加载知识库名称列表
     private void loadKnowledgeBaseNames() {
-        LogManager.logD(TAG, "开始加载知识库名称列表");
+        LogManager.logD(TAG, STATUS_LOADING_KB_LIST);
         knowledgeBaseNames.clear();
 
         // 获取设置中的知识库路径
         String knowledgeBasePath = ConfigManager.getKnowledgeBasePath(requireContext());
-        LogManager.logD(TAG, "从设置中获取知识库路径: " + knowledgeBasePath);
+        LogManager.logD(TAG, STATUS_GETTING_KB_PATH + ": " + knowledgeBasePath);
 
         // 获取知识库目录
         File knowledgeBaseDir = new File(knowledgeBasePath);
         if (!knowledgeBaseDir.exists()) {
-            LogManager.logD(TAG, "知识库目录不存在，尝试创建: " + knowledgeBaseDir.getAbsolutePath());
+            LogManager.logD(TAG, STATUS_KB_DIR_NOT_EXIST + ": " + knowledgeBaseDir.getAbsolutePath());
             knowledgeBaseDir.mkdirs();
         }
 
@@ -144,13 +179,13 @@ public class KnowledgeNoteFragment extends Fragment {
                     knowledgeBaseNames.add(dirName);
                 }
             }
-            LogManager.logD(TAG, "找到 " + knowledgeBaseNames.size() + " 个知识库");
+            LogManager.logD(TAG, String.format(STATUS_FOUND_KB_COUNT, knowledgeBaseNames.size()));
             buttonAddToKnowledgeBase.setEnabled(true);
         } else {
             // 如果没有知识库，添加提示
-            knowledgeBaseNames.add("请先创建知识库");
+            knowledgeBaseNames.add(getString(R.string.prompt_create_kb_first));
             buttonAddToKnowledgeBase.setEnabled(false);
-            LogManager.logD(TAG, "未找到知识库，已禁用添加按钮");
+            LogManager.logD(TAG, STATUS_NO_KB_FOUND);
         }
 
         // 设置适配器
@@ -165,8 +200,8 @@ public class KnowledgeNoteFragment extends Fragment {
                 String selectedKnowledgeBase = knowledgeBaseNames.get(position);
                 LogManager.logD(TAG, "已选择知识库: " + selectedKnowledgeBase);
                 
-                // 如果选择的是提示文本（通常在列表末尾），则禁用添加按钮
-                if (selectedKnowledgeBase.contains("请先创建") || selectedKnowledgeBase.contains("创建知识库")) {
+                // 如果选择的是状态显示文本，则禁用添加按钮
+                if (StateDisplayManager.isKnowledgeBaseStatusDisplayText(requireContext(), selectedKnowledgeBase)) {
                     buttonAddToKnowledgeBase.setEnabled(false);
                     // 保存空字符串到ConfigManager表示没有选择知识库
                     ConfigManager.setString(requireContext(), ConfigManager.KEY_KNOWLEDGE_BASE, "");
@@ -196,21 +231,22 @@ public class KnowledgeNoteFragment extends Fragment {
             String lastKnowledgeBase = ConfigManager.getString(requireContext(), 
                     ConfigManager.KEY_KNOWLEDGE_BASE, "");
             
-            LogManager.logD(TAG, "从ConfigManager加载上次选择的知识库: " + 
+            LogManager.logD(TAG, STATUS_LOADING_LAST_KB + ": " + 
                     (lastKnowledgeBase.isEmpty() ? "[空]" : lastKnowledgeBase));
             
-            if (!lastKnowledgeBase.isEmpty() && !knowledgeBaseNames.isEmpty() && !knowledgeBaseNames.get(0).contains("请先创建")) {
+            if (!lastKnowledgeBase.isEmpty() && !knowledgeBaseNames.isEmpty() && 
+                    !StateDisplayManager.isKnowledgeBaseStatusDisplayText(requireContext(), knowledgeBaseNames.get(0))) {
                 // 在下拉列表中查找并选择上次使用的知识库
                 for (int i = 0; i < knowledgeBaseNames.size(); i++) {
                     if (knowledgeBaseNames.get(i).equals(lastKnowledgeBase)) {
                         spinnerKnowledgeBase.setSelection(i);
-                        LogManager.logD(TAG, "已选择上次使用的知识库: " + lastKnowledgeBase);
+                        LogManager.logD(TAG, STATUS_LAST_KB_SELECTED + ": " + lastKnowledgeBase);
                         break;
                     }
                 }
             }
         } catch (Exception e) {
-            LogManager.logE(TAG, "加载知识库选择失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, STATUS_LOAD_KB_FAILED + ": " + e.getMessage(), e);
         }
     }
 
@@ -222,27 +258,27 @@ public class KnowledgeNoteFragment extends Fragment {
         
         // 检查标题和内容是否为空
         if (title.isEmpty()) {
-            Toast.makeText(requireContext(), "请输入标题", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        
-        if (content.isEmpty()) {
-            Toast.makeText(requireContext(), "请输入内容", Toast.LENGTH_SHORT).show();
-            return;
-        }
+                Toast.makeText(requireContext(), PROMPT_ENTER_TITLE, Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            if (content.isEmpty()) {
+                Toast.makeText(requireContext(), PROMPT_ENTER_CONTENT, Toast.LENGTH_SHORT).show();
+                return;
+            }
         
         // 获取选中的知识库
         if (spinnerKnowledgeBase.getSelectedItemPosition() < 0 || 
             knowledgeBaseNames.isEmpty() || 
-            "请先创建知识库".equals(knowledgeBaseNames.get(0))) {
-            Toast.makeText(requireContext(), "请先创建知识库", Toast.LENGTH_SHORT).show();
+            getString(R.string.prompt_create_kb_first).equals(knowledgeBaseNames.get(0))) {
+            Toast.makeText(requireContext(), getString(R.string.prompt_create_kb_first), Toast.LENGTH_SHORT).show();
             return;
         }
         
         String selectedKnowledgeBase = knowledgeBaseNames.get(spinnerKnowledgeBase.getSelectedItemPosition());
         
         // 显示进度
-        textViewProgress.setText("正在处理...\n");
+        textViewProgress.setText(getString(R.string.processing_status) + "\n");
         
         // 禁用按钮，防止重复点击
         buttonAddToKnowledgeBase.setEnabled(false);
@@ -254,7 +290,7 @@ public class KnowledgeNoteFragment extends Fragment {
                 String knowledgeBasePath = ConfigManager.getKnowledgeBasePath(requireContext());
                 File knowledgeBaseDir = new File(knowledgeBasePath, selectedKnowledgeBase);
                 if (!knowledgeBaseDir.exists()) {
-                    updateProgress("错误：知识库不存在");
+                    updateProgress(STATUS_KB_NOT_EXIST);
                     enableAddButton();
                     return;
                 }
@@ -303,12 +339,12 @@ public class KnowledgeNoteFragment extends Fragment {
                             try {
                                 boolean modelCheckCompleted = modelLatch.await(60, TimeUnit.SECONDS);
                                 if (!modelCheckCompleted) {
-                                    updateProgress("错误：检查嵌入模型超时");
+                                    updateProgress(STATUS_CHECK_MODEL_TIMEOUT);
                                     enableAddButton();
                                     return;
                                 }
                             } catch (InterruptedException e) {
-                                updateProgress("错误：等待模型检查被中断: " + e.getMessage());
+                                updateProgress(STATUS_MODEL_CHECK_INTERRUPTED + ": " + e.getMessage());
                                 enableAddButton();
                                 return;
                             }
@@ -316,7 +352,7 @@ public class KnowledgeNoteFragment extends Fragment {
                             // 获取模型路径
                             embeddingModelPath = modelPathRef.get();
                             if (!modelFoundRef.get() || embeddingModelPath == null) {
-                                updateProgress("错误：未找到可用的嵌入模型");
+                                updateProgress(STATUS_NO_EMBEDDING_MODEL);
                                 enableAddButton();
                                 return;
                             }
@@ -336,14 +372,14 @@ public class KnowledgeNoteFragment extends Fragment {
                 
                 // 如果从SQLite数据库中获取失败，则尝试从ConfigManager中获取（兼容旧版本）
                 if (embeddingModelPath == null || embeddingModelPath.isEmpty()) {
-                    LogManager.logD(TAG, "从SQLite数据库中获取嵌入模型失败，尝试从ConfigManager中获取");
+                    LogManager.logD(TAG, STATUS_GET_MODEL_FROM_CONFIG);
                     embeddingModelPath = ConfigManager.getKnowledgeBaseEmbeddingModel(requireContext(), selectedKnowledgeBase);
                     
                     // 如果从ConfigManager中获取到了模型名称，检查模型文件是否存在
                     if (embeddingModelPath != null && !embeddingModelPath.isEmpty()) {
                         File modelFile = new File(embeddingModelPath);
                         if (!modelFile.exists()) {
-                            LogManager.logD(TAG, "模型文件不存在: " + modelFile.getAbsolutePath());
+                            LogManager.logD(TAG, STATUS_MODEL_FILE_NOT_EXIST + ": " + modelFile.getAbsolutePath());
                             embeddingModelPath = null;
                         }
                     }
@@ -351,13 +387,13 @@ public class KnowledgeNoteFragment extends Fragment {
                 
                 // 如果模型路径为空或模型文件不存在，显示模型选择对话框
                 if (embeddingModelPath == null || embeddingModelPath.isEmpty() || !new File(embeddingModelPath).exists()) {
-                    updateProgress("知识库的嵌入模型不存在，需要选择新的模型");
+                    updateProgress(STATUS_KB_MODEL_NOT_EXIST);
                     
                     // 获取可用的嵌入模型列表
                     List<String> availableModels = getAvailableEmbeddingModels();
                     
                     if (availableModels.isEmpty()) {
-                        updateProgress("错误：未找到可用的嵌入模型，请在设置中配置嵌入模型路径");
+                        updateProgress(STATUS_NO_MODEL_CONFIG);
                         enableAddButton();
                         return;
                     }
@@ -379,12 +415,12 @@ public class KnowledgeNoteFragment extends Fragment {
                     try {
                         boolean dialogCompleted = dialogLatch.await(60, TimeUnit.SECONDS);
                         if (!dialogCompleted) {
-                            updateProgress("错误：选择模型超时");
+                            updateProgress(STATUS_SELECT_MODEL_TIMEOUT);
                             enableAddButton();
                             return;
                         }
                     } catch (InterruptedException e) {
-                        updateProgress("错误：等待模型选择被中断: " + e.getMessage());
+                        updateProgress(STATUS_MODEL_SELECT_INTERRUPTED + ": " + e.getMessage());
                         enableAddButton();
                         return;
                     }
@@ -394,24 +430,24 @@ public class KnowledgeNoteFragment extends Fragment {
                     boolean rememberChoice = rememberChoiceRef.get();
                     
                     if (embeddingModelPath == null || embeddingModelPath.isEmpty()) {
-                        updateProgress("错误：未选择嵌入模型");
+                        updateProgress(STATUS_NO_MODEL_SELECTED);
                         enableAddButton();
                         return;
                     }
                     
-                    updateProgress("已选择新的嵌入模型：" + embeddingModelPath);
+                    updateProgress(getString(R.string.selected_new_embedding_model, embeddingModelPath));
                     
                     // 如果用户选择记住选择，则更新知识库元数据中的模型信息
                     if (rememberChoice) {
-                        updateProgress("正在更新知识库元数据...");
+                        updateProgress(getString(R.string.updating_kb_metadata));
                         updateKnowledgeBaseModelMetadata(knowledgeBaseDir, embeddingModelPath);
                     } else {
-                        updateProgress("仅使用所选模型进行此次操作，不更新知识库元数据");
+                        updateProgress(getString(R.string.use_selected_model_only));
                     }
                 }
                 
-                updateProgress("找到嵌入模型：" + embeddingModelPath);
-                updateProgress("正在加载模型（可能需要几秒钟）...");
+                updateProgress(getString(R.string.found_embedding_model, embeddingModelPath));
+            updateProgress(getString(R.string.loading_model_wait));
                 
                 // 使用EmbeddingModelManager异步加载模型
                 EmbeddingModelManager modelManager = EmbeddingModelManager.getInstance(requireContext());
@@ -439,19 +475,19 @@ public class KnowledgeNoteFragment extends Fragment {
                 try {
                     boolean modelLoaded = modelLoadLatch.await(180, TimeUnit.SECONDS);
                     if (!modelLoaded) {
-                        updateProgress("错误：加载嵌入模型超时");
+                        updateProgress(getString(R.string.error_embedding_model_timeout));
                         enableAddButton();
                         return;
                     }
                 } catch (InterruptedException e) {
-                    updateProgress("错误：等待模型加载被中断: " + e.getMessage());
+                    updateProgress(getString(R.string.error_embedding_model_interrupted, e.getMessage()));
                     enableAddButton();
                     return;
                 }
                 
                 // 检查是否有错误
                 if (modelErrorRef.get() != null) {
-                    updateProgress("错误：加载嵌入模型失败: " + modelErrorRef.get().getMessage());
+                    updateProgress(getString(R.string.error_embedding_model_failed, modelErrorRef.get().getMessage()));
                     enableAddButton();
                     return;
                 }
@@ -459,7 +495,7 @@ public class KnowledgeNoteFragment extends Fragment {
                 // 获取加载好的模型
                 EmbeddingModelHandler embeddingHandler = modelHandlerRef.get();
                 if (embeddingHandler == null) {
-                    updateProgress("错误：无法加载嵌入模型，可能是模型文件不兼容或损坏");
+                    updateProgress(getString(R.string.error_embedding_model_handler_failed));
                     enableAddButton();
                     return;
                 }
@@ -467,35 +503,35 @@ public class KnowledgeNoteFragment extends Fragment {
                 // 确保TokenizerManager已初始化
                 TokenizerManager tokenizerManager = TokenizerManager.getInstance(requireContext());
                 if (!tokenizerManager.isInitialized()) {
-                    updateProgress("正在初始化分词器...");
+                    updateProgress(getString(R.string.initializing_tokenizer));
                     boolean initSuccess = tokenizerManager.initialize(embeddingModelPath);
                     if (initSuccess) {
-                        updateProgress("分词器初始化成功，将使用统一分词策略");
+                        updateProgress(getString(R.string.tokenizer_init_success));
                         // 启用一致性分词
                         tokenizerManager.setUseConsistentTokenization(true);
                     } else {
-                        updateProgress("分词器初始化失败，将使用模型自带分词器");
+                        updateProgress(getString(R.string.tokenizer_init_failed));
                     }
                 } else {
-                    updateProgress("使用已初始化的全局分词器");
+                    updateProgress(getString(R.string.using_global_tokenizer));
                     // 启用一致性分词
                     tokenizerManager.setUseConsistentTokenization(true);
                 }
                 
-                updateProgress("模型加载成功，类型：" + embeddingHandler.getModelType());
+                updateProgress(getString(R.string.embedding_model_loaded_success, embeddingHandler.getModelType()));
                 
                 // 标记模型开始使用
                 modelManager.markModelInUse();
-                updateProgress("标记模型开始使用，防止自动卸载");
+                updateProgress(getString(R.string.mark_model_start_use));
                 
                 // 使用SQLiteVectorDatabaseHandler添加笔记
-                updateProgress("正在将笔记添加到知识库...");
+                updateProgress(getString(R.string.adding_note_to_kb));
                 SQLiteVectorDatabaseHandler noteVectorDb = new SQLiteVectorDatabaseHandler(knowledgeBaseDir, "note");
                 
                 try {
                     // 加载数据库
                     if (!noteVectorDb.loadDatabase()) {
-                        updateProgress("错误：无法加载SQLite向量数据库");
+                        updateProgress(getString(R.string.error_load_sqlite_db));
                         enableAddButton();
                         
                         // 标记模型使用结束（即使发生错误）
@@ -514,16 +550,16 @@ public class KnowledgeNoteFragment extends Fragment {
                     
                     // 如果内容长度超过分块大小，需要进行分块处理
                     if (content.length() > chunkSize) {
-                        updateProgress("内容长度(" + content.length() + ")超过分块大小(" + chunkSize + ")，进行分块处理...");
+                        updateProgress(getString(R.string.chunking_text));
                         
                         // 使用TextChunkProcessor的分块方法，确保与构建知识库使用相同的分块算法
                         TextChunkProcessor textChunkProcessor = new TextChunkProcessor(requireContext());
                         List<String> chunks = textChunkProcessor.splitTextIntoChunks(content, chunkSize, chunkOverlap);
-                        updateProgress("分块完成，共生成" + chunks.size() + "个文本块");
+                        updateProgress(getString(R.string.text_chunking_complete, chunks.size()));
                         
                         // 获取添加前的文本块数量
                         int beforeChunkCount = noteVectorDb.getChunkCount();
-                        updateProgress("添加前数据库文本块数量: " + beforeChunkCount);
+                        updateProgress(getString(R.string.db_chunk_count_before, beforeChunkCount));
                         
                         boolean success = true;
                         int addedCount = 0;
@@ -531,7 +567,7 @@ public class KnowledgeNoteFragment extends Fragment {
                         // 处理每个文本块
                         for (int i = 0; i < chunks.size(); i++) {
                             String chunk = chunks.get(i);
-                            updateProgress("处理文本块 " + (i+1) + "/" + chunks.size() + "，长度: " + chunk.length());
+                            updateProgress(getString(R.string.adding_chunk_progress, (i + 1), chunks.size()));
                             
                             // 生成嵌入向量
                             float[] chunkEmbedding = embeddingHandler.generateEmbedding(chunk);
@@ -544,21 +580,27 @@ public class KnowledgeNoteFragment extends Fragment {
                                 addedCount++;
                             } else {
                                 success = false;
-                                updateProgress("添加文本块 " + (i+1) + " 失败");
+                                updateProgress(getString(R.string.add_chunk_failed, i+1));
                             }
                         }
+                        
+                        updateProgress(getString(R.string.all_chunks_added));
                         
                         // 保存数据库
                         if (success) {
                             success = noteVectorDb.saveDatabase();
+                            if (success) {
+                                updateProgress(getString(R.string.chunk_added_success));
+                            }
                         }
                         
                         // 获取添加后的文本块数量
                         int afterChunkCount = noteVectorDb.getChunkCount();
-                        updateProgress("添加后数据库文本块数量: " + afterChunkCount);
-                        updateProgress("成功添加文本块数量: " + addedCount);
+                        updateProgress(getString(R.string.db_chunk_count_after, afterChunkCount));
+                        updateProgress(getString(R.string.added_chunk_count, addedCount));
                     } else {
                         // 直接生成嵌入向量
+                        updateProgress(getString(R.string.generating_embedding_vector));
                         float[] contentEmbedding = embeddingHandler.generateEmbedding(content);
                         
                         // 记录向量调试信息
@@ -570,6 +612,7 @@ public class KnowledgeNoteFragment extends Fragment {
                         updateProgress("添加前数据库文本块数量: " + beforeChunkCount);
                         
                         // 添加文本块到数据库
+                        updateProgress(getString(R.string.saving_to_database));
                         boolean success = noteVectorDb.addChunk(content, title, contentEmbedding);
                         
                         // 保存数据库
@@ -579,8 +622,8 @@ public class KnowledgeNoteFragment extends Fragment {
                         
                         // 获取添加后的文本块数量
                         int afterChunkCount = noteVectorDb.getChunkCount();
-                        updateProgress("添加后数据库文本块数量: " + afterChunkCount);
-                        updateProgress("新增文本块数量: " + (afterChunkCount - beforeChunkCount));
+                        updateProgress(getString(R.string.db_chunk_count_after, afterChunkCount));
+                        updateProgress(getString(R.string.new_chunk_count, afterChunkCount - beforeChunkCount));
                     }
                     
                     // 关闭数据库
@@ -588,9 +631,11 @@ public class KnowledgeNoteFragment extends Fragment {
                     
                     // 标记模型使用结束
                     modelManager.markModelNotInUse();
-                    updateProgress("标记模型使用结束，允许自动卸载");
+                    updateProgress(getString(R.string.mark_model_end_use));
                     
-                    updateProgress("笔记已成功添加到知识库");
+                    if (noteVectorDb.getChunkCount() > 0) {
+                        updateProgress(getString(R.string.note_added_success));
+                    }
                     
                     // 清空输入框
                     requireActivity().runOnUiThread(() -> {
@@ -599,16 +644,16 @@ public class KnowledgeNoteFragment extends Fragment {
                     });
                 } catch (Exception e) {
                     LogManager.logE(TAG, "生成嵌入向量或添加笔记失败", e);
-                    updateProgress("错误：" + e.getMessage());
+                    updateProgress(getString(R.string.error_message, e.getMessage()));
                     if (noteVectorDb != null) {
                         noteVectorDb.close();
                     }
                     modelManager.markModelNotInUse();
-                    updateProgress("标记模型使用结束（发生错误），允许自动卸载");
+                    updateProgress(getString(R.string.mark_model_end_use_error));
                 }
             } catch (Exception e) {
                 LogManager.logE(TAG, "添加到知识库失败", e);
-                updateProgress("错误：" + e.getMessage());
+                updateProgress(getString(R.string.error_message, e.getMessage()));
             } finally {
                 enableAddButton();
             }
@@ -796,7 +841,7 @@ public class KnowledgeNoteFragment extends Fragment {
         protected void onCreate(Bundle savedInstanceState) {
             super.onCreate(savedInstanceState);
             setContentView(R.layout.dialog_model_selection);
-            setTitle("选择嵌入模型");
+            setTitle(new StateDisplayManager(getContext()).getDialogDisplay(AppConstants.DIALOG_TITLE_SELECT_EMBEDDING_MODEL));
 
             // 获取控件
             TextView textViewInfo = findViewById(R.id.textViewInfo);
@@ -860,7 +905,7 @@ public class KnowledgeNoteFragment extends Fragment {
             }
             
             // 显示提示
-            Toast.makeText(requireContext(), "已将文本插入到笔记中", Toast.LENGTH_SHORT).show();
+            Toast.makeText(requireContext(), getString(R.string.toast_text_inserted_to_note), Toast.LENGTH_SHORT).show();
             
             // 如果标题为空，自动生成标题（使用文本的前10个字符）
             if (editTextTitle.getText().toString().trim().isEmpty()) {
@@ -877,7 +922,7 @@ public class KnowledgeNoteFragment extends Fragment {
             LogManager.logD(TAG, "成功将文本插入到内容编辑框");
         } catch (Exception e) {
             LogManager.logE(TAG, "插入文本到内容编辑框失败", e);
-            Toast.makeText(requireContext(), "插入文本失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            Toast.makeText(requireContext(), getString(R.string.toast_insert_text_failed, e.getMessage()), Toast.LENGTH_SHORT).show();
         }
     }
     

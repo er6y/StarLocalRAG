@@ -11,7 +11,7 @@
         android:id="@+id/textViewApiUrlLabel"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="大模型API地址:"
+        android:text="@string/label_llm_api_url"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintStart_toStartOf="parent" />
 
@@ -30,7 +30,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
-        android:text="大模型API Key:"
+        android:text="@string/label_llm_api_key"
         app:layout_constraintTop_toBottomOf="@+id/spinnerApiUrl" 
         app:layout_constraintStart_toStartOf="parent" />
 
@@ -50,7 +50,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
-        android:text="大模型:"
+        android:text="@string/label_llm_model"
         app:layout_constraintTop_toBottomOf="@+id/editTextApiKey"
         app:layout_constraintStart_toStartOf="parent" />
 
@@ -69,7 +69,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
-        android:text="知识库:"
+        android:text="@string/label_knowledge_base"
         app:layout_constraintTop_toBottomOf="@+id/spinnerApiModel"
         app:layout_constraintStart_toStartOf="parent" />
 
@@ -88,7 +88,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
-        android:text="系统提示词:"
+        android:text="@string/label_system_prompt"
         app:layout_constraintTop_toBottomOf="@+id/spinnerKnowledgeBase"
         app:layout_constraintStart_toStartOf="parent" />
 
@@ -130,7 +130,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp" 
-        android:text="用户提问:"
+        android:text="@string/label_user_prompt"
         app:layout_constraintBottom_toTopOf="@+id/editTextUserPrompt"
         app:layout_constraintStart_toStartOf="parent" />
 
@@ -151,7 +151,7 @@
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_marginEnd="8dp"
-        android:text="发送 ▶"
+        android:text="@string/button_send"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toStartOf="@+id/buttonNewChat" />
@@ -160,7 +160,7 @@
         android:id="@+id/buttonNewChat"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="新对话"
+        android:text="@string/button_new_conversation"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 

@@ -58,9 +58,9 @@ public class KnowledgeBaseService extends Service {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel channel = new NotificationChannel(
                     CHANNEL_ID,
-                    "知识库构建服务",
+                    "Knowledge Base Build Service",
                     NotificationManager.IMPORTANCE_LOW);
-            channel.setDescription("用于在后台运行知识库构建过程");
+            channel.setDescription("Used to run knowledge base building process in background");
             
             NotificationManager notificationManager = getSystemService(NotificationManager.class);
             notificationManager.createNotificationChannel(channel);
@@ -69,10 +69,10 @@ public class KnowledgeBaseService extends Service {
     
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        LogManager.logD(TAG, "知识库构建服务已启动");
+        LogManager.logD(TAG, "Knowledge base build service started");
         
         // 启动前台服务
-        startForeground(NOTIFICATION_ID, createNotification("正在构建知识库..."));
+        startForeground(NOTIFICATION_ID, createNotification("Building knowledge base..."));
         
         // 获取唤醒锁
         if (!wakeLock.isHeld()) {
@@ -149,6 +149,6 @@ public class KnowledgeBaseService extends Service {
             wakeLock.release();
         }
         
-        LogManager.logD(TAG, "知识库构建服务已停止");
+        LogManager.logD(TAG, "Knowledge base build service stopped");
     }
 }

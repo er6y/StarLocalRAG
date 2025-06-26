@@ -29,7 +29,7 @@
         android:layout_height="24dp"
         android:layout_gravity="center_vertical"
         android:background="?attr/selectableItemBackgroundBorderless"
-        android:contentDescription="删除API地址"
+        android:contentDescription="@string/content_description_delete_api_url"
         android:src="@android:drawable/ic_menu_delete" />
 
 </LinearLayout>

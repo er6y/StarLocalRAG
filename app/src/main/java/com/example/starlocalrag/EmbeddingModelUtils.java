@@ -19,6 +19,8 @@ import java.util.List;
 import java.util.function.Consumer;
 
 import com.example.starlocalrag.ConfigManager;
+import com.example.starlocalrag.StateDisplayManager;
+import com.example.starlocalrag.AppConstants;
 
 /**
  * 模型工具类，提供嵌入模型和重排模型检测和查找的公共方法
@@ -93,7 +95,8 @@ public class EmbeddingModelUtils {
         }
         
         // 检查重排模型（如果rerankerdir不为空且不为"无"）
-        if (rerankerdir != null && !rerankerdir.isEmpty() && !rerankerdir.equals("无")) {
+        String noneRerankerText = context.getString(R.string.common_none);
+        if (rerankerdir != null && !rerankerdir.isEmpty() && !rerankerdir.equals(noneRerankerText)) {
             File rerankerModelDir = new File(rerankerModelPath);
             boolean rerankerModelFound = false;
             
@@ -143,7 +146,7 @@ public class EmbeddingModelUtils {
             
             // 获取可用的重排模型列表
             List<String> availableRerankerModels = new ArrayList<>();
-            availableRerankerModels.add("无"); // 添加"无"选项
+            availableRerankerModels.add(context.getString(R.string.common_none)); // 添加"无"选项
             File rerankerModelDir = new File(rerankerModelPath);
             if (rerankerModelDir.exists() && rerankerModelDir.isDirectory()) {
                 File[] directories = rerankerModelDir.listFiles(File::isDirectory);
@@ -204,7 +207,8 @@ public class EmbeddingModelUtils {
                 if (originalEmbeddingModel != null && !originalEmbeddingModel.isEmpty()) {
                     infoText += "\n嵌入模型 '" + originalEmbeddingModel + "' 不可用";
                 }
-                if (originalRerankerModel != null && !originalRerankerModel.isEmpty() && !originalRerankerModel.equals("无")) {
+                String noneRerankerText = context.getString(R.string.common_none);
+        if (originalRerankerModel != null && !originalRerankerModel.isEmpty() && !originalRerankerModel.equals(noneRerankerText)) {
                     infoText += "\n重排模型 '" + originalRerankerModel + "' 不可用";
                 }
                 textViewInfo.setText(infoText);
@@ -236,12 +240,15 @@ public class EmbeddingModelUtils {
                 
                 LogManager.logD(TAG, "准备创建对话框，耗时: " + (System.currentTimeMillis() - startTime) + "ms");
                 
+                // 创建状态显示管理器
+                StateDisplayManager stateDisplayManager = new StateDisplayManager(context);
+                
                 // 创建对话框 - 使用原生按钮
                 AlertDialog.Builder builder = new AlertDialog.Builder(context)
-                        .setTitle("选择嵌入模型和重排模型")
+                        .setTitle(stateDisplayManager.getDialogDisplay(AppConstants.DIALOG_TITLE_SELECT_EMBEDDING_RERANKER))
                         .setView(dialogView)
                         .setCancelable(false) // 防止用户通过点击外部或返回键关闭对话框
-                        .setPositiveButton("确定", (dialog, which) -> {
+                        .setPositiveButton(stateDisplayManager.getButtonDisplay(AppConstants.BUTTON_TEXT_OK), (dialog, which) -> {
                             LogManager.logD(TAG, "确定按钮被点击");
                             long processStartTime = System.currentTimeMillis();
                             
@@ -264,7 +271,7 @@ public class EmbeddingModelUtils {
                                 }).start();
                             }
                         })
-                        .setNegativeButton("取消", (dialog, which) -> {
+                        .setNegativeButton(stateDisplayManager.getButtonDisplay(AppConstants.BUTTON_TEXT_CANCEL), (dialog, which) -> {
                             LogManager.logD(TAG, "取消按钮被点击");
                             LogManager.logD(TAG, "用户取消了模型选择");
                             
@@ -307,7 +314,8 @@ public class EmbeddingModelUtils {
         boolean rerankerModelFound = true; // 重排模型默认为找到（因为可以选择"无"）
         
         // 处理嵌入模型选择
-        if (selectedEmbeddingModel.equals("根目录")) {
+        String rootDirectoryText = context.getString(R.string.embedding_model_root_directory);
+        if (selectedEmbeddingModel.equals(rootDirectoryText)) {
             // 在根目录中查找嵌入模型文件
             File embeddingModelDir = new File(embeddingModelPath);
             File[] files = embeddingModelDir.listFiles(file -> isModelFile(file));
@@ -338,11 +346,12 @@ public class EmbeddingModelUtils {
         }
         
         // 处理重排模型选择
-        if (selectedRerankerModel.equals("无")) {
+        String noneRerankerText = context.getString(R.string.common_none);
+        if (selectedRerankerModel.equals(noneRerankerText)) {
             // 用户选择不使用重排模型
             SQLiteVectorDatabaseHandler.DatabaseMetadata metadata = vectorDb.getMetadata();
-            metadata.setRerankerdir("无");
-            LogManager.logD(TAG, "已更新元数据，rerankerdir设置为: 无");
+            metadata.setRerankerdir(context.getString(R.string.common_none));
+            LogManager.logD(TAG, "已更新元数据，rerankerdir设置为: " + context.getString(R.string.common_none));
         } else {
             // 使用选定的重排模型目录
             File selectedRerankerDir = new File(rerankerModelPath, selectedRerankerModel);

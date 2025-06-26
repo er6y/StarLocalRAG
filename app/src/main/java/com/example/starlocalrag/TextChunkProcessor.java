@@ -21,8 +21,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * 文本块处理器
- * 负责文本提取和向量化的两阶段处理
+ * Text chunk processor
+ * Responsible for two-stage processing of text extraction and vectorization
  */
 public class TextChunkProcessor {
     private static final String TAG = "StarLocalRAG_TextChunk";
@@ -49,7 +49,7 @@ public class TextChunkProcessor {
     private static final String INTERMEDIATE_FILE_NAME = "intermediate_chunks.json";
     
     /**
-     * 文本块类
+     * Text chunk class
      */
     public static class TextChunk {
         public String text;
@@ -66,7 +66,7 @@ public class TextChunkProcessor {
     }
     
     /**
-     * 进度回调接口
+     * Progress callback interface
      */
     public interface ProgressCallback {
         void onTextExtractionProgress(int processedFiles, int totalFiles, String currentFile);
@@ -78,15 +78,15 @@ public class TextChunkProcessor {
     }
     
     /**
-     * 通知进度回调接口
+     * Notification progress callback interface
      */
     public interface NotificationProgressCallback {
         void onNotificationProgressUpdate(int processedChunks, int totalChunks, float percentage);
     }
     
     /**
-     * 构造函数
-     * @param context 上下文
+     * Constructor
+     * @param context Context
      */
     public TextChunkProcessor(Context context) {
         this.context = context;
@@ -96,8 +96,8 @@ public class TextChunkProcessor {
     }
     
     /**
-     * 构造函数
-     * @param context 上下文
+     * Constructor
+     * @param context Context
      */
     public TextChunkProcessor(Context context, AtomicBoolean isTaskCancelled) {
         this.context = context;
@@ -107,28 +107,28 @@ public class TextChunkProcessor {
     }
     
     /**
-     * 设置进度回调
+     * Set progress callback
      */
     public void setProgressCallback(ProgressCallback callback) {
         this.progressCallback = callback;
     }
     
     /**
-     * 设置通知进度回调
+     * Set notification progress callback
      */
     public void setNotificationProgressCallback(NotificationProgressCallback callback) {
         this.notificationProgressCallback = callback;
     }
     
     /**
-     * 处理文件列表
-     * @param knowledgeBasePath 知识库路径
-     * @param files 文件列表
-     * @param chunkSize 分块大小
-     * @param chunkOverlap 分块重叠大小
-     * @param embeddingModel 词嵌入模型
-     * @param vectorDB 向量数据库
-     * @return 是否成功
+     * Process file list
+     * @param knowledgeBasePath Knowledge base path
+     * @param files File list
+     * @param chunkSize Chunk size
+     * @param chunkOverlap Chunk overlap size
+     * @param embeddingModel Embedding model
+     * @param vectorDB Vector database
+     * @return Whether successful
      */
     public boolean processFiles(String knowledgeBasePath, List<Uri> files, int chunkSize, int chunkOverlap, 
                                EmbeddingModelHandler embeddingModel, SQLiteVectorDatabaseHandler vectorDB) {
@@ -136,21 +136,21 @@ public class TextChunkProcessor {
             // 第一阶段：提取文本并分块
             List<TextChunk> chunks = extractTextFromFiles(knowledgeBasePath, files, chunkSize, chunkOverlap);
             if (chunks == null || chunks.isEmpty()) {
-                logMessage("未能提取任何文本块");
+                logMessage("Failed to extract any text chunks");
                 return false;
             }
             
             // 保存中间结果
             saveIntermediateChunks(knowledgeBasePath, chunks);
             
-            // 通知文本提取完成
+            // Notify text extraction completed
             if (progressCallback != null) {
                 progressCallback.onTextExtractionComplete(chunks.size());
             }
             
-            // 检查任务是否取消
+            // Check if task is cancelled
             if (isTaskCancelled.get()) {
-                logMessage("任务已取消");
+                logMessage("Task cancelled");
                 return false;
             }
             
@@ -162,13 +162,13 @@ public class TextChunkProcessor {
             
             return success;
         } catch (Exception e) {
-            logError("处理文件失败: " + e.getMessage(), e);
+            logError("Failed to process files: " + e.getMessage(), e);
             return false;
         }
     }
     
     /**
-     * 从文件中提取文本并分块
+     * Extract text from files and chunk
      */
     private List<TextChunk> extractTextFromFiles(String knowledgeBasePath, List<Uri> files, int chunkSize, int chunkOverlap) {
         List<TextChunk> allChunks = new ArrayList<>();
@@ -178,9 +178,9 @@ public class TextChunkProcessor {
         
         try {
             for (int i = 0; i < totalFiles; i++) {
-                // 检查任务是否取消
+                // Check if task is cancelled
                 if (isTaskCancelled.get()) {
-                    logMessage("文本提取已取消");
+                    logMessage("Text extraction cancelled");
                     return allChunks;
                 }
                 
@@ -197,37 +197,37 @@ public class TextChunkProcessor {
                     // 提取文本
                     String text = documentParser.extractText(fileUri);
                     if (text == null || text.trim().isEmpty()) {
-                        logMessage("警告: 文件 " + fileName + " 未能提取到文本");
+                        logMessage("Warning: Failed to extract text from file " + fileName);
                         continue;
                     }
                     
-                    // 记录文件大小
+                    // Record file size
                     int textLength = text.length();
-                    logMessage("文件: " + fileName + " 提取的文本大小: " + (textLength / 1024) + "KB");
+                    logMessage("File: " + fileName + " extracted text size: " + (textLength / 1024) + "KB");
                     
-                    // 检查是否是JSON内容
+                    // Check if it's JSON content
                     boolean isJson = false;
                     boolean isSpecialDataset = false;
                     try {
-                        // 首先检查文件名是否包含json
+                        // First check if filename contains json
                         boolean fileNameIndicatesJson = fileName.toLowerCase().endsWith(".json");
                         
-                        // 检查是否为特定数据集
+                        // Check if it's a specific dataset
                         if (fileNameIndicatesJson && (
                             fileName.contains("datasets-sb") || 
                             fileName.contains("alpaca") || 
                             fileName.contains("STAR") || 
                             fileName.contains("star"))) {
                             isSpecialDataset = true;
-                            logMessage("检测到特定数据集: " + fileName + "，将忽略最小块大小限制");
+                            logMessage("Detected specific dataset: " + fileName + ", will ignore minimum chunk size limit");
                         }
                         
                         if (fileNameIndicatesJson) {
-                            logMessage("文件名表明这可能是JSON文件: " + fileName);
-                            // 对于JSON文件，使用更严格的检测
+                            logMessage("Filename indicates this might be a JSON file: " + fileName);
+                            // For JSON files, use stricter detection
                             isJson = JsonDatasetProcessor.isJsonContent(text);
                         } else {
-                            // 对于非JSON文件，只有当内容明确是JSON格式时才识别为JSON
+                            // For non-JSON files, only recognize as JSON when content is clearly JSON format
                             String trimmedText = text.trim();
                             boolean looksLikeJson = (trimmedText.startsWith("{") && trimmedText.endsWith("}")) || 
                                                   (trimmedText.startsWith("[") && trimmedText.endsWith("]"));
@@ -237,83 +237,83 @@ public class TextChunkProcessor {
                             }
                         }
                     } catch (Exception e) {
-                        logError("检查JSON内容时出错: " + e.getMessage(), e);
+                        logError("Error checking JSON content: " + e.getMessage(), e);
                     }
                     
                     boolean jsonOptimizationEnabled = ConfigManager.isJsonDatasetSplittingEnabled(context);
                     
-                    // 明确显示JSON格式识别结果
-                    String jsonStatusMessage = "文件: " + fileName + (isJson ? " 是JSON格式" : " 不是JSON格式") + 
-                                              (isSpecialDataset ? " (特定数据集，忽略最小块大小限制)" : "");
+                    // Clearly display JSON format recognition result
+                    String jsonStatusMessage = "File: " + fileName + (isJson ? " is JSON format" : " is not JSON format") + 
+                                              (isSpecialDataset ? " (specific dataset, ignore minimum chunk size limit)" : "");
                     logMessage(jsonStatusMessage);
                     
                     if (isJson) {
-                        String configStatusMessage = "JSON优化配置状态: " + (jsonOptimizationEnabled ? "已启用" : "已禁用");
+                        String configStatusMessage = "JSON optimization config status: " + (jsonOptimizationEnabled ? "enabled" : "disabled");
                         logMessage(configStatusMessage);
                         
                         if (jsonOptimizationEnabled) {
-                            // 尝试识别JSON格式
+                            // Try to recognize JSON format
                             try {
-                                // 获取JSON内容的前100个字符作为预览
+                                // Get first 100 characters of JSON content as preview
                                 String jsonPreview = text.length() > 100 ? text.substring(0, 100) + "..." : text;
-                                logMessage("JSON内容预览: " + jsonPreview);
+                                logMessage("JSON content preview: " + jsonPreview);
                                 
-                                // 使用JsonDatasetProcessor处理JSON内容
-                                logMessage("开始使用JsonDatasetProcessor处理JSON内容...");
+                                // Use JsonDatasetProcessor to process JSON content
+                                logMessage("Starting to process JSON content using JsonDatasetProcessor...");
                                 
-                                // 确保没有异常阻止处理
+                                // Ensure no exceptions prevent processing
                                 List<String> jsonChunks = new ArrayList<>();
                                 try {
-                                    // 对于大型JSON文件，可能需要特殊处理
-                                    if (text.length() > 1000000) { // 1MB以上的文件
-                                        logMessage("检测到大型JSON文件 (" + (text.length() / 1024 / 1024) + "MB)，使用分段处理");
+                                    // For large JSON files, special processing may be needed
+                                    if (text.length() > 1000000) { // Files over 1MB
+                                        logMessage("Detected large JSON file (" + (text.length() / 1024 / 1024) + "MB), using segmented processing");
                                         
-                                        // 尝试修复可能的JSON格式问题
+                                        // Try to fix possible JSON format issues
                                         String processedText = text;
                                         if (text.trim().startsWith("[") && !text.trim().endsWith("]")) {
                                             processedText = text.trim() + "]";
-                                            logMessage("JSON文件似乎不完整，尝试添加结束括号进行修复");
+                                            logMessage("JSON file seems incomplete, trying to fix by adding closing bracket");
                                         }
                                         
-                                        // 使用特定数据集处理标志
+                                        // Use specific dataset processing flag
                                         jsonChunks = JsonDatasetProcessor.processJsonDataset(context, processedText, isSpecialDataset);
                                     } else {
-                                        // 使用特定数据集处理标志
+                                        // Use specific dataset processing flag
                                         jsonChunks = JsonDatasetProcessor.processJsonDataset(context, text, isSpecialDataset);
                                     }
-                                    logMessage("JSON处理完成，返回了 " + jsonChunks.size() + " 个文本块");
+                                    logMessage("JSON processing completed, returned " + jsonChunks.size() + " text chunks");
                                 } catch (Exception e) {
-                                    logError("JSON处理过程中出错: " + e.getMessage(), e);
-                                    // 尝试使用更宽容的方式处理JSON
+                                    logError("Error during JSON processing: " + e.getMessage(), e);
+                                    // Try to process JSON using more tolerant approach
                                     try {
-                                        logMessage("尝试使用备用方法处理JSON...");
-                                        // 检查是否为Alpaca格式
+                                        logMessage("Trying to use alternative method to process JSON...");
+                                        // Check if it's Alpaca format
                                         if (text.contains("\"instruction\"") && 
                                             (text.contains("\"output\"") || text.contains("\"response\""))) {
-                                            logMessage("检测到可能是Alpaca格式，尝试手动解析");
+                                            logMessage("Detected possible Alpaca format, trying manual parsing");
                                             
-                                            // 简单的手动解析，提取instruction和output/response对
+                                            // Simple manual parsing, extract instruction and output/response pairs
                                             String[] lines = text.split("\\n");
                                             StringBuilder currentItem = new StringBuilder();
                                             for (String line : lines) {
                                                 line = line.trim();
                                                 if (line.contains("\"instruction\"")) {
                                                     if (currentItem.length() > 0) {
-                                                        // 处理上一个项目
+                                                        // Process previous item
                                                         String itemText = currentItem.toString();
                                                         if (itemText.length() >= minChunkSize) {
                                                             jsonChunks.add(itemText);
                                                         }
                                                         currentItem = new StringBuilder();
                                                     }
-                                                    // 开始新项目
-                                                    currentItem.append("指令: ").append(extractValue(line)).append("\n\n");
+                                                    // Start new item
+                                                    currentItem.append("Instruction: ").append(extractValue(line)).append("\n\n");
                                                 } else if (line.contains("\"output\"") || line.contains("\"response\"")) {
-                                                    currentItem.append("输出: ").append(extractValue(line));
+                                                    currentItem.append("Output: ").append(extractValue(line));
                                                 }
                                             }
                                             
-                                            // 处理最后一个项目
+                                            // Process last item
                                             if (currentItem.length() > 0) {
                                                 String itemText = currentItem.toString();
                                                 if (itemText.length() >= minChunkSize) {
@@ -321,24 +321,24 @@ public class TextChunkProcessor {
                                                 }
                                             }
                                             
-                                            logMessage("手动解析完成，提取了 " + jsonChunks.size() + " 个文本块");
+                                            logMessage("Manual parsing completed, extracted " + jsonChunks.size() + " text chunks");
                                         }
                                     } catch (Exception ex) {
-                                        logError("备用JSON处理方法也失败: " + ex.getMessage(), ex);
+                                        logError("Alternative JSON processing method also failed: " + ex.getMessage(), ex);
                                     }
                                 }
                                 
                                 if (!jsonChunks.isEmpty()) {
-                                    logMessage("JSON处理成功，应用了优化，生成了 " + jsonChunks.size() + " 个文本块");
+                                    logMessage("JSON processing successful, optimization applied, generated " + jsonChunks.size() + " text chunks");
                                     
                                     // 创建文本块对象
                                     for (int j = 0; j < jsonChunks.size(); j++) {
                                         String chunkText = jsonChunks.get(j);
                                         
-                                        // 注意：不需要在这里检查块大小是否合理
-                                        // LangChainTextSplitter已经根据minChunkSize过滤了过小的文本块
+                                        // Note: No need to check if chunk size is reasonable here
+                                        // LangChainTextSplitter has already filtered out chunks that are too small based on minChunkSize
                                         
-                                        // 创建元数据
+                                        // Create metadata
                                         JSONObject metadata = new JSONObject();
                                         try {
                                             metadata.put("fileName", fileName);
@@ -348,84 +348,84 @@ public class TextChunkProcessor {
                                             metadata.put("extractionTime", System.currentTimeMillis());
                                             metadata.put("processingMethod", "JsonOptimized");
                                         } catch (JSONException e) {
-                                            logError("创建元数据失败: " + e.getMessage(), e);
+                                            logError("Failed to create metadata: " + e.getMessage(), e);
                                         }
                                         
-                                        // 添加到文本块列表
+                                        // Add to text chunk list
                                         TextChunk chunk = new TextChunk(chunkText, fileName, j, metadata);
                                         allChunks.add(chunk);
                                     }
                                     
-                                    // 为每个文件打印分块数量
-                                    String fileProcessingSummary = "已处理JSON文件: " + fileName + ", 使用优化方式提取了 " + jsonChunks.size() + " 个文本块";
+                                    // Print chunk count for each file
+                                    String fileProcessingSummary = "Processed JSON file: " + fileName + ", extracted " + jsonChunks.size() + " text chunks using optimization";
                                     logMessage(fileProcessingSummary);
                                     
-                                    // 如果是进度回调，确保这个信息显示在UI上
+                                    // If progress callback exists, ensure this info is displayed on UI
                                     if (progressCallback != null) {
-                                        progressCallback.onLog("文件: " + fileName + " -> JSON优化分块数量: " + jsonChunks.size());
+                                        progressCallback.onLog("File: " + fileName + " -> JSON optimized chunk count: " + jsonChunks.size());
                                     }
                                     
                                     totalChunks.addAndGet(jsonChunks.size());
-                                    continue; // 跳过标准分块处理
+                                    continue; // Skip standard chunking processing
                                 } else {
-                                    logMessage("JSON处理未生成任何文本块，将回退到标准分块处理");
+                                    logMessage("JSON processing generated no text chunks, will fallback to standard chunking");
                                 }
                             } catch (Exception e) {
-                                logError("JSON处理失败: " + e.getMessage() + "，将回退到标准分块处理", e);
+                                logError("JSON processing failed: " + e.getMessage() + ", will fallback to standard chunking", e);
                             }
                         } else {
-                            logMessage("JSON优化已禁用，将使用标准分块处理");
+                            logMessage("JSON optimization disabled, will use standard chunking");
                         }
                     } else {
-                        logMessage("JSON优化已禁用，将使用标准分块处理");
+                        logMessage("JSON optimization disabled, will use standard chunking");
                     }
                     
-                    // 处理文本分块
+                    // Process text chunking
                     List<String> chunks;
                     int fileChunkCount = 0;
                     
                     if (isJson && jsonOptimizationEnabled) {
-                        // 使用JSON处理逻辑
+                        // Use JSON processing logic
                         List<String> jsonChunks = new ArrayList<>();
                         try {
-                            // 对于大型JSON文件，可能需要特殊处理
-                            if (text.length() > 1000000) { // 1MB以上的文件
-                                logMessage("检测到大型JSON文件 (" + (text.length() / 1024 / 1024) + "MB)，使用分段处理");
+                            // For large JSON files, special processing may be needed
+                            if (text.length() > 1000000) { // Files over 1MB
+                                logMessage("Detected large JSON file (" + (text.length() / 1024 / 1024) + "MB), using segmented processing");
                                 
-                                // 尝试修复可能的JSON格式问题
+                                // Try to fix possible JSON format issues
                                 String processedText = text;
                                 if (text.trim().startsWith("[") && !text.trim().endsWith("]")) {
                                     processedText = text.trim() + "]";
-                                    logMessage("JSON文件似乎不完整，尝试添加结束括号进行修复");
+                                    logMessage("JSON file seems incomplete, trying to fix by adding closing bracket");
                                 }
                                 
-                                // 使用特定数据集处理标志
+                                // Use specific dataset processing flag
                                 jsonChunks = JsonDatasetProcessor.processJsonDataset(context, processedText, isSpecialDataset);
                             } else {
-                                // 使用特定数据集处理标志
+                                // Use specific dataset processing flag
                                 jsonChunks = JsonDatasetProcessor.processJsonDataset(context, text, isSpecialDataset);
                             }
-                            logMessage("JSON处理完成，返回了 " + jsonChunks.size() + " 个文本块");
+                            logMessage("JSON processing completed, returned " + jsonChunks.size() + " text chunks");
                         } catch (Exception e) {
-                            logError("JSON处理过程中出错: " + e.getMessage(), e);
-                            // 如果JSON处理失败，使用标准分块处理
-                            logMessage("JSON处理失败，回退到标准分块处理");
+                            logError("Error during JSON processing: " + e.getMessage(), e);
+                            // If JSON processing fails, use standard chunking
+                            logMessage("JSON processing failed, fallback to standard chunking");
                             jsonChunks = splitTextIntoChunks(text, chunkSize, chunkOverlap);
                         }
                         
                         chunks = jsonChunks;
                         fileChunkCount = jsonChunks.size();
                     } else {
-                        // 使用标准分块处理
-                        logMessage("使用标准分块处理，分块大小: " + chunkSize + ", 重叠大小: " + chunkOverlap);
+                        // Use standard chunking processing
+                        logMessage("Using standard chunking, chunk size: " + chunkSize + ", overlap size: " + chunkOverlap);
                         chunks = splitTextIntoChunks(text, chunkSize, chunkOverlap);
                         fileChunkCount = chunks.size();
                     }
                     
-                    // 记录该文件生成的文本块数量
-                    logMessage("文件: " + fileName + " 生成了 " + fileChunkCount + " 个文本块");
+                    // Record the number of text chunks generated by this file
+                    logMessage("File: " + fileName + " generated " + fileChunkCount + " text chunks");
                     
-                    // 添加到总块列表
+                    // Add to total chunk list
                     int chunkIndex = 0;
                     for (String chunk : chunks) {
                         JSONObject metadata = new JSONObject();
@@ -434,91 +434,92 @@ public class TextChunkProcessor {
                             metadata.put("chunkIndex", chunkIndex++);
                             metadata.put("extractionTime", System.currentTimeMillis());
                         } catch (JSONException e) {
-                            logError("创建元数据时出错: " + e.getMessage(), e);
+                            logError("Error creating metadata: " + e.getMessage(), e);
                         }
                         
                         allChunks.add(new TextChunk(chunk, fileName, chunkIndex - 1, metadata));
                         totalChunks.incrementAndGet();
                     }
                     
-                    // 更新进度回调，包含当前文件的文本块数量
+                    // Update progress callback, including current file's text chunk count
                     if (progressCallback != null) {
-                        progressCallback.onTextExtractionProgress(currentProcessed, totalFiles, fileName + " (生成了 " + fileChunkCount + " 个文本块)");
+                        progressCallback.onTextExtractionProgress(currentProcessed, totalFiles, fileName + " (generated " + fileChunkCount + " text chunks)");
                     }
                     
                 } catch (Exception e) {
-                    logError("处理文件失败: " + fileName + ", 错误: " + e.getMessage(), e);
+                    logError("Failed to process file: " + fileName + ", error: " + e.getMessage(), e);
                 }
             }
             
-            logMessage("文本提取完成，共 " + totalChunks.get() + " 个文本块");
+            logMessage("Text extraction completed, total " + totalChunks.get() + " text chunks");
             return allChunks;
         } catch (Exception e) {
-            logError("文本提取过程失败: " + e.getMessage(), e);
+            logError("Text extraction process failed: " + e.getMessage(), e);
             return allChunks;
         }
     }
     
     /**
-     * 将文本分割成块
-     * @param text 要分割的文本
-     * @param chunkSize 块大小
-     * @param chunkOverlap 块重叠大小
-     * @return 分割后的文本块列表
+     * Split text into chunks
+     * @param text Text to split
+     * @param chunkSize Chunk size
+     * @param chunkOverlap Chunk overlap size
+     * @return List of split text chunks
      */
     public List<String> splitTextIntoChunks(String text, int chunkSize, int chunkOverlap) {
         if (text == null || text.isEmpty()) {
             return new ArrayList<>();
         }
         
-        // 使用LangChainTextSplitter进行文本分割，确保与PC端一致
-        LogManager.logD(TAG, "使用LangChainTextSplitter进行文本分割");
-        // 从ConfigManager获取最小分块大小，而不是使用硬编码值
+        // Use LangChainTextSplitter for text splitting, ensure consistency with PC side
+        LogManager.logD(TAG, "Using LangChainTextSplitter for text splitting");
+        // Get minimum chunk size from ConfigManager instead of using hardcoded value
         LangChainTextSplitter splitter = new LangChainTextSplitter(chunkSize, chunkOverlap, minChunkSize);
         List<String> chunks = splitter.splitText(text);
         
-        LogManager.logD(TAG, "文本分割完成，生成了" + chunks.size() + "个文本块");
+        LogManager.logD(TAG, "Text splitting completed, generated " + chunks.size() + " text chunks");
         
         return chunks;
     }
     
     /**
-     * 将文本块向量化并存入数据库
+     * Vectorize text chunks and store them in database
      */
     private boolean processChunksToVectors(List<TextChunk> chunks, EmbeddingModelHandler model, 
                                           SQLiteVectorDatabaseHandler vectorDB) {
         if (chunks == null || chunks.isEmpty()) {
-            logError("没有文本块需要处理", null);
+            logError("No text chunks to process", null);
             return false;
         }
         
         try {
             int totalChunks = chunks.size();
-            logMessage("开始向量化处理，共 " + totalChunks + " 个文本块");
-            LogManager.logD(TAG, "开始向量化处理，共 " + totalChunks + " 个文本块");
+            logMessage("Starting vectorization processing, total " + totalChunks + " text chunks");
+            LogManager.logD(TAG, "Starting vectorization processing, total " + totalChunks + " text chunks");
             
-            // 获取EmbeddingModelManager实例，用于标记模型使用状态
+            // Get EmbeddingModelManager instance to mark model usage status
             EmbeddingModelManager modelManager = EmbeddingModelManager.getInstance(context);
             
             try {
-                // 标记模型开始使用
+                // Mark model as in use
                 modelManager.markModelInUse();
-                LogManager.logD(TAG, "标记模型开始使用");
+                LogManager.logD(TAG, "Marked model as in use");
                 
-                // 初始化进度日志
-                StringBuilder progressLog = new StringBuilder("向量化进度");
+                // Initialize progress log
+                String vectorizationProgress = context.getString(R.string.status_vectorization_progress);
+                StringBuilder progressLog = new StringBuilder(vectorizationProgress);
                 int lastPercentage = 0;
                 
-                // 首先发送初始进度日志
+                // First send initial progress log
                 if (progressCallback != null) {
                     progressCallback.onLog(progressLog.toString());
                 }
                 
-                // 处理所有文本块
+                // Process all text chunks
                 for (int i = 0; i < totalChunks; i++) {
-                    // 检查任务是否被取消
+                    // Check if task is cancelled
                     if (isTaskCancelled.get()) {
-                        logMessage("任务已取消");
+                        logMessage("Task cancelled");
                         return false;
                     }
                     
@@ -528,82 +529,82 @@ public class TextChunkProcessor {
                     JSONObject metadata = chunk.metadata;
                     
                     try {
-                        // 每处理一个文本块，添加一个点
+                        // Add a dot for each processed text chunk
                         progressLog.append(".");
                         
-                        // 计算当前百分比
+                        // Calculate current percentage
                         int currentPercentage = (i + 1) * 100 / totalChunks;
                         
-                        // 检查是否需要显示百分比
+                        // Check if percentage needs to be displayed
                         boolean showPercentage = currentPercentage / 10 > lastPercentage / 10 || i == totalChunks - 1;
                         
                         if (showPercentage) {
-                            // 打印百分比
+                            // Print percentage
                             progressLog.append(currentPercentage + "%");
                             lastPercentage = currentPercentage;
                         }
                         
-                        // 每处理一个文本块，都更新UI显示
+                        // Update UI display for each processed text chunk
                         if (progressCallback != null) {
                             progressCallback.onLog(progressLog.toString());
                         }
                         
-                        // 每100个文本块或最后一个文本块时，记录详细日志（仅在调试日志中显示）
+                        // Record detailed log every 100 text chunks or at the last text chunk (only shown in debug log)
                         if (i % 100 == 0 || i == totalChunks - 1) {
-                            LogManager.logD(TAG, "向量化详细进度: " + (i + 1) + "/" + totalChunks + 
-                                  "，线程ID: " + Thread.currentThread().getId() + 
-                                  "，源文件: " + source);
+                            LogManager.logD(TAG, "Vectorization detailed progress: " + (i + 1) + "/" + totalChunks + 
+                                  ", Thread ID: " + Thread.currentThread().getId() + 
+                                  ", Source file: " + source);
                         }
                         
-                        // 生成向量
+                        // Generate vector
                         float[] embedding = model.generateEmbedding(text);
                         
-                        // 添加到数据库
+                        // Add to database
                         vectorDB.addVector(text, embedding, source, metadata.toString());
                         
-                        // 更新进度
+                        // Update progress
                         float percentage = (float) (i + 1) / totalChunks * 100;
                         if (progressCallback != null) {
                             progressCallback.onVectorizationProgress(i + 1, totalChunks, percentage);
                         }
                         
-                        // 通知进度更新
+                        // Notify progress update
                         if (notificationProgressCallback != null) {
                             notificationProgressCallback.onNotificationProgressUpdate(i + 1, totalChunks, percentage);
                         }
                     } catch (Exception e) {
-                        logError("向量化失败: " + e.getMessage(), e);
+                        logError("Vectorization failed: " + e.getMessage(), e);
                     }
                 }
                 
-                // 保存数据库
+                // Save database
                 vectorDB.saveDatabase();
-                logMessage("向量化处理完成");
-                LogManager.logD(TAG, "向量化处理全部完成，共处理 " + totalChunks + " 个文本块，线程ID: " + Thread.currentThread().getId());
+                logMessage("Vectorization processing completed");
+                LogManager.logD(TAG, "Vectorization processing fully completed, processed " + totalChunks + " text chunks, Thread ID: " + Thread.currentThread().getId());
                 
-                // 通知向量化处理完成
+                // Notify vectorization processing completed
                 if (progressCallback != null) {
                     progressCallback.onVectorizationComplete(totalChunks);
                 }
             } finally {
-                // 无论成功还是失败，最后标记模型为不再使用
+                // Whether successful or failed, finally mark model as not in use
                 modelManager.markModelNotInUse();
-                LogManager.logD(TAG, "批量向量化处理完成，已标记模型为不再使用状态");
+                LogManager.logD(TAG, "Batch vectorization processing completed, marked model as not in use");
                 
-                // 关闭数据库
+                // Close database
                 vectorDB.close();
-                LogManager.logD(TAG, "向量数据库已关闭");
+                LogManager.logD(TAG, "Vector database closed");
             }
             
             return !isTaskCancelled.get();
         } catch (Exception e) {
-            logError("处理知识库失败: " + e.getMessage(), e);
+            logError("Failed to process knowledge base: " + e.getMessage(), e);
             return false;
         }
     }
     
     /**
-     * 保存中间文本块到文件
+     * Save intermediate text chunks to file
      */
     private void saveIntermediateChunks(String knowledgeBasePath, List<TextChunk> chunks) {
         File intermediateFile = new File(knowledgeBasePath, INTERMEDIATE_FILE_NAME);
@@ -621,21 +622,21 @@ public class TextChunkProcessor {
             }
             
             writer.write(jsonArray.toString());
-            logMessage("已保存中间文本块到: " + intermediateFile.getAbsolutePath());
+            logMessage("Saved intermediate text chunks to: " + intermediateFile.getAbsolutePath());
         } catch (IOException | JSONException e) {
-            logError("保存中间文本块失败: " + e.getMessage(), e);
+            logError("Failed to save intermediate text chunks: " + e.getMessage(), e);
         }
     }
     
     /**
-     * 从文件加载中间文本块
+     * Load intermediate text chunks from file
      */
     public List<TextChunk> loadIntermediateChunks(String knowledgeBasePath) {
         File intermediateFile = new File(knowledgeBasePath, INTERMEDIATE_FILE_NAME);
         List<TextChunk> chunks = new ArrayList<>();
         
         if (!intermediateFile.exists()) {
-            logMessage("中间文件不存在: " + intermediateFile.getAbsolutePath());
+            logMessage("Intermediate file does not exist: " + intermediateFile.getAbsolutePath());
             return chunks;
         }
         
@@ -657,16 +658,16 @@ public class TextChunkProcessor {
                 chunks.add(new TextChunk(text, source, chunkIndex, metadata));
             }
             
-            logMessage("已加载 " + chunks.size() + " 个中间文本块");
+            logMessage("Loaded " + chunks.size() + " intermediate text chunks");
         } catch (IOException | JSONException e) {
-            logError("加载中间文本块失败: " + e.getMessage(), e);
+            logError("Failed to load intermediate text chunks: " + e.getMessage(), e);
         }
         
         return chunks;
     }
     
     /**
-     * 检查是否存在中间文件
+     * Check if intermediate file exists
      */
     public boolean hasIntermediateFile(String knowledgeBasePath) {
         File intermediateFile = new File(knowledgeBasePath, INTERMEDIATE_FILE_NAME);
@@ -674,122 +675,123 @@ public class TextChunkProcessor {
     }
     
     /**
-     * 删除中间文件
+     * Delete intermediate file
      */
     public void deleteIntermediateFile(String knowledgeBasePath) {
         File intermediateFile = new File(knowledgeBasePath, INTERMEDIATE_FILE_NAME);
         if (intermediateFile.exists()) {
             boolean deleted = intermediateFile.delete();
             if (deleted) {
-                logMessage("已删除中间文件: " + intermediateFile.getAbsolutePath());
+                logMessage("Deleted intermediate file: " + intermediateFile.getAbsolutePath());
             } else {
-                logMessage("无法删除中间文件: " + intermediateFile.getAbsolutePath());
+                logMessage("Unable to delete intermediate file: " + intermediateFile.getAbsolutePath());
             }
         }
     }
     
     /**
-     * 处理文件并构建知识库 - 一体化方法
+     * Process files and build knowledge base - integrated method
      * 
-     * @param knowledgeBaseName 知识库名称
-     * @param embeddingModel 嵌入模型名称
-     * @param files 要处理的文件列表
-     * @param chunkSize 分块大小
-     * @param chunkOverlap 重叠大小
-     * @return 是否成功完成（未被取消）
+     * @param knowledgeBaseName Knowledge base name
+     * @param embeddingModel Embedding model name
+     * @param files List of files to process
+     * @param chunkSize Chunk size
+     * @param chunkOverlap Overlap size
+     * @return Whether successfully completed (not cancelled)
      */
     public boolean processFilesAndBuildKnowledgeBase(String knowledgeBaseName, String embeddingModel, String rerankerModel,
                                                   List<Uri> files, int chunkSize, int chunkOverlap) {
         try {
-            LogManager.logD(TAG, "开始处理文件并构建知识库，线程ID: " + Thread.currentThread().getId() + 
-                  "，知识库: " + knowledgeBaseName + "，文件数: " + files.size());
+            LogManager.logD(TAG, "Starting to process files and build knowledge base, Thread ID: " + Thread.currentThread().getId() + 
+                  ", Knowledge base: " + knowledgeBaseName + ", File count: " + files.size());
             
-            // 获取知识库目录路径
+            // Get knowledge base directory path
             String knowledgeBasePath = ConfigManager.getKnowledgeBasePath(context);
             String fullKnowledgeBasePath = knowledgeBasePath + File.separator + knowledgeBaseName;
-            LogManager.logD(TAG, "知识库目录: " + fullKnowledgeBasePath);
-            logMessage("知识库目录: " + fullKnowledgeBasePath);
+            LogManager.logD(TAG, "Knowledge base directory: " + fullKnowledgeBasePath);
+            logMessage("Knowledge base directory: " + fullKnowledgeBasePath);
             
-            // 创建知识库目录
+            // Create knowledge base directory
             File knowledgeBaseDir = new File(fullKnowledgeBasePath);
             if (!knowledgeBaseDir.exists()) {
                 boolean created = knowledgeBaseDir.mkdirs();
                 if (!created) {
-                    throw new Exception("无法创建知识库目录: " + fullKnowledgeBasePath);
+                    throw new Exception("Unable to create knowledge base directory: " + fullKnowledgeBasePath);
                 }
             }
             
-            // 获取嵌入模型路径
+            // Get embedding model path
             String embeddingModelPath = ConfigManager.getEmbeddingModelPath(context) + File.separator + embeddingModel;
-            logMessage("使用嵌入模型: " + embeddingModelPath);
+            logMessage("Using embedding model: " + embeddingModelPath);
             
-            // 使用模型管理器获取模型
+            // Use model manager to get model
             EmbeddingModelHandler model = EmbeddingModelManager.getInstance(context).getModel(embeddingModelPath);
-            logMessage("已加载嵌入模型: " + model.getModelName());
+            logMessage("Loaded embedding model: " + model.getModelName());
             
-            // 获取模型的向量维度
+            // Get model's vector dimension
             int embeddingDimension = model.getEmbeddingDimension();
-            LogManager.logD(TAG, "模型向量维度: " + embeddingDimension);
-            logMessage("模型向量维度: " + embeddingDimension);
+            LogManager.logD(TAG, "Model embedding dimension: " + embeddingDimension);
+            logMessage("Model embedding dimension: " + embeddingDimension);
             
-            // 初始化TokenizerManager
+            // Initialize TokenizerManager
             TokenizerManager tokenizerManager = TokenizerManager.getInstance(context);
             if (!tokenizerManager.isInitialized()) {
-                logMessage("正在初始化全局分词器...");
+                logMessage("Initializing global tokenizer...");
                 boolean initSuccess = tokenizerManager.initialize(model.getModelPath());
                 if (initSuccess) {
-                    logMessage("全局分词器初始化成功，将使用统一分词策略");
-                    // 启用一致性分词
+                    logMessage("Global tokenizer initialized successfully, will use unified tokenization strategy");
+                    // Enable consistent tokenization
                     tokenizerManager.setUseConsistentTokenization(true);
                     
-                    // 设置调试模式
+                    // Set debug mode
                     boolean debugMode = ConfigManager.isDebugMode(context);
                     if (debugMode) {
                         tokenizerManager.setDebugMode(true);
-                        logMessage("全局分词器已启用调试模式");
+                        logMessage("Global tokenizer debug mode enabled");
                     }
                 } else {
-                    logMessage("全局分词器初始化失败，将使用模型自带分词器");
+                    logMessage("Global tokenizer initialization failed, will use model's built-in tokenizer");
                 }
             } else {
-                logMessage("使用已初始化的全局分词器");
-                // 启用一致性分词
+                logMessage("Using already initialized global tokenizer");
+                // Enable consistent tokenization
                 tokenizerManager.setUseConsistentTokenization(true);
                 
-                // 设置调试模式
+                // Set debug mode
                 boolean debugMode = ConfigManager.isDebugMode(context);
                 if (debugMode) {
                     tokenizerManager.setDebugMode(true);
                 }
             }
             
-            // 启用一致性分词策略
+            // Enable consistent tokenization strategy
             model.setUseConsistentProcessing(true);
-            logMessage("启用一致性分词策略，确保知识库构建和查询使用相同的分词逻辑");
+            logMessage("Enabled consistent tokenization strategy to ensure knowledge base construction and query use the same tokenization logic");
             
-            // 是否启用调试模式
+            // Whether to enable debug mode
             boolean debugMode = ConfigManager.isDebugMode(context);
             if (debugMode) {
                 model.setDebugMode(true);
-                logMessage("启用调试模式，将输出详细的分词和处理日志");
+                logMessage("Debug mode enabled, will output detailed tokenization and processing logs");
             }
             
-            // 初始化向量数据库
+            // Initialize vector database
             SQLiteVectorDatabaseHandler vectorDB = new SQLiteVectorDatabaseHandler(
                     new File(fullKnowledgeBasePath), model.getEmbeddingModel(), embeddingDimension);
             
-            // 设置重排模型信息到元数据
-            if (rerankerModel != null && !rerankerModel.isEmpty() && !"无".equals(rerankerModel)) {
+            // Set reranker model information to metadata
+            String valueNone = context.getString(R.string.common_none);
+            if (rerankerModel != null && !rerankerModel.isEmpty() && !valueNone.equals(rerankerModel)) {
                 vectorDB.getMetadata().setRerankerdir(rerankerModel);
-                logMessage("已设置重排模型: " + rerankerModel);
+                logMessage("Set reranker model: " + rerankerModel);
             }
             
-            // 提取文本并分块
+            // Extract text and chunk
             List<TextChunk> chunks = extractTextFromFiles(fullKnowledgeBasePath, files, chunkSize, chunkOverlap);
             
-            // 检查是否被取消
+            // Check if cancelled
             if (isTaskCancelled.get()) {
-                logMessage("任务已取消");
+                logMessage("Task cancelled");
                 vectorDB.close();
                 return false;
             }
@@ -799,24 +801,24 @@ public class TextChunkProcessor {
                 progressCallback.onTextExtractionComplete(chunks.size());
             }
             
-            // 获取模型管理器实例
+            // Get model manager instance
             EmbeddingModelManager modelManager = EmbeddingModelManager.getInstance(context);
             
-            // 向量化处理开始前标记模型为正在使用，防止在向量化过程中被自动卸载
+            // Mark model as in use before vectorization processing starts to prevent automatic unloading during vectorization
             modelManager.markModelInUse();
-            LogManager.logD(TAG, "开始批量向量化处理，已标记模型为正在使用状态，防止自动卸载");
+            LogManager.logD(TAG, "Starting batch vectorization processing, marked model as in use to prevent automatic unloading");
             
             try {
-                // 生成向量并添加到数据库
+                // Generate vectors and add to database
                 int totalChunks = chunks.size();
-                logMessage("开始向量化处理，共 " + totalChunks + " 个文本块");
+                logMessage("Starting vectorization processing, total " + totalChunks + " text chunks");
                 
-                // 向量化处理
+                // Vectorization processing
                 for (int i = 0; i < totalChunks; i++) {
-                    // 检查任务是否取消
+                    // Check if task is cancelled
                     if (isTaskCancelled.get()) {
-                        logMessage("任务已取消");
-                        LogManager.logD(TAG, "向量化处理中断：任务被取消，已处理 " + i + "/" + totalChunks + " 个文本块");
+                        logMessage("Task cancelled");
+                        LogManager.logD(TAG, "Vectorization processing interrupted: task cancelled, processed " + i + "/" + totalChunks + " text chunks");
                         vectorDB.close();
                         return false;
                     }
@@ -827,63 +829,63 @@ public class TextChunkProcessor {
                     JSONObject metadata = chunk.metadata;
                     
                     try {
-                        // 每100个文本块记录一次日志
+                        // Log every 100 text chunks
                         if (i % 100 == 0 || i == totalChunks - 1) {
-                            LogManager.logD(TAG, "向量化进度: " + i + "/" + totalChunks + 
-                                  "，线程ID: " + Thread.currentThread().getId() + 
-                                  "，源文件: " + source);
+                            LogManager.logD(TAG, "Vectorization progress: " + i + "/" + totalChunks + 
+                                  ", Thread ID: " + Thread.currentThread().getId() + 
+                                  ", Source file: " + source);
                         }
                         
-                        // 生成向量
+                        // Generate vector
                         float[] embedding = model.generateEmbedding(text);
                         
-                        // 添加到数据库
+                        // Add to database
                         vectorDB.addVector(text, embedding, source, metadata.toString());
                         
-                        // 更新进度
+                        // Update progress
                         float percentage = (float) (i + 1) / totalChunks * 100;
                         if (progressCallback != null) {
                             progressCallback.onVectorizationProgress(i + 1, totalChunks, percentage);
                         }
                         
-                        // 通知进度更新
+                        // Notify progress update
                         if (notificationProgressCallback != null) {
                             notificationProgressCallback.onNotificationProgressUpdate(i + 1, totalChunks, percentage);
                         }
                     } catch (Exception e) {
-                        logError("向量化失败: " + e.getMessage(), e);
+                        logError("Vectorization failed: " + e.getMessage(), e);
                     }
                 }
                 
-                // 保存数据库
+                // Save database
                 vectorDB.saveDatabase();
-                logMessage("向量化处理完成");
-                LogManager.logD(TAG, "向量化处理全部完成，共处理 " + totalChunks + " 个文本块，线程ID: " + Thread.currentThread().getId());
+                logMessage("Vectorization processing completed");
+                LogManager.logD(TAG, "Vectorization processing fully completed, processed " + totalChunks + " text chunks, Thread ID: " + Thread.currentThread().getId());
                 
-                // 通知向量化处理完成
+                // Notify vectorization processing completed
                 if (progressCallback != null) {
                     progressCallback.onVectorizationComplete(totalChunks);
                 }
             } finally {
-                // 无论成功还是失败，最后标记模型为不再使用
+                // Whether successful or failed, finally mark model as not in use
                 modelManager.markModelNotInUse();
-                LogManager.logD(TAG, "批量向量化处理完成，已标记模型为不再使用状态");
+                LogManager.logD(TAG, "Batch vectorization processing completed, marked model as not in use");
                 
-                // 关闭数据库
+                // Close database
                 vectorDB.close();
-                LogManager.logD(TAG, "向量数据库已关闭");
+                LogManager.logD(TAG, "Vector database closed");
             }
             
             return !isTaskCancelled.get();
         } catch (Exception e) {
-            logError("处理知识库失败: " + e.getMessage(), e);
+            logError("Failed to process knowledge base: " + e.getMessage(), e);
             return false;
         }
     }
     
     /**
-     * 从JSON字符串中提取值
-     * 例如从 "instruction": "你好" 提取出 "你好"
+     * Extract value from JSON string
+     * For example, extract "Hello" from "instruction": "Hello"
      */
     private String extractValue(String jsonLine) {
         try {
@@ -892,7 +894,7 @@ public class TextChunkProcessor {
             
             String valueStr = jsonLine.substring(colonPos + 1).trim();
             
-            // 如果值是用引号括起来的
+            // If value is enclosed in quotes
             if (valueStr.startsWith("\"") && valueStr.indexOf("\"", 1) > 0) {
                 int endQuote = valueStr.lastIndexOf("\"");
                 if (endQuote > 0) {
@@ -900,25 +902,25 @@ public class TextChunkProcessor {
                 }
             }
             
-            // 处理值后面可能有逗号的情况
+            // Handle case where value might have comma at the end
             if (valueStr.endsWith(",")) {
                 valueStr = valueStr.substring(0, valueStr.length() - 1);
             }
             
-            // 去掉可能的引号
+            // Remove possible quotes
             if (valueStr.startsWith("\"") && valueStr.endsWith("\"")) {
                 valueStr = valueStr.substring(1, valueStr.length() - 1);
             }
             
             return valueStr;
         } catch (Exception e) {
-            logError("提取JSON值时出错: " + e.getMessage(), e);
+            logError("Error extracting JSON value: " + e.getMessage(), e);
             return "";
         }
     }
     
     /**
-     * 记录日志消息
+     * Log message
      */
     private void logMessage(String message) {
         LogManager.logD(TAG, message);
@@ -928,7 +930,7 @@ public class TextChunkProcessor {
     }
     
     /**
-     * 记录错误消息
+     * Log error message
      */
     private void logError(String message, Exception e) {
         LogManager.logE(TAG, message, e);

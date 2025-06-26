@@ -40,16 +40,18 @@ public class RagQueryManager {
     public void executeRagQuery(String apiUrl, String apiKey, String model, String knowledgeBase, 
                                String systemPrompt, String userPrompt, RagQueryCallback callback) {
         // 检查是否使用知识库
-        if ("无".equals(knowledgeBase) || "无可用知识库".equals(knowledgeBase)) {
+        String valueNone = context.getString(R.string.common_none);
+        String valueNoAvailableKb = context.getString(R.string.value_no_available_kb);
+        if (valueNone.equals(knowledgeBase) || valueNoAvailableKb.equals(knowledgeBase)) {
             // 不使用知识库，直接构建提示词
             String fullPrompt = buildDirectPrompt(systemPrompt, userPrompt);
-            LogManager.logD(TAG, "不使用知识库，直接构建提示词: " + fullPrompt);
+            LogManager.logD(TAG, "Not using knowledge base, building prompt directly: " + fullPrompt);
             
             // 回调进度更新
-            callback.onProgressUpdate("正在构建提示词...", "不使用知识库，直接构建提示词");
+            callback.onProgressUpdate(context.getString(R.string.building_prompt), context.getString(R.string.not_using_kb_building_prompt));
             
             // 调用大模型API
-            callback.onProgressUpdate("正在调用大模型API...", "API类型: " + modelFactory.getProviderByUrl(apiUrl).getName());
+            callback.onProgressUpdate(context.getString(R.string.calling_llm_api), context.getString(R.string.api_type) + ": " + modelFactory.getProviderByUrl(apiUrl).getName());
             
             modelFactory.callModel(apiUrl, apiKey, model, fullPrompt, new LlmApiAdapter.ApiCallback() {
                 @Override
@@ -69,27 +71,27 @@ public class RagQueryManager {
             });
         } else {
             // 使用知识库，先查询知识库
-            callback.onProgressUpdate("正在查询知识库...", "知识库: " + knowledgeBase);
+            callback.onProgressUpdate("Querying knowledge base...", "Knowledge base: " + knowledgeBase);
             
             // 在后台线程中执行知识库查询
             new Thread(() -> {
                 try {
                     // 查询知识库获取相关内容
                     String relevantContent = queryKnowledgeBase(knowledgeBase, userPrompt);
-                    LogManager.logD(TAG, "知识库查询结果(前200字符): " + 
+                    LogManager.logD(TAG, "Knowledge base query result (first 200 characters): " + 
                           (relevantContent.length() > 200 ? relevantContent.substring(0, 200) + "..." : relevantContent));
                     
                     // 回调进度更新
-                    callback.onProgressUpdate("正在查询知识库...", 
-                                            "已从知识库获取" + relevantContent.length() + "字符的内容");
+                    callback.onProgressUpdate("Querying knowledge base...", 
+                                            "Retrieved " + relevantContent.length() + " characters from knowledge base");
                     
                     // 构建完整的提示词
-                    callback.onProgressUpdate("正在构建提示词...", "构建包含知识库内容的完整提示词");
+                    callback.onProgressUpdate("Building prompt...", "Building complete prompt with knowledge base content");
                     String fullPrompt = buildFullPrompt(systemPrompt, userPrompt, relevantContent);
                     
                     // 调用大模型API
-                    callback.onProgressUpdate("正在调用大模型API...", 
-                                            "API类型: " + modelFactory.getProviderByUrl(apiUrl).getName());
+                    callback.onProgressUpdate("Calling LLM API...", 
+                                            "API type: " + modelFactory.getProviderByUrl(apiUrl).getName());
                     
                     modelFactory.callModel(apiUrl, apiKey, model, fullPrompt, new LlmApiAdapter.ApiCallback() {
                         @Override
@@ -109,8 +111,8 @@ public class RagQueryManager {
                     });
                     
                 } catch (Exception e) {
-                    LogManager.logE(TAG, "RAG查询异常", e);
-                    callback.onQueryError("RAG查询错误: " + e.getMessage());
+                    LogManager.logE(TAG, "RAG query exception", e);
+                    callback.onQueryError("RAG query error: " + e.getMessage());
                 }
             }).start();
         }
@@ -120,33 +122,35 @@ public class RagQueryManager {
      * 查询知识库获取相关内容
      */
     private String queryKnowledgeBase(String knowledgeBase, String query) {
-        if ("无".equals(knowledgeBase) || "无可用知识库".equals(knowledgeBase)) {
-            LogManager.logD(TAG, "未选择知识库，跳过知识库查询");
-            return ""; // 如果选择了"无"
+        String valueNone = context.getString(R.string.common_none);
+        String valueNoAvailableKb = context.getString(R.string.value_no_available_kb);
+        if (valueNone.equals(knowledgeBase) || valueNoAvailableKb.equals(knowledgeBase)) {
+            LogManager.logD(TAG, "No knowledge base selected, skipping knowledge base query");
+            return ""; // If "None" is selected
         }
         
-        LogManager.logD(TAG, "开始查询知识库: " + knowledgeBase);
+        LogManager.logD(TAG, "Starting knowledge base query: " + knowledgeBase);
         
         try {
             // 获取知识库目录
             File knowledgeBaseDir = new File(context.getExternalFilesDir(null), "knowledge_bases/" + knowledgeBase);
             if (!knowledgeBaseDir.exists()) {
-                return "知识库 '" + knowledgeBase + "' 不存在";
+                return "Knowledge base '" + knowledgeBase + "' does not exist";
             }
             
-            // 实际实现中，这里应该使用向量数据库进行相似度查询
-            // 这里简化为读取知识库中的文件内容
+            // In actual implementation, vector database should be used for similarity search
+            // Simplified here to read file contents from knowledge base
             StringBuilder relevantContent = new StringBuilder();
             File[] files = knowledgeBaseDir.listFiles();
             
             if (files != null && files.length > 0) {
-                // 简单起见，只读取前3个文件的内容
+                // For simplicity, only read the first 3 files
                 int count = Math.min(files.length, 3);
                 
                 for (int i = 0; i < count; i++) {
                     if (files[i].isFile() && files[i].getName().endsWith(".txt")) {
                         try (BufferedReader reader = new BufferedReader(new FileReader(files[i]))) {
-                            LogManager.logD(TAG, "读取知识库文件: " + files[i].getName());
+                            LogManager.logD(TAG, "Reading knowledge base file: " + files[i].getName());
                             
                             String line;
                             while ((line = reader.readLine()) != null) {
@@ -159,8 +163,8 @@ public class RagQueryManager {
             
             return relevantContent.toString();
         } catch (IOException e) {
-            LogManager.logE(TAG, "查询知识库错误", e);
-            return "查询知识库错误: " + e.getMessage();
+            LogManager.logE(TAG, "Knowledge base query error", e);
+            return "Knowledge base query error: " + e.getMessage();
         }
     }
     

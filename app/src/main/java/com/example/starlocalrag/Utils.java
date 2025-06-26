@@ -18,6 +18,11 @@ import java.io.IOException;
 public class Utils {
     private static final String TAG = "StarLocalRAG_Utils";
     
+    // 错误消息常量
+    private static final String ERROR_CONTEXT_NULL = "Unable to show Toast: Context is null";
+    private static final String ERROR_SHOW_TOAST_FAILED = "Failed to show Toast";
+    private static final String ERROR_START_TOAST_THREAD_FAILED = "Failed to start Toast thread";
+    
     /**
      * 读取文件内容
      * @param file 文件
@@ -32,7 +37,7 @@ public class Utils {
                 content.append(line).append("\n");
             }
         } catch (IOException e) {
-            LogManager.logE(TAG, "读取文件失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "Failed to read file: " + e.getMessage(), e);
             throw e;
         }
         return content.toString();
@@ -46,7 +51,7 @@ public class Utils {
      */
     public static void showToastSafely(final Context context, final String message, final int duration) {
         if (context == null) {
-            LogManager.logE(TAG, "无法显示Toast：Context为空");
+            LogManager.logE(TAG, ERROR_CONTEXT_NULL);
             return;
         }
         
@@ -59,11 +64,11 @@ public class Utils {
                     Toast.makeText(appContext, message, duration).show();
                 } catch (Exception e) {
                     // 捕获所有可能的异常，避免崩溃
-                    LogManager.logE(TAG, "显示Toast失败: " + e.getMessage());
+                    LogManager.logE(TAG, ERROR_SHOW_TOAST_FAILED + ": " + e.getMessage());
                 }
             });
         } catch (Exception e) {
-            LogManager.logE(TAG, "启动Toast线程失败: " + e.getMessage());
+            LogManager.logE(TAG, ERROR_START_TOAST_THREAD_FAILED + ": " + e.getMessage());
         }
     }
 }

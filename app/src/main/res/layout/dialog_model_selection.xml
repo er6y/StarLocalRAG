@@ -9,7 +9,7 @@
         android:id="@+id/textViewInfo"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="找不到原始模型，请选择替代模型"
+        android:text="@string/dialog_model_not_found"
         android:textSize="16sp"
         android:textColor="#FF0000"
         android:layout_marginBottom="12dp" />
@@ -18,7 +18,7 @@
         android:id="@+id/textViewModelPrompt"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="请选择要使用的嵌入模型："
+        android:text="@string/dialog_select_embedding_model"
         android:textSize="16sp"
         android:layout_marginBottom="8dp" />
 
@@ -33,7 +33,7 @@
         android:id="@+id/textViewRerankerPrompt"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="请选择要使用的重排模型："
+        android:text="@string/dialog_select_reranker_model"
         android:textSize="16sp"
         android:layout_marginBottom="8dp" />
 
@@ -48,7 +48,7 @@
         android:id="@+id/checkBoxRemember"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="记住此选择，下次自动使用"
+        android:text="@string/dialog_remember_choice"
         android:checked="true"
         android:layout_marginTop="8dp" />
 

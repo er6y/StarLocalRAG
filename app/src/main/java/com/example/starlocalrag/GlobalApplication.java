@@ -3,7 +3,10 @@ package com.example.starlocalrag;
 import android.app.Application;
 import android.content.Context;
 import android.app.ActivityManager;
+import android.content.res.Configuration;
+import android.content.res.Resources;
 import android.util.Log;
+import java.util.Locale;
 
 /**
  * 全局应用类，用于提供应用上下文
@@ -17,8 +20,83 @@ public class GlobalApplication extends Application {
         super.onCreate();
         appContext = getApplicationContext();
         
+        // 初始化语言设置
+        initLanguageSettings();
+        
         // 初始化内存监控
         initMemoryMonitoring();
+    }
+    
+    @Override
+    protected void attachBaseContext(Context base) {
+        super.attachBaseContext(updateBaseContextLocale(base));
+    }
+    
+    /**
+     * 初始化语言设置
+     */
+    private void initLanguageSettings() {
+        try {
+            String language = ConfigManager.getString(this, ConfigManager.KEY_LANGUAGE, ConfigManager.DEFAULT_LANGUAGE);
+            updateAppLocale(language);
+        } catch (Exception e) {
+            Log.e(TAG, "初始化语言设置失败: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * 更新应用语言设置
+     */
+    public static void updateAppLocale(String languageCode) {
+        if (appContext == null) return;
+        
+        try {
+            Locale locale;
+            if ("ENG".equals(languageCode)) {
+                locale = Locale.ENGLISH;
+            } else {
+                locale = Locale.SIMPLIFIED_CHINESE;
+            }
+            
+            Resources resources = appContext.getResources();
+            Configuration config = new Configuration(resources.getConfiguration());
+            config.setLocale(locale);
+            Context newContext = appContext.createConfigurationContext(config);
+            // 更新全局应用上下文的资源配置
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+                appContext = newContext;
+            } else {
+                // 对于旧版本Android，使用createConfigurationContext方法
+                appContext = appContext.createConfigurationContext(config);
+            }
+            
+            Log.d(TAG, "语言设置已更新为: " + locale.getDisplayName());
+        } catch (Exception e) {
+            Log.e(TAG, "更新语言设置失败: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * 更新Context的语言设置
+     */
+    private static Context updateBaseContextLocale(Context context) {
+        try {
+            String language = ConfigManager.getString(context, ConfigManager.KEY_LANGUAGE, ConfigManager.DEFAULT_LANGUAGE);
+            
+            Locale locale;
+            if ("ENG".equals(language)) {
+                locale = Locale.ENGLISH;
+            } else {
+                locale = Locale.SIMPLIFIED_CHINESE;
+            }
+            
+            Configuration config = context.getResources().getConfiguration();
+            config.setLocale(locale);
+            return context.createConfigurationContext(config);
+        } catch (Exception e) {
+            Log.e(TAG, "更新Context语言设置失败: " + e.getMessage());
+            return context;
+        }
     }
     
     /**

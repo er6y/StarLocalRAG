@@ -9,7 +9,7 @@
         android:id="@+id/helpTitle"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="StarLocalRAG 使用说明"
+        android:text="@string/title_help"
         android:textSize="18sp"
         android:textStyle="bold"
         android:gravity="center"

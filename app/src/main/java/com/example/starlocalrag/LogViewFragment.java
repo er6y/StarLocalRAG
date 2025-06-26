@@ -41,6 +41,17 @@ import com.example.starlocalrag.ConfigManager;
  * 日志查看Fragment
  */
 public class LogViewFragment extends Fragment {
+    
+    // 提示文本常量
+    private static final String TOAST_TEXT_SELECTED = "已全选文本";
+    private static final String TOAST_LOG_COPIED = "日志内容已复制到剪贴板";
+    private static final String TOAST_LOG_CLEARED = "日志已清空";
+    private static final String TOAST_SHARE_FAILED = "分享日志失败";
+    private static final String SHARE_CHOOSER_TITLE = "分享日志";
+    private static final String COMMENT_REFRESH_LOG = "刷新日志内容";
+    private static final String COMMENT_COPY_ALL = "复制全部文本";
+    private static final String COMMENT_CLEAR_LOG = "清空日志";
+    private static final String COMMENT_SHARE_LOG = "分享日志";
 
     private TextView textViewLog;
     private View scrollbarTrack;
@@ -370,7 +381,7 @@ public class LogViewFragment extends Fragment {
             if (textViewLog != null) {
                 if (textViewLog.getText() != null) {
                     Selection.selectAll((Spannable) textViewLog.getText());
-                    Toast.makeText(requireContext(), "已全选文本", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(requireContext(), TOAST_TEXT_SELECTED, Toast.LENGTH_SHORT).show();
                 }
             }
             return true;
@@ -380,7 +391,7 @@ public class LogViewFragment extends Fragment {
                 ClipboardManager clipboard = (ClipboardManager) requireContext().getSystemService(Context.CLIPBOARD_SERVICE);
                 ClipData clip = ClipData.newPlainText("日志内容", textViewLog.getText());
                 clipboard.setPrimaryClip(clip);
-                Toast.makeText(requireContext(), "日志内容已复制到剪贴板", Toast.LENGTH_SHORT).show();
+                Toast.makeText(requireContext(), TOAST_LOG_COPIED, Toast.LENGTH_SHORT).show();
             }
             return true;
         } else if (id == R.id.action_clear_log) {
@@ -446,7 +457,7 @@ public class LogViewFragment extends Fragment {
         if (logManager != null) {
             logManager.clearLogFile();
             loadLogContent(); // 重新加载日志内容（此时应为空）
-            Toast.makeText(requireContext(), "日志已清空", Toast.LENGTH_SHORT).show();
+            Toast.makeText(requireContext(), TOAST_LOG_CLEARED, Toast.LENGTH_SHORT).show();
         }
     }
     
@@ -458,7 +469,7 @@ public class LogViewFragment extends Fragment {
             try {
                 File logFile = new File(requireContext().getFilesDir(), LogManager.LOG_FILE_NAME);
                 if (!logFile.exists()) {
-                    Toast.makeText(requireContext(), "日志文件不存在", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(requireContext(), getString(R.string.toast_log_file_not_exist), Toast.LENGTH_SHORT).show();
                     return;
                 }
                 
@@ -474,9 +485,9 @@ public class LogViewFragment extends Fragment {
                 shareIntent.putExtra(Intent.EXTRA_STREAM, fileUri);
                 shareIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
                 
-                startActivity(Intent.createChooser(shareIntent, "分享日志"));
+                startActivity(Intent.createChooser(shareIntent, SHARE_CHOOSER_TITLE));
             } catch (Exception e) {
-                Toast.makeText(requireContext(), "分享日志失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                Toast.makeText(requireContext(), TOAST_SHARE_FAILED + ": " + e.getMessage(), Toast.LENGTH_SHORT).show();
             }
         }
     }

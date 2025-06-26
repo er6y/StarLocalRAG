@@ -10,29 +10,29 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * 重排模型管理器
- * 采用单例模式，负责重排模型的加载、缓存和卸载
- * 参考EmbeddingModelManager的设计模式
+ * Reranker Model Manager
+ * Uses singleton pattern, responsible for loading, caching and unloading reranker models
+ * References the design pattern of EmbeddingModelManager
  */
 public class RerankerModelManager {
     private static final String TAG = "StarLocalRAG_RerankerModelManager";
-    private static final long MODEL_UNLOAD_DELAY_MS = 300000; // 5分钟后卸载模型
+    private static final long MODEL_UNLOAD_DELAY_MS = 300000; // Unload model after 5 minutes
     
     private static volatile RerankerModelManager instance;
     private final ExecutorService executor;
     private final Handler mainHandler;
     
-    // 模型状态
+    // Model state
     private RerankerModelHandler currentModel;
     private String currentModelPath;
     private long lastAccessTime;
     private final AtomicBoolean isModelBusy = new AtomicBoolean(false);
     
-    // 卸载任务
+    // Unload task
     private Runnable unloadTask;
     
     /**
-     * 模型回调接口
+     * Model callback interface
      */
     public interface RerankerModelCallback {
         void onModelReady(RerankerModelHandler model);
@@ -40,7 +40,7 @@ public class RerankerModelManager {
     }
     
     /**
-     * 重排结果回调接口
+     * Rerank result callback interface
      */
     public interface RerankerCallback {
         void onRerankComplete(java.util.List<RerankerModelHandler.RerankResult> results);
@@ -49,7 +49,7 @@ public class RerankerModelManager {
     }
     
     /**
-     * 模型加载监听器
+     * Model loading listener
      */
     public interface RerankerModelLoadListener {
         void onLoadStart();
@@ -66,7 +66,7 @@ public class RerankerModelManager {
     }
     
     /**
-     * 获取单例实例
+     * Get singleton instance
      */
     public static RerankerModelManager getInstance(Context context) {
         if (instance == null) {
@@ -80,109 +80,109 @@ public class RerankerModelManager {
     }
     
     /**
-     * 设置加载监听器
+     * Set loading listener
      */
     public void setLoadListener(RerankerModelLoadListener listener) {
         this.loadListener = listener;
     }
     
     /**
-     * 异步获取重排模型
+     * Asynchronously get reranker model
      */
     public void getModelAsync(String modelPath, RerankerModelCallback callback) {
-        LogManager.logI(TAG, "=== getModelAsync 开始执行 ===");
-        LogManager.logI(TAG, "请求的模型路径: " + modelPath);
-        LogManager.logI(TAG, "回调对象: " + (callback != null ? "非空" : "空"));
+        LogManager.logI(TAG, "=== getModelAsync execution started ===");
+        LogManager.logI(TAG, "Requested model path: " + modelPath);
+        LogManager.logI(TAG, "Callback object: " + (callback != null ? "not null" : "null"));
         
         if (modelPath == null || modelPath.trim().isEmpty()) {
-            LogManager.logW(TAG, "重排模型路径为空");
+            LogManager.logW(TAG, "Reranker model path is empty");
             if (callback != null) {
-                mainHandler.post(() -> callback.onModelError("重排模型路径为空"));
+                mainHandler.post(() -> callback.onModelError("Reranker model path is empty"));
             }
             return;
         }
         
-        LogManager.logI(TAG, "提交异步任务到线程池...");
+        LogManager.logI(TAG, "Submitting async task to thread pool...");
         executor.execute(() -> {
             try {
-                LogManager.logI(TAG, "异步任务开始执行，线程: " + Thread.currentThread().getName());
+                LogManager.logI(TAG, "Async task started executing, thread: " + Thread.currentThread().getName());
                 RerankerModelHandler model = getModel(modelPath);
-                LogManager.logI(TAG, "getModel返回结果: " + (model != null ? "成功" : "失败"));
+                LogManager.logI(TAG, "getModel return result: " + (model != null ? "success" : "failed"));
                 
                 if (model != null) {
-                    LogManager.logI(TAG, "模型获取成功，准备调用onModelReady回调");
+                    LogManager.logI(TAG, "Model obtained successfully, preparing to call onModelReady callback");
                     if (callback != null) {
-                        LogManager.logI(TAG, "发送onModelReady回调到主线程");
+                        LogManager.logI(TAG, "Sending onModelReady callback to main thread");
                         mainHandler.post(() -> {
-                            LogManager.logI(TAG, "onModelReady回调开始执行");
+                            LogManager.logI(TAG, "onModelReady callback started executing");
                             callback.onModelReady(model);
-                            LogManager.logI(TAG, "onModelReady回调执行完成");
+                            LogManager.logI(TAG, "onModelReady callback execution completed");
                         });
                     } else {
-                        LogManager.logW(TAG, "回调对象为空，无法调用onModelReady");
+                        LogManager.logW(TAG, "Callback object is null, cannot call onModelReady");
                     }
                 } else {
-                    LogManager.logE(TAG, "模型获取失败，准备调用onModelError回调");
+                    LogManager.logE(TAG, "Model acquisition failed, preparing to call onModelError callback");
                     if (callback != null) {
-                        mainHandler.post(() -> callback.onModelError("重排模型加载失败"));
+                        mainHandler.post(() -> callback.onModelError("Reranker model loading failed"));
                     }
                 }
             } catch (Exception e) {
-                LogManager.logE(TAG, "异步获取重排模型失败: " + e.getMessage(), e);
+                LogManager.logE(TAG, "Async reranker model acquisition failed: " + e.getMessage(), e);
                 if (callback != null) {
-                    mainHandler.post(() -> callback.onModelError("重排模型加载异常: " + e.getMessage()));
+                    mainHandler.post(() -> callback.onModelError("Reranker model loading exception: " + e.getMessage()));
                 }
             }
         });
     }
     
     /**
-     * 异步执行重排任务（推荐使用此方法，避免线程嵌套问题）
+     * Asynchronously execute rerank task (recommended to use this method to avoid thread nesting issues)
      */
     public void rerankAsync(String modelPath, String query, java.util.List<String> documents, int topK, RerankerCallback callback) {
-        LogManager.logI(TAG, "=== rerankAsync 开始执行 ===");
-        LogManager.logI(TAG, "模型路径: " + modelPath);
-        LogManager.logI(TAG, "查询: " + query);
-        LogManager.logI(TAG, "文档数: " + (documents != null ? documents.size() : "null"));
+        LogManager.logI(TAG, "=== rerankAsync execution started ===");
+        LogManager.logI(TAG, "Model path: " + modelPath);
+        LogManager.logI(TAG, "Query: " + query);
+        LogManager.logI(TAG, "Document count: " + (documents != null ? documents.size() : "null"));
         LogManager.logI(TAG, "topK: " + topK);
         
         if (modelPath == null || modelPath.trim().isEmpty()) {
-            LogManager.logW(TAG, "重排模型路径为空");
+            LogManager.logW(TAG, "Reranker model path is empty");
             if (callback != null) {
-                mainHandler.post(() -> callback.onRerankError("重排模型路径为空"));
+                mainHandler.post(() -> callback.onRerankError("Reranker model path is empty"));
             }
             return;
         }
         
         if (query == null || query.trim().isEmpty()) {
-            LogManager.logW(TAG, "查询内容为空");
+            LogManager.logW(TAG, "Query content is empty");
             if (callback != null) {
-                mainHandler.post(() -> callback.onRerankError("查询内容为空"));
+                mainHandler.post(() -> callback.onRerankError("Query content is empty"));
             }
             return;
         }
         
         if (documents == null || documents.isEmpty()) {
-            LogManager.logW(TAG, "文档列表为空");
+            LogManager.logW(TAG, "Document list is empty");
             if (callback != null) {
-                mainHandler.post(() -> callback.onRerankError("文档列表为空"));
+                mainHandler.post(() -> callback.onRerankError("Document list is empty"));
             }
             return;
         }
         
         // 检查模型是否忙碌
         if (isModelBusy.get()) {
-            LogManager.logW(TAG, "重排模型正在使用中，请稍候");
+            LogManager.logW(TAG, "Reranker model is currently in use, please wait");
             if (callback != null) {
-                mainHandler.post(() -> callback.onRerankError("重排模型正在使用中，请稍候"));
+                mainHandler.post(() -> callback.onRerankError("Reranker model is currently in use, please wait"));
             }
             return;
         }
         
-        LogManager.logI(TAG, "提交重排任务到线程池...");
+        LogManager.logI(TAG, "Submitting rerank task to thread pool...");
         executor.execute(() -> {
             try {
-                LogManager.logI(TAG, "重排任务开始执行，线程: " + Thread.currentThread().getName());
+                LogManager.logI(TAG, "Rerank task started executing, thread: " + Thread.currentThread().getName());
                 
                 // 在线程内部标记模型为忙碌状态
                 isModelBusy.set(true);
@@ -192,14 +192,14 @@ public class RerankerModelManager {
                 // 获取模型
                 RerankerModelHandler model = getModel(modelPath);
                 if (model == null) {
-                    LogManager.logE(TAG, "重排模型获取失败");
+                    LogManager.logE(TAG, "Reranker model acquisition failed");
                     if (callback != null) {
-                        mainHandler.post(() -> callback.onRerankError("重排模型加载失败"));
+                        mainHandler.post(() -> callback.onRerankError("Reranker model loading failed"));
                     }
                     return;
                 }
                 
-                LogManager.logI(TAG, "重排模型加载成功，开始执行重排");
+                LogManager.logI(TAG, "Reranker model loaded successfully, starting rerank execution");
                 
                 // 开始重排文档（不显示进度信息）
                 
@@ -216,81 +216,81 @@ public class RerankerModelManager {
                         });
                     }
                 });
-                LogManager.logI(TAG, "重排执行完成，结果数: " + (results != null ? results.size() : "null"));
+                LogManager.logI(TAG, "Rerank execution completed, result count: " + (results != null ? results.size() : "null"));
                 
                 // 返回结果
                 if (callback != null) {
                     if (results != null) {
                         mainHandler.post(() -> callback.onRerankComplete(results));
                     } else {
-                        mainHandler.post(() -> callback.onRerankError("重排执行失败，返回结果为空"));
+                        mainHandler.post(() -> callback.onRerankError("Rerank execution failed, returned result is empty"));
                     }
                 }
                 
             } catch (Exception e) {
-                LogManager.logE(TAG, "重排任务执行失败: " + e.getMessage(), e);
+                LogManager.logE(TAG, "Rerank task execution failed: " + e.getMessage(), e);
                 if (callback != null) {
-                    mainHandler.post(() -> callback.onRerankError("重排执行异常: " + e.getMessage()));
+                    mainHandler.post(() -> callback.onRerankError("Rerank execution exception: " + e.getMessage()));
                 }
             } finally {
                 // 标记模型为非忙碌状态
                 isModelBusy.set(false);
-                LogManager.logI(TAG, "重排任务完成，释放模型忙碌状态");
+                LogManager.logI(TAG, "Rerank task completed, releasing model busy state");
             }
         });
     }
     
     /**
-     * 同步获取重排模型
+     * Synchronously get reranker model
      */
     public synchronized RerankerModelHandler getModel(String modelPath) {
-        LogManager.logI(TAG, "=== getModel 开始执行 ===");
-        LogManager.logI(TAG, "请求模型路径: " + modelPath);
-        LogManager.logI(TAG, "当前模型路径: " + currentModelPath);
-        LogManager.logI(TAG, "当前模型状态: " + (currentModel != null ? "存在" : "不存在"));
+        LogManager.logI(TAG, "=== getModel execution started ===");
+        LogManager.logI(TAG, "Requested model path: " + modelPath);
+        LogManager.logI(TAG, "Current model path: " + currentModelPath);
+        LogManager.logI(TAG, "Current model status: " + (currentModel != null ? "exists" : "does not exist"));
         
         if (modelPath == null || modelPath.trim().isEmpty()) {
-            LogManager.logW(TAG, "重排模型路径为空");
+            LogManager.logW(TAG, "Reranker model path is empty");
             return null;
         }
         
         // 更新最后访问时间
         lastAccessTime = System.currentTimeMillis();
-        LogManager.logI(TAG, "更新最后访问时间: " + lastAccessTime);
+        LogManager.logI(TAG, "Updated last access time: " + lastAccessTime);
         
         // 取消卸载任务
         cancelUnloadTask();
-        LogManager.logI(TAG, "取消卸载任务完成");
+        LogManager.logI(TAG, "Cancel unload task completed");
         
         // 检查是否需要重新加载模型
         boolean needReloadResult = needReload(modelPath);
-        LogManager.logI(TAG, "是否需要重新加载: " + needReloadResult);
+        LogManager.logI(TAG, "Need to reload: " + needReloadResult);
         
         if (needReloadResult) {
-            LogManager.logI(TAG, "需要加载新的重排模型: " + modelPath);
+            LogManager.logI(TAG, "Need to load new reranker model: " + modelPath);
             
             // 关闭当前模型
             if (currentModel != null) {
-                LogManager.logI(TAG, "清理当前模型");
+                LogManager.logI(TAG, "Cleaning up current model");
                 currentModel.cleanup();
                 currentModel = null;
             }
             
             // 加载新模型
-            LogManager.logI(TAG, "开始加载新模型");
+            LogManager.logI(TAG, "Starting to load new model");
             currentModel = loadModel(modelPath);
             currentModelPath = modelPath;
-            LogManager.logI(TAG, "模型加载完成，结果: " + (currentModel != null ? "成功" : "失败"));
+            LogManager.logI(TAG, "Model loading completed, result: " + (currentModel != null ? "success" : "failed"));
         } else {
-            LogManager.logI(TAG, "使用现有模型，无需重新加载");
+            LogManager.logI(TAG, "Using existing model, no need to reload");
         }
         
-        LogManager.logI(TAG, "getModel 返回结果: " + (currentModel != null ? "成功" : "失败"));
+        LogManager.logI(TAG, "getModel return result: " + (currentModel != null ? "success" : "failed"));
         return currentModel;
     }
     
     /**
-     * 检查是否需要重新加载模型
+     * Check if model needs to be reloaded
      */
     private boolean needReload(String modelPath) {
         return currentModel == null || 
@@ -299,11 +299,11 @@ public class RerankerModelManager {
     }
     
     /**
-     * 加载重排模型
+     * Load reranker model
      */
     private RerankerModelHandler loadModel(String modelPath) {
         try {
-            LogManager.logI(TAG, "开始加载重排模型: " + modelPath);
+            LogManager.logI(TAG, "Starting to load reranker model: " + modelPath);
             
             // 通知加载开始
             if (loadListener != null) {
@@ -313,7 +313,7 @@ public class RerankerModelManager {
             // 检查模型文件是否存在
             File modelFile = new File(modelPath);
             if (!modelFile.exists()) {
-                String error = "重排模型文件不存在: " + modelPath;
+                String error = "Reranker model file does not exist: " + modelPath;
                 LogManager.logE(TAG, error);
                 if (loadListener != null) {
                     mainHandler.post(() -> loadListener.onLoadError(error));
@@ -323,7 +323,7 @@ public class RerankerModelManager {
             
             // 通知加载进度
             if (loadListener != null) {
-                mainHandler.post(() -> loadListener.onLoadProgress("正在初始化重排模型..."));
+                mainHandler.post(() -> loadListener.onLoadProgress("Initializing reranker model..."));
             }
             
             // 创建模型处理器
@@ -332,7 +332,7 @@ public class RerankerModelManager {
             // 初始化模型
             boolean success = handler.initialize();
             if (!success) {
-                String error = "重排模型初始化失败";
+                String error = "Reranker model initialization failed";
                 LogManager.logE(TAG, error);
                 if (loadListener != null) {
                     mainHandler.post(() -> loadListener.onLoadError(error));
@@ -341,7 +341,7 @@ public class RerankerModelManager {
                 return null;
             }
             
-            LogManager.logI(TAG, "重排模型加载成功: " + modelPath);
+            LogManager.logI(TAG, "Reranker model loaded successfully: " + modelPath);
             
             // 通知加载完成
             if (loadListener != null) {
@@ -351,7 +351,7 @@ public class RerankerModelManager {
             return handler;
             
         } catch (Exception e) {
-            String error = "加载重排模型时发生异常: " + e.getMessage();
+            String error = "Exception occurred while loading reranker model: " + e.getMessage();
             LogManager.logE(TAG, error, e);
             if (loadListener != null) {
                 mainHandler.post(() -> loadListener.onLoadError(error));
@@ -361,38 +361,38 @@ public class RerankerModelManager {
     }
     
     /**
-     * 标记模型开始使用
+     * Mark model as starting to be used
      */
     public void markModelInUse() {
         isModelBusy.set(true);
         lastAccessTime = System.currentTimeMillis();
         cancelUnloadTask();
-        LogManager.logD(TAG, "标记重排模型开始使用");
+        LogManager.logD(TAG, "Marked reranker model as starting to be used");
     }
     
     /**
-     * 标记模型使用结束
+     * Mark model as finished being used
      */
     public void markModelNotInUse() {
         isModelBusy.set(false);
         lastAccessTime = System.currentTimeMillis();
         scheduleUnloadTask();
-        LogManager.logD(TAG, "标记重排模型使用结束");
+        LogManager.logD(TAG, "Marked reranker model as finished being used");
     }
     
     /**
-     * 安排卸载任务
+     * Schedule unload task
      */
     private void scheduleUnloadTask() {
-        // 注意：当前禁用自动卸载，与EmbeddingModelManager保持一致
-        // 如果需要启用，可以取消下面的注释
+        // Note: Auto-unload is currently disabled, consistent with EmbeddingModelManager
+        // If you need to enable it, you can uncomment the following
         /*
         cancelUnloadTask();
         unloadTask = () -> {
             synchronized (RerankerModelManager.this) {
                 if (!isModelBusy.get() && 
                     System.currentTimeMillis() - lastAccessTime >= MODEL_UNLOAD_DELAY_MS) {
-                    LogManager.logI(TAG, "自动卸载重排模型");
+                    LogManager.logI(TAG, "Auto-unloading reranker model");
                     unloadModel();
                 }
             }
@@ -402,7 +402,7 @@ public class RerankerModelManager {
     }
     
     /**
-     * 取消卸载任务
+     * Cancel unload task
      */
     private void cancelUnloadTask() {
         if (unloadTask != null) {
@@ -412,11 +412,11 @@ public class RerankerModelManager {
     }
     
     /**
-     * 卸载模型
+     * Unload model
      */
     public synchronized void unloadModel() {
         if (currentModel != null) {
-            LogManager.logI(TAG, "卸载重排模型: " + currentModelPath);
+            LogManager.logI(TAG, "Unloading reranker model: " + currentModelPath);
             currentModel.cleanup();
             currentModel = null;
             currentModelPath = null;
@@ -425,31 +425,31 @@ public class RerankerModelManager {
     }
     
     /**
-     * 获取当前模型路径
+     * Get current model path
      */
     public String getCurrentModelPath() {
         return currentModelPath;
     }
     
     /**
-     * 检查模型是否正在使用
+     * Check if model is currently in use
      */
     public boolean isModelBusy() {
         return isModelBusy.get();
     }
     
     /**
-     * 检查是否有模型加载
+     * Check if there is a model loaded
      */
     public boolean hasModel() {
         return currentModel != null && currentModel.isInitialized();
     }
     
     /**
-     * 关闭管理器
+     * Shutdown manager
      */
     public void shutdown() {
-        LogManager.logI(TAG, "关闭重排模型管理器");
+        LogManager.logI(TAG, "Shutting down reranker model manager");
         
         // 卸载模型
         unloadModel();
@@ -464,11 +464,11 @@ public class RerankerModelManager {
     }
     
     /**
-     * 重置管理器（用于测试或重新初始化）
+     * Reset manager (for testing or re-initialization)
      */
     public static synchronized void resetManager() {
         if (instance != null) {
-            LogManager.logD(TAG, "重置重排模型管理器");
+            LogManager.logD(TAG, "Resetting reranker model manager");
             instance.shutdown();
             instance = null;
         }

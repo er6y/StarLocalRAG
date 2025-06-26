@@ -472,7 +472,7 @@ public class LocalLlmHandler {
         // 如果正在加载模型，返回
         if (modelLoading.get()) {
             if (callback != null) {
-                callback.onError("模型正在加载中，请稍后再试");
+                callback.onError("Model is loading, please try again later");
             }
             return;
         }
@@ -496,13 +496,13 @@ public class LocalLlmHandler {
                 File modelDir = new File(modelPath, modelName);
                 
                 if (!modelDir.exists() || !modelDir.isDirectory()) {
-                    throw new IOException("模型文件不存在: " + modelDir.getAbsolutePath());
+                    throw new IOException("Model file does not exist: " + modelDir.getAbsolutePath());
                 }
                 
                 // 2. 检测模型类型并选择推理引擎
                 InferenceEngine selectedEngine = selectInferenceEngine(modelDir);
                 if (selectedEngine == null) {
-                    throw new IOException("无法确定模型类型或不支持的模型格式: " + modelDir.getAbsolutePath());
+                    throw new IOException("Unable to determine model type or unsupported model format: " + modelDir.getAbsolutePath());
                 }
                 
                 // 如果推理引擎发生变化，释放旧引擎
@@ -524,14 +524,14 @@ public class LocalLlmHandler {
                 LogManager.logI(TAG, "✓ 模型加载成功: " + modelName + " (引擎: " + inferenceEngine.getEngineType() + ")");
                 
                 if (callback != null) {
-                    callback.onComplete("模型加载成功: " + modelName);
+                    callback.onComplete("Model loaded successfully: " + modelName);
                 }
                 
             } catch (Exception e) {
                 modelLoaded.set(false);
                 modelLoading.set(false);
                 
-                String errorMsg = "模型加载失败: " + e.getMessage();
+                String errorMsg = "Model loading failed: " + e.getMessage();
                 LogManager.logE(TAG, errorMsg, e);
                 
                 if (callback != null) {

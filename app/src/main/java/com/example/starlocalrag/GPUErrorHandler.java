@@ -32,9 +32,9 @@ public class GPUErrorHandler {
             // 处理华为特定问题
             handleHuaweiSpecificIssues();
             
-            LogManager.logD(TAG, "GPU错误处理初始化完成");
+            LogManager.logD(TAG, "GPU error handler initialization completed");
         } catch (Exception e) {
-            LogManager.logE(TAG, "GPU错误处理初始化失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "GPU error handler initialization failed: " + e.getMessage(), e);
         }
     }
     
@@ -61,12 +61,12 @@ public class GPUErrorHandler {
                 System.setProperty("com.android.opengl.shaders_cache", openglCacheDir.getAbsolutePath());
                 System.setProperty("com.android.skia.shaders_cache", skiaCacheDir.getAbsolutePath());
             } catch (Exception e) {
-                LogManager.logW(TAG, "无法设置着色器缓存系统属性: " + e.getMessage());
+                LogManager.logW(TAG, "Unable to set shader cache system properties: " + e.getMessage());
             }
             
-            LogManager.logD(TAG, "缓存目录创建成功");
+            LogManager.logD(TAG, "Cache directories created successfully");
         } catch (Exception e) {
-            LogManager.logE(TAG, "创建缓存目录失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "Failed to create cache directories: " + e.getMessage(), e);
         }
     }
     
@@ -88,15 +88,15 @@ public class GPUErrorHandler {
                     window.setFlags(
                         WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
                         WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED);
-                    LogManager.logD(TAG, "已启用硬件加速");
+                    LogManager.logD(TAG, "Hardware acceleration enabled");
                 } else {
                     // 禁用硬件加速
                     window.clearFlags(WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED);
-                    LogManager.logD(TAG, "已禁用硬件加速");
+                    LogManager.logD(TAG, "Hardware acceleration disabled");
                 }
             }
         } catch (Exception e) {
-            LogManager.logE(TAG, "配置窗口格式失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "Failed to configure window format: " + e.getMessage(), e);
         }
     }
     
@@ -112,23 +112,23 @@ public class GPUErrorHandler {
                                Build.MODEL.toLowerCase().contains("huawei");
             
             if (isHuawei) {
-                LogManager.logD(TAG, "检测到华为设备，应用轻量级修复");
+                LogManager.logD(TAG, "Huawei device detected, applying lightweight fixes");
                 
                 // 只设置系统属性，避免反射调用可能导致的启动卡顿
                 try {
                     System.setProperty("hw_editor_disable", "true");
                     System.setProperty("hw_gpu_check_disable", "true");
-                    LogManager.logD(TAG, "已设置华为设备优化属性");
+                    LogManager.logD(TAG, "Huawei device optimization properties set");
                 } catch (Exception e) {
-                    LogManager.logW(TAG, "无法设置华为优化属性: " + e.getMessage());
+                    LogManager.logW(TAG, "Unable to set Huawei optimization properties: " + e.getMessage());
                 }
                 
                 // 移除可能导致启动卡顿的反射调用
                 // 注释掉原有的HwEditorHelperImpl禁用代码，因为可能导致启动无响应
-                LogManager.logD(TAG, "华为设备启动优化完成");
+                LogManager.logD(TAG, "Huawei device startup optimization completed");
             }
         } catch (Exception e) {
-            LogManager.logE(TAG, "处理华为特定问题失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "Failed to handle Huawei-specific issues: " + e.getMessage(), e);
         }
     }
     
@@ -148,7 +148,7 @@ public class GPUErrorHandler {
                 return configInfo.reqGlEsVersion >= 0x20000;
             }
         } catch (Exception e) {
-            LogManager.logE(TAG, "检查GPU加速支持失败: " + e.getMessage(), e);
+            LogManager.logE(TAG, "Failed to check GPU acceleration support: " + e.getMessage(), e);
         }
         
         return false;

@@ -38,9 +38,9 @@ public class LangChainTextSplitter {
         // 注意：LangChain4j的Java版本API与Python版本不同，不支持直接传递分隔符列表
         this.splitter = new DocumentByCharacterSplitter(chunkSize, chunkOverlap);
         
-        LogManager.logD(TAG, "初始化LangChainTextSplitter，分块大小: " + chunkSize + 
-                "，重叠大小: " + chunkOverlap + 
-                "，最小分块大小: " + minChunkSize);
+        LogManager.logD(TAG, "Initialized LangChainTextSplitter, chunk size: " + chunkSize + 
+                ", overlap size: " + chunkOverlap + 
+                ", min chunk size: " + minChunkSize);
     }
     
     /**
@@ -58,9 +58,9 @@ public class LangChainTextSplitter {
         // 注意：LangChain4j的Java版本API与Python版本不同，不支持直接传递分隔符列表
         this.splitter = new DocumentByCharacterSplitter(chunkSize, chunkOverlap);
         
-        LogManager.logD(TAG, "初始化LangChainTextSplitter，分块大小: " + chunkSize + 
-                "，重叠大小: " + chunkOverlap + 
-                "，最小分块大小: " + minChunkSize);
+        LogManager.logD(TAG, "Initialized LangChainTextSplitter, chunk size: " + chunkSize + 
+                ", overlap size: " + chunkOverlap + 
+                ", min chunk size: " + minChunkSize);
     }
     
     /**
@@ -86,11 +86,11 @@ public class LangChainTextSplitter {
             if (chunk.length() >= minChunkSize) {
                 chunks.add(chunk);
             } else {
-                LogManager.logD(TAG, "过滤掉过小的文本块，长度: " + chunk.length());
+                LogManager.logD(TAG, "Filtered out small text chunk, length: " + chunk.length());
             }
         }
         
-        LogManager.logD(TAG, "文本分割完成，共生成" + segments.size() + "个文本块，过滤后剩余" + chunks.size() + "个");
+        LogManager.logD(TAG, "Text splitting completed, generated " + segments.size() + " text chunks, " + chunks.size() + " remaining after filtering");
         return chunks;
     }
 }

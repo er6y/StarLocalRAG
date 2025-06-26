@@ -13,7 +13,7 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="设置"
+            android:text="@string/title_settings"
             android:textSize="24sp"
             android:textStyle="bold"
             android:layout_marginBottom="16dp" />
@@ -22,7 +22,7 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="文本分块设置"
+            android:text="@string/title_text_chunking_settings"
             android:textSize="18sp"
             android:textStyle="bold"
             android:layout_marginTop="16dp"
@@ -38,7 +38,7 @@
             <TextView
                 android:layout_width="100dp"
                 android:layout_height="wrap_content"
-                android:text="分块大小\n(100~4000):"
+                android:text="@string/label_chunk_size"
                 android:textSize="16sp" />
 
             <SeekBar
@@ -71,7 +71,7 @@
             <TextView
                 android:layout_width="100dp"
                 android:layout_height="wrap_content"
-                android:text="重叠大小\n(20~800):"
+                android:text="@string/label_overlap_size"
                 android:textSize="16sp" />
 
             <SeekBar
@@ -104,7 +104,7 @@
             <TextView
                 android:layout_width="100dp"
                 android:layout_height="wrap_content"
-                android:text="最小分块限制\n(10~100):"
+                android:text="@string/label_min_chunk_size"
                 android:textSize="16sp" />
 
             <SeekBar
@@ -139,7 +139,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="JSON训练集分块优化"
+                android:text="@string/label_json_dataset_splitting"
                 android:textSize="16sp" />
 
             <androidx.appcompat.widget.SwitchCompat
@@ -152,7 +152,7 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="目录设置"
+            android:text="@string/title_directory_settings"
             android:textSize="18sp"
             android:textStyle="bold"
             android:layout_marginTop="16dp"
@@ -168,7 +168,7 @@
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="模型目录:"
+                android:text="@string/label_model_directory"
                 android:textSize="16sp"
                 android:layout_marginBottom="4dp" />
 
@@ -185,13 +185,13 @@
                     android:layout_weight="1"
                     android:layout_marginEnd="8dp"
                     android:inputType="text"
-                    android:hint="模型文件目录路径" />
+                    android:hint="@string/hint_model_path" />
 
                 <Button
                     android:id="@+id/buttonSelectModelPath"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="选择"
+                    android:text="@string/button_select"
                     android:textSize="14sp"
                     android:padding="4dp"
                     android:minWidth="60dp"
@@ -209,7 +209,7 @@
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="嵌入模型目录:"
+                android:text="@string/label_embedding_model_directory"
                 android:textSize="16sp"
                 android:layout_marginBottom="4dp" />
 
@@ -226,13 +226,13 @@
                     android:layout_weight="1"
                     android:layout_marginEnd="8dp"
                     android:inputType="text"
-                    android:hint="嵌入模型目录路径" />
+                    android:hint="@string/hint_embedding_model_path" />
 
                 <Button
                     android:id="@+id/buttonSelectEmbeddingModelPath"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="选择"
+                    android:text="@string/button_select"
                     android:textSize="14sp"
                     android:padding="4dp"
                     android:minWidth="60dp"
@@ -250,7 +250,7 @@
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="重排模型目录:"
+                android:text="@string/label_reranker_model_directory"
                 android:textSize="16sp"
                 android:layout_marginBottom="4dp" />
 
@@ -267,13 +267,13 @@
                     android:layout_weight="1"
                     android:layout_marginEnd="8dp"
                     android:inputType="text"
-                    android:hint="重排模型目录路径" />
+                    android:hint="@string/hint_reranker_model_path" />
 
                 <Button
                     android:id="@+id/buttonSelectRerankerModelPath"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="选择"
+                    android:text="@string/button_select"
                     android:textSize="14sp"
                     android:padding="4dp"
                     android:minWidth="60dp"
@@ -291,7 +291,7 @@
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="知识库目录:"
+                android:text="@string/label_knowledge_base_directory"
                 android:textSize="16sp"
                 android:layout_marginBottom="4dp" />
 
@@ -308,13 +308,13 @@
                     android:layout_weight="1"
                     android:layout_marginEnd="8dp"
                     android:inputType="text"
-                    android:hint="知识库目录路径" />
+                    android:hint="@string/hint_knowledge_base_path" />
 
                 <Button
                     android:id="@+id/buttonSelectKnowledgeBasePath"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="选择"
+                    android:text="@string/button_select"
                     android:textSize="14sp"
                     android:padding="4dp"
                     android:minWidth="60dp"
@@ -328,7 +328,7 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="LLM 推理设置"
+            android:text="@string/title_llm_inference_settings"
             android:textSize="18sp"
             android:textStyle="bold"
             android:layout_marginTop="16dp"
@@ -345,7 +345,7 @@
             <TextView
                 android:layout_width="100dp"
                 android:layout_height="wrap_content"
-                android:text="最大序列长度\n(512~8192):"
+                android:text="@string/label_max_sequence_length"
                 android:textSize="16sp" />
 
             <SeekBar
@@ -379,7 +379,7 @@
             <TextView
                 android:layout_width="100dp"
                 android:layout_height="wrap_content"
-                android:text="推理线程数\n(1~16):"
+                android:text="@string/label_inference_threads"
                 android:textSize="16sp" />
 
             <SeekBar
@@ -413,7 +413,7 @@
             <TextView
                 android:layout_width="100dp"
                 android:layout_height="wrap_content"
-                android:text="最大输出token数\n(512~4096):"
+                android:text="@string/label_max_output_tokens"
                 android:textSize="16sp" />
 
             <SeekBar
@@ -448,7 +448,7 @@
             <TextView
                 android:layout_width="100dp"
                 android:layout_height="wrap_content"
-                android:text="手动温度参数\n(0.0~2.0):"
+                android:text="@string/label_manual_temperature"
                 android:textSize="16sp" />
 
             <SeekBar
@@ -481,7 +481,7 @@
             <TextView
                 android:layout_width="100dp"
                 android:layout_height="wrap_content"
-                android:text="手动Top-P参数(0.0~1.0):"
+                android:text="@string/label_manual_top_p"
                 android:textSize="16sp" />
 
             <SeekBar
@@ -514,7 +514,7 @@
             <TextView
                 android:layout_width="100dp"
                 android:layout_height="wrap_content"
-                android:text="手动Top-K参数(10~100):"
+                android:text="@string/label_manual_top_k"
                 android:textSize="16sp" />
 
             <SeekBar
@@ -547,7 +547,7 @@
             <TextView
                 android:layout_width="100dp"
                 android:layout_height="wrap_content"
-                android:text="手动重复惩罚参数(0.0~2.0):"
+                android:text="@string/label_manual_repeat_penalty"
                 android:textSize="16sp" />
 
             <SeekBar
@@ -582,7 +582,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="优先手动参数"
+                android:text="@string/label_priority_manual_params"
                 android:textSize="16sp" />
 
             <androidx.appcompat.widget.SwitchCompat
@@ -599,7 +599,7 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="全局设置"
+            android:text="@string/title_global_settings"
             android:textSize="18sp"
             android:textStyle="bold"
             android:layout_marginTop="16dp"
@@ -617,7 +617,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="调试模式"
+                android:text="@string/label_debug_mode"
                 android:textSize="16sp" />
 
             <androidx.appcompat.widget.SwitchCompat
@@ -638,7 +638,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="使用GPU加速（如果可用）"
+                android:text="@string/label_use_gpu"
                 android:textSize="16sp" />
 
             <androidx.appcompat.widget.SwitchCompat
@@ -658,7 +658,7 @@
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="字体大小"
+                android:text="@string/label_font_size"
                 android:textSize="16sp"
                 android:layout_marginBottom="8dp" />
 
@@ -695,7 +695,7 @@
                 android:id="@+id/textViewFontSizeValue"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="字体大小: 16sp"
+                android:text="@string/text_font_size_value"
                 android:textSize="14sp"
                 android:gravity="center"
                 android:layout_marginTop="4dp" />
@@ -706,7 +706,7 @@
             android:id="@+id/buttonSaveSettings"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="保存设置"
+            android:text="@string/button_save_settings"
             android:layout_marginTop="16dp"
             android:layout_marginBottom="16dp" />
 

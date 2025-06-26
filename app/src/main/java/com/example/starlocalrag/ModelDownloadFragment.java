@@ -45,6 +45,8 @@ import java.util.concurrent.Executors;
 public class ModelDownloadFragment extends Fragment {
     private static final String TAG = "ModelDownloadFragment";
     
+    // Constants removed - now using string resources
+    
     // UI组件
     private CheckBox checkBoxBgeM3;
     private CheckBox checkBoxBgeReranker;
@@ -186,7 +188,7 @@ public class ModelDownloadFragment extends Fragment {
                 int id = menuItem.getItemId();
                 
                 if (id == R.id.action_close_download) {
-                    // 关闭下载页面 - 使用Navigation组件的返回操作
+                    // Close download page - Use Navigation component's back operation
                     requireActivity().getOnBackPressedDispatcher().onBackPressed();
                     return true;
                 }
@@ -243,10 +245,10 @@ public class ModelDownloadFragment extends Fragment {
     
     private void showWifiDownloadDialog(List<String> selectedModels) {
         new AlertDialog.Builder(getContext())
-            .setTitle("下载提示")
-            .setMessage("建议使用Wi-Fi网络下载模型文件，避免消耗移动数据流量。是否继续下载？")
-            .setPositiveButton("继续下载", (dialog, which) -> checkDirectoryConflictsAndDownload(selectedModels))
-            .setNegativeButton("取消", null)
+            .setTitle("下载确认")
+                .setMessage("确定要下载选中的模型吗？")
+                .setPositiveButton(getString(R.string.common_download), (dialog, which) -> checkDirectoryConflictsAndDownload(selectedModels))
+            .setNegativeButton(getString(R.string.common_cancel), null)
             .show();
     }
     
@@ -277,19 +279,19 @@ public class ModelDownloadFragment extends Fragment {
     }
     
     private void showOverwriteDialog(List<String> conflictDirs, List<String> selectedModels) {
-        String message = "以下目录已存在，是否覆盖？\n\n" + String.join("\n", conflictDirs);
+        String message = "以下目录已存在：" + "\n\n" + String.join("\n", conflictDirs);
         
         new AlertDialog.Builder(getContext())
-            .setTitle("目录冲突")
-            .setMessage(message)
-            .setPositiveButton("覆盖", (dialog, which) -> executeDownload(selectedModels))
-            .setNegativeButton("取消", null)
+            .setTitle("目录已存在")
+                .setMessage(message)
+                .setPositiveButton(getString(R.string.common_overwrite), (dialog, which) -> executeDownload(selectedModels))
+                .setNegativeButton(getString(R.string.common_cancel), null)
             .show();
     }
     
     private void executeDownload(List<String> selectedModels) {
         isDownloading = true;
-        buttonDownload.setText("中断下载");
+        buttonDownload.setText(R.string.button_interrupt);
         
         // 清空进度文本，开始新的下载
         progressText.setLength(0);
@@ -297,7 +299,7 @@ public class ModelDownloadFragment extends Fragment {
         // 获取电源锁
         acquireWakeLocks();
         
-        appendProgress("开始下载选中的模型...\n");
+        appendProgress("下载选中的模型" + "\n");
         
         downloadExecutor.execute(() -> {
             boolean allSuccess = true;
@@ -305,7 +307,7 @@ public class ModelDownloadFragment extends Fragment {
                 for (String modelKey : selectedModels) {
                     // 检查是否已被中断
                     if (!isDownloading) {
-                        mainHandler.post(() -> appendProgress("\n下载已中断\n"));
+                        mainHandler.post(() -> appendProgress("\n" + "下载已被中断" + "\n"));
                         return;
                     }
                     boolean success = downloadModel(modelKey);
@@ -317,7 +319,7 @@ public class ModelDownloadFragment extends Fragment {
                 // 只有在所有模型都成功下载且未被中断的情况下才显示完成信息
                 if (isDownloading && allSuccess) {
                     mainHandler.post(() -> {
-                        appendProgress("\n所有模型下载完成！\n");
+                        appendProgress("\n" + "所有模型下载完成" + "\n");
                         finishDownload();
                     });
                 } else {
@@ -325,9 +327,9 @@ public class ModelDownloadFragment extends Fragment {
                 }
                 
             } catch (Exception e) {
-                LogManager.logE(TAG, "下载过程中发生错误", e);
+                LogManager.logE(TAG, "下载错误", e);
                 mainHandler.post(() -> {
-                    appendProgress("\n下载过程中发生错误: " + e.getMessage() + "\n");
+                    appendProgress("\n" + "下载错误" + ": " + e.getMessage() + "\n");
                     finishDownload();
                 });
             }
@@ -337,11 +339,11 @@ public class ModelDownloadFragment extends Fragment {
     private boolean downloadModel(String modelKey) {
         ModelConfig config = MODEL_CONFIGS.get(modelKey);
         if (config == null) {
-            mainHandler.post(() -> appendProgress("未知模型: " + modelKey + "\n"));
+            mainHandler.post(() -> appendProgress("未知模型" + ": " + modelKey + "\n"));
             return false;
         }
         
-        mainHandler.post(() -> appendProgress("\n开始下载: " + config.directoryName + "\n"));
+        mainHandler.post(() -> appendProgress("\n" + "开始下载" + ": " + config.directoryName + "\n"));
         
         // 创建目标目录
         File targetDir = getTargetDirectory(config);
@@ -353,30 +355,30 @@ public class ModelDownloadFragment extends Fragment {
         for (int i = 0; i < config.downloadUrls.length; i++) {
             // 检查是否已被中断
             if (!isDownloading) {
-                mainHandler.post(() -> appendProgress("下载已中断\n"));
+                mainHandler.post(() -> appendProgress("Download interrupted\n"));
                 return false;
             }
             
             String url = config.downloadUrls[i];
             String filename = config.filenames[i];
             
-            mainHandler.post(() -> appendProgress("下载文件: " + filename + "\n"));
+            mainHandler.post(() -> appendProgress("正在下载文件" + ": " + filename + "\n"));
             
             boolean success = downloadFile(url, new File(targetDir, filename));
             if (!success && isDownloading) {
                 // 只有在未被中断的情况下才尝试备用地址
                 String backupUrl = url.replace("hf-mirror.com", "huggingface.co");
-                mainHandler.post(() -> appendProgress("尝试备用地址...\n"));
+                mainHandler.post(() -> appendProgress("尝试备用地址" + "\n"));
                 success = downloadFile(backupUrl, new File(targetDir, filename));
             }
             
             if (!success) {
-                mainHandler.post(() -> appendProgress("文件下载失败: " + filename + "\n"));
+                mainHandler.post(() -> appendProgress("下载失败" + ": " + filename + "\n"));
                 return false;
             }
         }
         
-        mainHandler.post(() -> appendProgress(config.directoryName + " 下载完成\n"));
+        mainHandler.post(() -> appendProgress(config.directoryName + " " + "下载完成" + "\n"));
         return true;
     }
     
@@ -393,7 +395,7 @@ public class ModelDownloadFragment extends Fragment {
                 basePath = ConfigManager.getModelPath(getContext());
                 break;
             default:
-                throw new IllegalArgumentException("未知模型类型: " + config.type);
+                throw new IllegalArgumentException("未知模型" + "类型: " + config.type);
         }
         
         return new File(basePath, config.directoryName);
@@ -408,14 +410,14 @@ public class ModelDownloadFragment extends Fragment {
             
             int responseCode = connection.getResponseCode();
             if (responseCode != HttpURLConnection.HTTP_OK) {
-                LogManager.logE(TAG, "下载失败，HTTP响应码: " + responseCode);
+                LogManager.logE(TAG, "下载失败，HTTP响应码" + ": " + responseCode);
                 return false;
             }
             
             long fileSize = connection.getContentLengthLong();
             
             // 初始化进度显示
-            mainHandler.post(() -> appendProgress("进度:"));
+            mainHandler.post(() -> appendProgress("进度" + ":"));
             
             try (InputStream inputStream = connection.getInputStream();
                  FileOutputStream outputStream = new FileOutputStream(targetFile)) {
@@ -466,13 +468,13 @@ public class ModelDownloadFragment extends Fragment {
             
             // 完成后显示结果
             if (fileSize > 0) {
-                mainHandler.post(() -> appendProgress(" 100%\n"));
+                mainHandler.post(() -> appendProgress(" " + getString(R.string.log_100_percent) + "\n"));
             }
             
             return true;
             
         } catch (IOException e) {
-            LogManager.logE(TAG, "下载文件失败: " + urlString, e);
+            LogManager.logE(TAG, getString(R.string.log_download_file_failed) + ": " + urlString, e);
             return false;
         }
     }
@@ -501,7 +503,7 @@ public class ModelDownloadFragment extends Fragment {
             wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "StarLocalRAG:ModelDownload");
             wakeLock.acquire(30 * 60 * 1000L); // 30分钟超时
         } catch (Exception e) {
-            LogManager.logE(TAG, "获取电源锁失败", e);
+            LogManager.logE(TAG, getString(R.string.log_acquire_wakelock_failed), e);
         }
     }
     
@@ -512,13 +514,13 @@ public class ModelDownloadFragment extends Fragment {
                 wakeLock = null;
             }
         } catch (Exception e) {
-            LogManager.logE(TAG, "释放电源锁失败", e);
+            LogManager.logE(TAG, getString(R.string.log_release_wakelock_failed), e);
         }
     }
     
     private void finishDownload() {
         isDownloading = false;
-        buttonDownload.setText("下载选中的模型");
+        buttonDownload.setText("Download Selected Models");
         releaseWakeLocks();
     }
     
@@ -533,8 +535,8 @@ public class ModelDownloadFragment extends Fragment {
             }
             
             mainHandler.post(() -> {
-                appendProgress("\n下载已中断\n");
-                buttonDownload.setText("下载选中的模型");
+                appendProgress("\nDownload interrupted\n");
+                buttonDownload.setText("Download Selected Models");
                 releaseWakeLocks();
             });
         }
