@@ -3,6 +3,8 @@ package com.example.starlocalrag.api;
 import android.content.Context;
 import android.util.Log;
 import com.example.starlocalrag.LogManager;
+import com.example.starlocalrag.AppConstants;
+import com.example.starlocalrag.R;
 
 import com.example.starlocalrag.ConfigManager;
 
@@ -82,9 +84,9 @@ public class LlmModelFactory {
     private void initializeModelProviders() {
         // 本地模型
         // 注意：本地模型的实际模型列表将在运行时动态获取
-        modelProviders.put("local", new ModelProvider(
-                "本地模型",
-                "local",
+        modelProviders.put(AppConstants.ApiUrl.LOCAL, new ModelProvider(
+                context.getString(R.string.api_url_local) + "模型",
+                AppConstants.ApiUrl.LOCAL,
                 new String[]{"Qwen3-0.6B_onnx_static_int8", "Qwen3-01.7B_onnx_static_int8"}
         ));
         
@@ -153,7 +155,7 @@ public class LlmModelFactory {
         
         switch (apiType) {
             case LOCAL:
-                return modelProviders.get("local");
+                return modelProviders.get(AppConstants.ApiUrl.LOCAL);
             case DEEPSEEK:
                 return modelProviders.get("deepseek");
             case MOONSHOT:
@@ -175,7 +177,7 @@ public class LlmModelFactory {
      */
     public void callModel(String apiUrl, String apiKey, String model, String prompt, LlmApiAdapter.ApiCallback callback) {
         // 如果是本地模型，更新模型列表
-        if (apiUrl.equals("local")) {
+        if (apiUrl.equalsIgnoreCase(AppConstants.ApiUrl.LOCAL)) {
             updateLocalModelList();
         }
         apiAdapter.callLlmApi(apiUrl, apiKey, model, prompt, callback);
@@ -186,7 +188,7 @@ public class LlmModelFactory {
      */
     public String callModelSync(String apiUrl, String apiKey, String model, String prompt) {
         // 如果是本地模型，更新模型列表
-        if (apiUrl.equals("local")) {
+        if (apiUrl.equalsIgnoreCase(AppConstants.ApiUrl.LOCAL)) {
             updateLocalModelList();
         }
         return apiAdapter.callLlmApiSync(apiUrl, apiKey, model, prompt);
@@ -208,7 +210,7 @@ public class LlmModelFactory {
      */
     public String[] getSupportedModelsByUrl(String apiUrl) {
         // 如果是本地模型，更新模型列表
-        if (apiUrl.equals("local")) {
+        if (apiUrl.equalsIgnoreCase(AppConstants.ApiUrl.LOCAL)) {
             updateLocalModelList();
         }
         
@@ -229,9 +231,9 @@ public class LlmModelFactory {
             String[] localModels = localAdapter.listAvailableModels();
             
             // 更新本地模型提供商
-            modelProviders.put("local", new ModelProvider(
-                    "本地模型",
-                    "local",
+            modelProviders.put(AppConstants.ApiUrl.LOCAL, new ModelProvider(
+                    context.getString(R.string.api_url_local) + "模型",
+                    AppConstants.ApiUrl.LOCAL,
                     localModels
             ));
             

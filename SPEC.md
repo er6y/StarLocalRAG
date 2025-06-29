@@ -390,6 +390,21 @@ public class ModelParamsReader {
 - 用户友好提示
 - 自动恢复机制
 
+#### 6.2.4 关键Bug修复记录
+
+**知识库选择逻辑修复**（2024年修复）：
+- **问题**：当用户选择"None"知识库时，系统仍会错误地进入知识库查询流程导致卡住
+- **原因**：`executeRagQuery`方法使用`configKnowledgeBase`而非传入的`knowledgeBase`参数进行判断
+- **修复**：修改判断逻辑使用传入的`knowledgeBase`参数，正确识别"None"和"无可用知识库"选项
+- **影响**：确保在线API和本地LLM在无知识库模式下正常工作
+
+**本地模型API类型检测修复**（2024年修复）：
+- **问题**：本地模型被错误识别为OPENAI类型，导致"Expected URL scheme 'http' or 'https'"错误
+- **原因**：`detectApiType`方法使用严格的字符串比较，"Local"（大写）与"local"（小写）不匹配
+- **修复**：将`equals`改为`equalsIgnoreCase`，支持大小写不敏感的比较
+- **影响文件**：`LlmApiAdapter.java`、`LlmModelFactory.java`
+- **影响**：确保本地模型能正确调用LocalLlmAdapter而非StreamingApiClient
+
 ## 7. 国际化与多语言支持
 
 ### 7.1 硬编码中文逻辑判断重构
@@ -646,30 +661,388 @@ LogManager.logE(TAG, getLogString(context, LOG_OPERATION_FAILED), e);
 2.  **保持多语言资源同步**：对于每一种语言（如 `values-en`, `values-zh-rCN`），其 `strings.xml` 文件中定义的资源项应与默认的 `values/strings.xml` 文件保持一致。如果某个资源只在特定语言文件中存在，编译时会产生 `removing resource ... without required default value` 警告。虽然这不影响编译，但为了应用的健壮性和可维护性，应确保所有语言的资源文件都包含相同的资源键。
 3.  **正确格式化带占位符的字符串**：当字符串资源包含多个占位符时（如 `%s`, `%d`），必须使用位置格式（如 `%1$s`, `%2$d`）来明确指定参数顺序，否则会导致编译错误和潜在的运行时异常。
 
-## 8. 未来发展
+## 8. 代码质量与维护性
 
-### 8.1 功能扩展
+### 8.1 硬编码问题修复
+
+#### 8.1.1 问题识别
+
+**硬编码字符串问题**：
+- 多个文件中存在硬编码的 "local" 和 "本地" 字符串
+- `AppConstants.API_URL_LOCAL` 与实际使用的常量不一致
+- 缺乏统一的本地化资源管理
+
+**影响范围**：
+- `LlmModelFactory.java`：硬编码 "本地模型" 和 "local"
+- `StateDisplayManager.java`：硬编码 "本地" 显示文本
+- `RagQaFragment.java`：硬编码 "local" 字符串比较
+- `LlmApiAdapter.java`：硬编码 "local" 返回值
+- `SQLiteVectorDatabaseHandler.java`：硬编码 "local" 模型类型
+
+#### 8.1.2 修复方案
+
+**统一常量使用**：
+```java
+// 使用 AppConstants.ApiUrl.LOCAL 替代硬编码 "local"
+if (apiUrl.equals(AppConstants.ApiUrl.LOCAL)) {
+    // 处理本地模型逻辑
+}
+
+// 使用字符串资源替代硬编码显示文本
+String localDisplay = context.getString(R.string.api_url_local);
+```
+
+**资源文件配置**：
+```xml
+<!-- strings.xml -->
+<string name="api_url_local">本地</string>
+```
+
+**修复文件清单**：
+1. `LlmModelFactory.java`：使用 `AppConstants.ApiUrl.LOCAL` 和 `R.string.api_url_local`
+2. `StateDisplayManager.java`：使用 `context.getString(R.string.api_url_local)`
+3. `RagQaFragment.java`：统一使用 `AppConstants.ApiUrl.LOCAL` 进行逻辑判断
+4. `LlmApiAdapter.java`：返回 `AppConstants.ApiUrl.LOCAL`
+5. `SQLiteVectorDatabaseHandler.java`：使用 `AppConstants.ApiUrl.LOCAL`
+6. `AppConstants.java`：删除错误的 `API_URL_LOCAL` 常量定义
+
+#### 8.1.3 API URL 判断逻辑修复
+
+**问题描述**：
+- `RagQaFragment.java` 中存在API URL处理逻辑错误
+- 代码直接使用 `spinnerApiUrl.getSelectedItem().toString()` 获取显示文本进行逻辑判断
+- 显示文本（如"本地"、"Local"）与常量值（"local"）不匹配
+- 导致本地模型无法正确识别，API调用失败
+
+**修复方案**：
+```java
+// 修复前：直接使用显示文本
+String apiUrl = spinnerApiUrl.getSelectedItem().toString();
+if (!AppConstants.ApiUrl.LOCAL.equals(apiUrl) && apiKey.trim().isEmpty()) {
+    // 逻辑判断错误
+}
+
+// 修复后：转换为常量值
+String apiUrlDisplay = spinnerApiUrl.getSelectedItem().toString();
+String apiUrl = StateDisplayManager.getApiUrlFromDisplayText(requireContext(), apiUrlDisplay);
+if (!AppConstants.ApiUrl.LOCAL.equals(apiUrl) && apiKey.trim().isEmpty()) {
+    Toast.makeText(requireContext(), getString(R.string.toast_enter_api_key), Toast.LENGTH_SHORT).show();
+}
+```
+
+**全面修复范围**：
+- `handleSendStopClick` 方法：API调用时的URL处理
+- `saveConfig` 方法：配置保存时的URL处理
+- `fetchModelsForApi` 方法：模型获取时的URL处理
+- API Key保存逻辑：焦点失去时的URL处理
+- 所有本地模型判断逻辑：删除与显示文本的比较
+
+**Toast 消息国际化**：
+- 将硬编码的 Toast 消息替换为字符串资源引用
+- 支持中英文自动切换
+- 涉及的字符串资源：
+  - `R.string.toast_enter_api_key`："请输入API Key" / "Please enter API Key"
+  - `R.string.toast_enter_user_question`："请输入用户问题" / "Please enter user question"
+  - `R.string.toast_ensure_api_model_set`："请确保API地址和模型配置正确" / "Please ensure API URL and model configuration are correct"
+  - `R.string.toast_request_stopped`："请求已停止" / "Request stopped"
+  - `R.string.toast_model_dir_not_exist`："模型目录不存在: %s" / "Model directory does not exist: %s"
+- `R.string.toast_no_model_found`："模型目录中没有发现模型: %s" / "No models found in model directory: %s"
+
+#### 8.1.4 字符串资源合并优化
+
+**问题描述**：
+- `strings.xml` 和 `strings-en.xml` 中存在重复的字符串资源定义
+- 相同功能的文本使用了不同的资源名称，造成维护困难
+- 具体重复项：
+  - `progress_text_extraction_keyword` vs `processing_status_extracting_text`
+  - `progress_vectorization_keyword` vs `processing_status_generating_vectors`
+  - `progress_extracting_text` vs `processing_status_extracting_text`
+  - `progress_generating_vectors` vs `processing_status_generating_vectors`
+
+**修复方案**：
+1. **统一资源名称**：保留 `progress_text_extraction_keyword` 和 `progress_vectorization_keyword`
+2. **删除重复定义**：移除 `processing_status_extracting_text`、`processing_status_generating_vectors`、`progress_extracting_text`、`progress_generating_vectors`
+3. **更新StateDisplayManager**：添加 `getProcessingStatusDisplay` 方法和 `processing_status` 分支
+4. **保持向后兼容**：`getProcessingStatusDisplayText` 静态方法继续可用
+
+**修复文件清单**：
+1. `StateDisplayManager.java`：
+   - 添加 `getProcessingStatusDisplay` 方法
+   - 在 `getDisplayText` 中添加 `processing_status` 分支
+   - 使用统一的字符串资源名称
+2. `strings.xml`：删除重复的字符串资源定义
+3. `strings-en.xml`：删除重复的字符串资源定义
+
+**优化效果**：
+- 减少了字符串资源的重复定义
+- 统一了资源命名规范
+- 提高了代码的可维护性
+- 保持了国际化支持的完整性
+
+#### 8.1.5 KnowledgeBaseBuilderService 国际化支持
+
+**问题描述**：
+- `KnowledgeBaseBuilderService.java` 中第328、332、338行存在硬编码的中文字符串
+- 缺乏国际化支持，影响应用的多语言兼容性
+- 涉及知识库构建完成、取消和失败的状态消息
+
+**修复方案**：
+1. **创建字符串资源**：在 `strings.xml` 和 `strings-en.xml` 中添加对应的字符串资源
+2. **替换硬编码文本**：使用 `getString()` 方法引用字符串资源
+3. **支持参数化消息**：使用 `%s` 占位符支持动态内容
+
+**新增字符串资源**：
+- `kb_build_completed`：知识库构建完成消息
+- `kb_build_cancelled`：知识库构建取消消息
+- `kb_build_success_log`：构建成功日志消息
+- `kb_build_cancelled_log`：构建取消日志消息
+- `kb_build_failed_log`：构建失败日志消息
+
+**修复文件清单**：
+1. `strings.xml`：添加中文字符串资源
+2. `strings-en.xml`：添加英文字符串资源
+3. `KnowledgeBaseBuilderService.java`：替换硬编码字符串为资源引用
+
+**优化效果**：
+- 完善了知识库构建服务的国际化支持
+- 提高了代码的可维护性和可扩展性
+- 统一了字符串资源管理规范
+
+#### 8.1.4 全面Toast消息国际化
+**问题识别**：
+- 多个Fragment中存在大量硬编码的Toast提示消息
+- 涉及知识库操作、文件选择、设置验证、日志操作等功能模块
+- 缺乏统一的国际化支持
+
+**修复范围**：
+1. **RagQaFragment.java**：
+   - "加载知识库选择失败" → `getString(R.string.toast_load_kb_selection_failed, e.getMessage())`
+   - "没有选中文本或文本为空" → `getString(R.string.toast_no_selected_text_or_empty)`
+   - "已转为笔记" → `getString(R.string.toast_transferred_to_note)`
+   - "无法获取笔记页面" → `getString(R.string.toast_cannot_get_note_page)`
+
+2. **BuildKnowledgeBaseFragment.java**：
+   - "知识库名称已添加: %s" → `getString(R.string.toast_kb_name_added, newKnowledgeBaseName)`
+   - "知识库名称不能为空" → `getString(R.string.toast_kb_name_empty)`
+   - "请先选择文件" → `getString(R.string.toast_please_select_files)`
+   - "请输入或选择知识库名称" → `getString(R.string.toast_please_enter_kb_name)`
+   - "请选择嵌入模型" → `getString(R.string.toast_please_select_embedding_model)`
+   - "任务已取消" → `getString(R.string.toast_task_cancelled)`
+   - "已请求忽略电池优化" → `getString(R.string.toast_battery_optimization_requested)`
+   - "任务已中断" / "知识库创建完成" → `getString(R.string.toast_task_interrupted)` / `getString(R.string.toast_kb_creation_complete)`
+   - "知识库重命名失败" → `getString(R.string.toast_kb_rename_failed)`
+   - "知识库不存在: %s" → `getString(R.string.toast_kb_not_exist, oldName)`
+
+3. **SettingsFragment.java**：
+   - "加载设置失败" → `getString(R.string.toast_load_settings_failed)`
+   - "分块大小必须在100-8192之间" → `getString(R.string.toast_chunk_size_range_old)`
+   - "重叠大小必须在0-512之间" → `getString(R.string.toast_overlap_size_range_old)`
+   - "最小分块限制必须在50-1024之间" → `getString(R.string.toast_min_chunk_limit_range_old)`
+
+4. **LogViewFragment.java**：
+   - 移除硬编码常量：`TOAST_TEXT_SELECTED`、`TOAST_LOG_COPIED`、`TOAST_LOG_CLEARED`、`TOAST_SHARE_FAILED`
+   - "已全选文本" → `getString(R.string.toast_text_selected)`
+   - "日志内容已复制到剪贴板" → `getString(R.string.toast_log_copied)`
+   - "日志已清空" → `getString(R.string.toast_log_cleared)`
+   - "分享日志失败" → `getString(R.string.toast_share_failed)`
+
+**新增字符串资源**：
+在 `values/strings.xml` 和 `values-en/strings.xml` 中添加了24个新的Toast消息资源，确保中英文完整支持。
+
+#### 8.1.6 StateDisplayManager 硬编码字符串国际化
+
+**问题描述**：
+- `StateDisplayManager.java` 中存在多个硬编码的中文字符串
+- 涉及模型状态、进度状态等显示文本
+- 缺乏国际化支持，影响多语言兼容性
+
+**修复内容**：
+1. **模型状态显示**：
+   - "已加载" → `context.getString(R.string.common_loaded)`
+   - "未加载" → `context.getString(R.string.model_state_unloaded)`
+   - "未找到" → `context.getString(R.string.model_status_not_found)`
+   - "无可用" → `context.getString(R.string.model_status_no_available)`
+
+2. **进度状态显示**：
+   - "初始化中" → `context.getString(R.string.common_initializing)`
+   - "处理中" → `context.getString(R.string.common_processing)`
+   - "暂停中" → `context.getString(R.string.common_paused)`
+   - "未知状态" → `context.getString(R.string.common_unknown_state)`
+
+**新增字符串资源**：
+- `common_paused`：暂停状态显示文本（中英文）
+
+**修复文件清单**：
+1. `StateDisplayManager.java`：替换8个硬编码字符串为资源引用
+2. `strings.xml`：添加 `common_paused` 中文资源
+3. `strings-en.xml`：添加 `common_paused` 英文资源
+
+**优化效果**：
+- 完善了状态显示管理器的国际化支持
+- 统一了字符串资源管理规范
+- 提高了代码的可维护性和可扩展性
+
+**修复效果**：
+- 实现了全面的Toast消息国际化支持
+- 提升了用户体验的一致性
+- 便于后续维护和多语言扩展
+
+#### 8.1.5 None知识库处理逻辑修复
+**问题识别**：
+- 当用户选择"无"(None)知识库时，系统仍然尝试进行知识库查询
+- 导致出现"Knowledge base directory does not exist: /path/to/None"错误
+- 违反了用户选择None时应跳过RAG查询的预期行为
+
+**问题根源**：
+- `RagQaFragment.java` 中的 `queryKnowledgeBase()` 方法缺少None检查逻辑
+- 虽然 `RagQueryManager.java` 中有正确的None处理，但Fragment中的方法没有相应检查
+- 硬编码的日志消息"使用知识库进行查询: %s"缺乏国际化支持
+
+**修复方案**：
+1. **添加None检查逻辑**：
+   ```java
+   // 在queryKnowledgeBase方法开始处添加
+   String valueNone = getString(R.string.common_none);
+   String valueNoAvailableKb = getString(R.string.value_no_available_kb);
+   if (valueNone.equals(knowledgeBase) || valueNoAvailableKb.equals(knowledgeBase)) {
+       LogManager.logD(TAG, "No knowledge base selected (" + knowledgeBase + "), skipping knowledge base query");
+       return relevantDocs; // 返回空列表，不进行知识库查询
+   }
+   ```
+
+2. **日志消息国际化**：
+   - 添加字符串资源：`R.string.log_using_kb_for_query`
+   - 中文："使用知识库进行查询: %s"
+   - 英文："Using knowledge base for query: %s"
+   - 修改代码使用：`getString(R.string.log_using_kb_for_query, knowledgeBase)`
+
+**修复效果**：
+- 用户选择"无"知识库时，系统正确跳过知识库查询，直接使用LLM
+- 消除了无效的知识库目录访问错误
+- 提升了日志消息的国际化完整性
+- 确保了用户界面行为与后端逻辑的一致性
+
+### 8.2 About 对话框优化
+
+#### 8.2.1 国际化问题修复
+**问题分析**：
+- `StateDisplayManager.getDialogDisplay()` 方法中 `DIALOG_MESSAGE_ABOUT` 返回硬编码中文字符串
+- 导致英文环境下仍显示中文内容
+
+**修复方案**：
+- 修改 `StateDisplayManager.java` 使用 `context.getString(R.string.dialog_message_about)`
+- 确保正确读取国际化资源文件
+
+#### 8.2.2 版本信息显示优化
+**问题分析**：
+- About 对话框版本信息显示不够完整
+- 编译时间戳可能因 Gradle 配置问题无法正确生成
+
+**实现方案**：
+**完整版本信息显示**：
+- 组合 `BuildConfig.VERSION_NAME` 和 `BUILD_VERSION`
+- 格式：`v{VERSION_NAME} (Build: {BUILD_VERSION})`
+
+**编译时间戳配置优化**：
+- 将 `buildTimeStr` 定义移至 `defaultConfig` 内部
+- 确保每次编译时正确生成时间戳
+
+**版本信息构成**：
+- `VERSION_NAME`：应用版本号（如 "1.0"）
+- `BUILD_VERSION`：构建时间戳（如 "20241201120000"）
+- 组合格式："v1.0 (Build: 20241201120000)"
+
+**修复文件**：
+- `MainActivity.java`：更新 About 对话框版本信息显示逻辑
+- `StateDisplayManager.java`：修复国际化问题
+- `app/build.gradle`：优化编译时间戳生成配置
+
+### 8.3 代码质量最佳实践
+
+#### 8.3.1 常量管理
+
+**集中化常量定义**：
+- 所有API相关常量统一在 `AppConstants.ApiUrl` 中定义
+- 避免在多个文件中重复定义相同的字符串常量
+- 使用有意义的常量名称，提高代码可读性
+
+**字符串资源化**：
+- 所有用户可见的文本使用字符串资源（`strings.xml`）
+- 支持国际化和本地化
+- 便于统一修改和维护
+
+#### 8.3.2 版本管理
+
+**构建配置优化**：
+```gradle
+android {
+    defaultConfig {
+        versionCode 1
+        versionName "1.0"
+        buildConfigField "String", "BUILD_VERSION", "\"${buildTimeStr}\""
+    }
+}
+```
+
+**版本信息可追溯性**：
+- 版本号反映功能迭代
+- 构建时间戳便于问题定位
+- 组合显示提供完整信息
+
+#### 8.3.3 维护性改进
+
+**代码一致性**：
+- 统一使用常量而非硬编码字符串
+- 保持命名规范的一致性
+- 添加必要的import语句
+
+**可扩展性**：
+- 便于添加新的API类型
+- 支持多语言扩展
+- 模块化的版本信息管理
+
+#### 8.3.4 国际化修复
+
+**API URL显示文本国际化**：
+- 修复 `StateDisplayManager.getApiUrlDisplay()` 方法中的硬编码问题
+- 将 "OpenAI"、"自定义"、"新建" 替换为资源字符串引用
+- 使用 `context.getString(R.string.api_url_openai)`、`context.getString(R.string.common_custom)`、`context.getString(R.string.common_new)`
+
+**错误消息国际化**：
+- 修复 `RagQaFragment` 中硬编码的错误提示消息
+- "解析模型列表失败" → `getString(R.string.toast_parse_model_list_failed, e.getMessage())`
+- "获取模型列表失败" → `getString(R.string.toast_get_model_list_failed, error.getMessage())`
+- "请先设置API地址和API Key" → `getString(R.string.toast_set_api_first)`
+
+**修复文件清单**：
+- `StateDisplayManager.java`：API URL显示文本国际化
+- `RagQaFragment.java`：错误消息国际化
+- 确保所有用户界面文本都使用资源字符串，支持多语言切换
+
+## 9. 未来发展
+
+### 9.1 功能扩展
 
 - 更多模型格式支持
 - 多模态模型集成
 - 跨平台版本开发
 - 更多语言支持（日语、韩语等）
 
-### 8.2 性能提升
+### 9.2 性能提升
 
 - NPU 硬件加速
 - 分布式推理支持
 - 模型压缩技术
 - 状态管理性能优化
 
-### 8.3 用户体验
+### 9.3 用户体验
 
 - 智能参数调优
 - 可视化调试工具
 - 个性化配置推荐
 - 用户自定义语言包
 
-### 8.4 开发效率
+### 9.4 开发效率
 
 - 代码生成工具（自动生成状态常量）
 - 国际化检查工具（确保文本完整性）

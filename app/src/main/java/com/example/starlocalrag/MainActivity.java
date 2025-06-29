@@ -517,8 +517,10 @@ public class MainActivity extends AppCompatActivity implements SettingsFragment.
 
     
     private void showAboutDialog() {
-        // 使用BuildConfig中的构建时间作为版本号
-        String versionInfo = BUILD_VERSION;
+        // 组合完整的版本信息
+        String versionName = BuildConfig.VERSION_NAME;
+        String buildVersion = BUILD_VERSION;
+        String versionInfo = String.format("v%s (Build: %s)", versionName, buildVersion);
         
         androidx.appcompat.app.AlertDialog.Builder builder = new androidx.appcompat.app.AlertDialog.Builder(this);
         builder.setTitle(stateDisplayManager.getDialogDisplay(AppConstants.DIALOG_TITLE_ABOUT));

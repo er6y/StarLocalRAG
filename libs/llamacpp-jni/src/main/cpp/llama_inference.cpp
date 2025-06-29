@@ -11,6 +11,20 @@
 #include "llama.h"
 #include "common.h"
 
+// 调试日志宏定义
+#ifdef ENABLE_DEBUG_LOGS
+    #define DEBUG_LOG(tag, fmt, ...) __android_log_print(ANDROID_LOG_INFO, tag, "[DEBUG] " fmt, ##__VA_ARGS__)
+    #define ERROR_LOG(tag, fmt, ...) __android_log_print(ANDROID_LOG_ERROR, tag, "[ERROR] " fmt, ##__VA_ARGS__)
+    #define TRACE_LOG(tag, fmt, ...) __android_log_print(ANDROID_LOG_VERBOSE, tag, "[TRACE] " fmt, ##__VA_ARGS__)
+#else
+    #define DEBUG_LOG(tag, fmt, ...) // 发布版本禁用调试日志
+    #define ERROR_LOG(tag, fmt, ...) __android_log_print(ANDROID_LOG_ERROR, tag, fmt, ##__VA_ARGS__)
+    #define TRACE_LOG(tag, fmt, ...) // 发布版本禁用跟踪日志
+#endif
+
+// 强制日志宏（始终启用）
+#define FORCE_LOG(tag, fmt, ...) __android_log_print(ANDROID_LOG_INFO, tag, "[FORCE] " fmt, ##__VA_ARGS__)
+
 // 全局停止标志，用于中断推理
 static std::atomic<bool> g_should_stop{false};
 
@@ -43,14 +57,26 @@ jmethodID la_int_var_inc;
 std::string cached_token_chars;
 
 bool is_valid_utf8(const char * string) {
+    FORCE_LOG("LlamaCppJNI", "[CRASH_DEBUG] is_valid_utf8 called with string=%p", string);
+    
     if (!string) {
+        FORCE_LOG("LlamaCppJNI", "[CRASH_DEBUG] is_valid_utf8: string is null, returning true");
         return true;
     }
 
     const unsigned char * bytes = (const unsigned char *)string;
     int num;
+    int byte_count = 0;
 
+    FORCE_LOG("LlamaCppJNI", "[CRASH_DEBUG] is_valid_utf8: starting validation loop");
+    
     while (*bytes != 0x00) {
+        byte_count++;
+        if (byte_count > 1000) { // 防止无限循环
+            FORCE_LOG("LlamaCppJNI", "[CRASH_DEBUG] is_valid_utf8: too many bytes, breaking loop");
+            break;
+        }
+        
         if ((*bytes & 0x80) == 0x00) {
             // U+0000 to U+007F
             num = 1;
@@ -64,18 +90,21 @@ bool is_valid_utf8(const char * string) {
             // U+10000 to U+10FFFF
             num = 4;
         } else {
+            FORCE_LOG("LlamaCppJNI", "[CRASH_DEBUG] is_valid_utf8: invalid byte sequence at position %d", byte_count);
             return false;
         }
 
         bytes += 1;
         for (int i = 1; i < num; ++i) {
             if ((*bytes & 0xC0) != 0x80) {
+                FORCE_LOG("LlamaCppJNI", "[CRASH_DEBUG] is_valid_utf8: invalid continuation byte at position %d", byte_count + i);
                 return false;
             }
             bytes += 1;
         }
     }
 
+    FORCE_LOG("LlamaCppJNI", "[CRASH_DEBUG] is_valid_utf8: validation completed successfully, total bytes=%d", byte_count);
     return true;
 }
 
@@ -634,7 +663,12 @@ Java_com_starlocalrag_llamacpp_LlamaCppInference_completion_1init(
     ) {
 
     // 最早的跟踪点 - 确保函数被调用
+    printf("[PRINTF_DEBUG] ===== COMPLETION_INIT FUNCTION ENTRY =====\n");
+    fflush(stdout);
     LOGi("[TRACE_POINT_2] ===== COMPLETION_INIT FUNCTION ENTRY =====");
+    printf("[PRINTF_DEBUG] Function parameters: context_ptr=%p, batch_ptr=%p, n_len=%d\n", 
+           (void*)context_pointer, (void*)batch_pointer, n_len);
+    fflush(stdout);
     LOGi("[TRACE_POINT_2] Function parameters: context_ptr=%p, batch_ptr=%p, n_len=%d", 
          (void*)context_pointer, (void*)batch_pointer, n_len);
     
@@ -667,7 +701,13 @@ Java_com_starlocalrag_llamacpp_LlamaCppInference_completion_1init(
     // Prompt content logging removed
 
     bool parse_special = (format_chat == JNI_TRUE);
+    printf("[PRINTF_DEBUG] About to call common_tokenize with text length: %zu\n", strlen(text));
+    fflush(stdout);
+    
     const auto tokens_list = common_tokenize(context, text, true, parse_special);
+    
+    printf("[PRINTF_DEBUG] common_tokenize completed, got %zu tokens\n", tokens_list.size());
+    fflush(stdout);
 
     auto n_ctx = llama_n_ctx(context);
     auto n_batch = llama_n_batch(context);
@@ -693,7 +733,27 @@ Java_com_starlocalrag_llamacpp_LlamaCppInference_completion_1init(
 
 
     for (auto id : tokens_list) {
-        LOGi("token: `%s`-> %d ", common_token_to_piece(context, id).c_str(), id);
+        printf("[PRINTF_DEBUG] Before common_token_to_piece for token %d\n", id);
+        fflush(stdout);
+        
+        std::string token_str;
+        try {
+            token_str = common_token_to_piece(context, id);
+            printf("[PRINTF_DEBUG] After common_token_to_piece, got string: %s\n", token_str.c_str());
+            fflush(stdout);
+        } catch (const std::exception& e) {
+            printf("[PRINTF_DEBUG] Exception in common_token_to_piece: %s\n", e.what());
+            fflush(stdout);
+            continue;
+        } catch (...) {
+            printf("[PRINTF_DEBUG] Unknown exception in common_token_to_piece\n");
+            fflush(stdout);
+            continue;
+        }
+        
+        LOGi("token: `%s`-> %d ", token_str.c_str(), id);
+        printf("[PRINTF_DEBUG] Successfully logged token %d\n", id);
+        fflush(stdout);
     }
 
     // 检查 batch 结构体的完整性
@@ -817,22 +877,97 @@ Java_com_starlocalrag_llamacpp_LlamaCppInference_completion_1loop(
         jint n_len,
         jobject intvar_ncur
 ) {
+    // 强制日志：函数入口（始终显示）
+    FORCE_LOG("LlamaCppJNI", "completion_loop ENTRY - context_ptr=0x%p, batch_ptr=0x%p, sampler_ptr=0x%p, n_len=%d", 
+              (void*)context_pointer, (void*)batch_pointer, (void*)sampler_pointer, n_len);
+    printf("[PRINTF_DEBUG] completion_loop ENTRY - context_ptr=0x%p, batch_ptr=0x%p, n_len=%d\n", 
+           (void*)context_pointer, (void*)batch_pointer, n_len);
+    fflush(stdout);
+    
+    // 参数有效性检查
+    if (context_pointer == 0) {
+        ERROR_LOG("LlamaCppJNI", "context_pointer is null");
+        return nullptr;
+    }
+    if (batch_pointer == 0) {
+        ERROR_LOG("LlamaCppJNI", "batch_pointer is null");
+        return nullptr;
+    }
+    if (sampler_pointer == 0) {
+        ERROR_LOG("LlamaCppJNI", "sampler_pointer is null");
+        return nullptr;
+    }
+    if (intvar_ncur == nullptr) {
+        ERROR_LOG("LlamaCppJNI", "intvar_ncur is null");
+        return nullptr;
+    }
+    
     const auto context = reinterpret_cast<llama_context *>(context_pointer);
     const auto batch   = reinterpret_cast<llama_batch   *>(batch_pointer);
     const auto sampler = reinterpret_cast<llama_sampler *>(sampler_pointer);
+    
+    // DEBUG: 指针转换后的验证 - 使用多种日志方式确保可见性
+    __android_log_print(ANDROID_LOG_INFO, "LlamaCppJNI", "[TRACE_POINT_2] Function parameters: context_ptr=0x%lx, batch_ptr=0x%lx, n_len=%d", 
+                       (unsigned long)context, (unsigned long)batch, n_len);
+    printf("[PRINTF_DEBUG] TRACE_POINT_2: context=0x%lx, batch=0x%lx, n_len=%d\n", 
+           (unsigned long)context, (unsigned long)batch, n_len);
+    fflush(stdout);
+    
+    // DEBUG: 内存状态检查
+    __android_log_print(ANDROID_LOG_INFO, "LlamaCppJNI", "[MEMORY_TRACE] Inference started - checking batch and context state");
+    
     const auto model = llama_get_model(context);
+    if (model == nullptr) {
+        __android_log_print(ANDROID_LOG_ERROR, "LlamaCppJNI", "[MODEL_ERROR] llama_get_model returned null");
+        return nullptr;
+    }
+    
     const auto vocab = llama_model_get_vocab(model);
+    if (vocab == nullptr) {
+        __android_log_print(ANDROID_LOG_ERROR, "LlamaCppJNI", "[VOCAB_ERROR] llama_model_get_vocab returned null");
+        return nullptr;
+    }
 
-    if (!la_int_var) la_int_var = env->GetObjectClass(intvar_ncur);
-    if (!la_int_var_value) la_int_var_value = env->GetFieldID(la_int_var, "value", "I");
-    if (!la_int_var_inc) la_int_var_inc = env->GetMethodID(la_int_var, "inc", "()V");
+    // DEBUG: JNI 反射方法获取
+    if (!la_int_var) {
+        la_int_var = env->GetObjectClass(intvar_ncur);
+        __android_log_print(ANDROID_LOG_INFO, "LlamaCppJNI", "[JNI_TRACE] Got IntVar class: %p", la_int_var);
+    }
+    if (!la_int_var_value) {
+        la_int_var_value = env->GetFieldID(la_int_var, "value", "I");
+        __android_log_print(ANDROID_LOG_INFO, "LlamaCppJNI", "[JNI_TRACE] Got value field ID: %p", la_int_var_value);
+    }
+    if (!la_int_var_inc) {
+        la_int_var_inc = env->GetMethodID(la_int_var, "inc", "()V");
+        __android_log_print(ANDROID_LOG_INFO, "LlamaCppJNI", "[JNI_TRACE] Got inc method ID: %p", la_int_var_inc);
+    }
+    
+    // DEBUG: 获取当前位置
+    const auto n_cur = env->GetIntField(intvar_ncur, la_int_var_value);
+    __android_log_print(ANDROID_LOG_INFO, "LlamaCppJNI", "n_len = %d, n_ctx = %d, n_batch = %d, n_kv_req = %d, tokens_count = %d", 
+                       n_len, llama_n_ctx(context), llama_n_batch(context), 
+                       llama_kv_self_used_cells(context), batch->n_tokens);
+    
+    // DEBUG: 采样前的状态检查
+    __android_log_print(ANDROID_LOG_INFO, "LlamaCppJNI", "[SAMPLING_TRACE] About to sample token - current_pos=%d, max_len=%d", n_cur, n_len);
     
     // sample the most likely token
     const auto new_token_id = llama_sampler_sample(sampler, context, -1);
     
+    // DEBUG: 采样完成
+    __android_log_print(ANDROID_LOG_INFO, "LlamaCppJNI", "[SAMPLING_TRACE] Sampled token_id=%d", new_token_id);
+    
     // DEBUG: 打印采样到的token信息
+    FORCE_LOG("LlamaCppJNI", "[CRASH_DEBUG] About to call common_token_to_piece for token_id=%d", new_token_id);
+    printf("[PRINTF_CRASH_DEBUG] About to call common_token_to_piece for token_id=%d\n", new_token_id);
+    fflush(stdout);
+    
     auto new_token_chars = common_token_to_piece(context, new_token_id);
-    __android_log_print(ANDROID_LOG_INFO, "LlamaCppJNI", "[TOKEN_DEBUG] 采样token: id=%d, text='%s'", new_token_id, new_token_chars.c_str());
+    
+    printf("[PRINTF_CRASH_DEBUG] common_token_to_piece completed, result length=%zu\n", new_token_chars.length());
+    fflush(stdout);
+    FORCE_LOG("LlamaCppJNI", "[CRASH_DEBUG] common_token_to_piece completed, result length=%zu", new_token_chars.length());
+    FORCE_LOG("LlamaCppJNI", "token: `%s`-> %d", new_token_chars.c_str(), new_token_id);
     
     // DEBUG: 检查是否为特殊token
     bool is_eog_token = llama_vocab_is_eog(vocab, new_token_id);
@@ -858,8 +993,6 @@ Java_com_starlocalrag_llamacpp_LlamaCppInference_completion_1loop(
          special_tokens_logged = true;
      }
 
-    const auto n_cur = env->GetIntField(intvar_ncur, la_int_var_value);
-    
     // DEBUG: 检查推理结束条件
     bool should_end_eog = llama_vocab_is_eog(vocab, new_token_id);
     bool should_end_length = (n_cur == n_len);
@@ -872,28 +1005,62 @@ Java_com_starlocalrag_llamacpp_LlamaCppInference_completion_1loop(
         return nullptr;
     }
 
+    FORCE_LOG("LlamaCppJNI", "[CRASH_DEBUG] About to append to cached_token_chars, current length=%zu", cached_token_chars.length());
+    
     cached_token_chars += new_token_chars;
+    
+    FORCE_LOG("LlamaCppJNI", "[CRASH_DEBUG] String append completed, new length=%zu", cached_token_chars.length());
 
     jstring new_token = nullptr;
     if (is_valid_utf8(cached_token_chars.c_str())) {
+        FORCE_LOG("LlamaCppJNI", "[CRASH_DEBUG] About to call NewStringUTF with valid UTF-8 string");
         new_token = env->NewStringUTF(cached_token_chars.c_str());
+        FORCE_LOG("LlamaCppJNI", "[CRASH_DEBUG] NewStringUTF completed successfully");
         // Cached token logging removed
         cached_token_chars.clear();
     } else {
+        FORCE_LOG("LlamaCppJNI", "[CRASH_DEBUG] Invalid UTF-8, creating empty string");
         new_token = env->NewStringUTF("");
     }
 
-    common_batch_clear(*batch);
-    common_batch_add(*batch, new_token_id, n_cur, { 0 }, true);
+    // DEBUG: 批处理操作前的状态
+    __android_log_print(ANDROID_LOG_INFO, "LlamaCppJNI", "[BATCH_TRACE] Before batch operations - batch_ptr=0x%lx, n_tokens=%d", 
+                       (unsigned long)batch, batch->n_tokens);
     
-    // Token addition logging removed
-
+    FORCE_LOG("LlamaCppJNI", "[CRASH_DEBUG] About to call common_batch_clear");
+    common_batch_clear(*batch);
+    FORCE_LOG("LlamaCppJNI", "[BATCH_TRACE] Batch cleared - n_tokens=%d", batch->n_tokens);
+    
+    FORCE_LOG("LlamaCppJNI", "[CRASH_DEBUG] About to call common_batch_add with token_id=%d, pos=%d", new_token_id, n_cur);
+    common_batch_add(*batch, new_token_id, n_cur, { 0 }, true);
+    FORCE_LOG("LlamaCppJNI", "[BATCH_TRACE] Token added to batch - token_id=%d, pos=%d, n_tokens=%d", 
+                       new_token_id, n_cur, batch->n_tokens);
+    
+    // DEBUG: JNI 调用前检查
+    __android_log_print(ANDROID_LOG_INFO, "LlamaCppJNI", "[JNI_TRACE] About to call inc method on intvar_ncur");
     env->CallVoidMethod(intvar_ncur, la_int_var_inc);
+    __android_log_print(ANDROID_LOG_INFO, "LlamaCppJNI", "[JNI_TRACE] inc method called successfully");
 
-    if (llama_decode(context, *batch) != 0) {
+    // 强制日志：关键的llama_decode调用（始终显示）
+    FORCE_LOG("LlamaCppJNI", "ABOUT TO CALL llama_decode - context=0x%lx, batch=0x%lx, n_tokens=%d", 
+              (unsigned long)context, (unsigned long)batch, batch->n_tokens);
+    
+    // 内存状态检查
+    DEBUG_LOG("LlamaCppJNI", "Pre-decode memory check - kv_used=%d, n_ctx=%d", 
+              llama_kv_self_used_cells(context), llama_n_ctx(context));
+    
+    int decode_result = llama_decode(context, *batch);
+    
+    // 强制日志：llama_decode结果（始终显示）
+    FORCE_LOG("LlamaCppJNI", "llama_decode COMPLETED - result=%d", decode_result);
+    
+    if (decode_result != 0) {
+        ERROR_LOG("LlamaCppJNI", "llama_decode FAILED with code: %d", decode_result);
         LOGe("llama_decode() failed in completion_loop");
         return nullptr;
     }
+    
+    FORCE_LOG("LlamaCppJNI", "llama_decode SUCCEEDED - continuing inference");
     
     // 在llama_decode完成后检查停止标志，确保每生成一个token后都能及时响应停止请求
     if (g_should_stop.load()) {

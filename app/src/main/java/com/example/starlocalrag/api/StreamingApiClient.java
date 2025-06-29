@@ -47,9 +47,9 @@ public class StreamingApiClient {
         
         // 创建OkHttp客户端，配置超时
         this.client = new OkHttpClient.Builder()
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(60, TimeUnit.SECONDS)
-            .writeTimeout(30, TimeUnit.SECONDS)
+            .connectTimeout(60, TimeUnit.SECONDS)  // 连接超时增加到60秒
+            .readTimeout(300, TimeUnit.SECONDS)    // 读取超时增加到5分钟
+            .writeTimeout(60, TimeUnit.SECONDS)    // 写入超时增加到60秒
             .build();
     }
     

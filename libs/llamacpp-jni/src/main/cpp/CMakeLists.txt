@@ -43,6 +43,9 @@ if(ANDROID)
         # 明确禁用GGML高级指令集支持
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DGGML_F16C=0 -DGGML_USE_F16C=0 -DGGML_AVX=0 -DGGML_SSE=0")
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DGGML_F16C=0 -DGGML_USE_F16C=0 -DGGML_AVX=0 -DGGML_SSE=0")
+        # 禁用NDK Translation的F16C检查
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DANDROID_DISABLE_F16C=1 -DANDROID_NDK_TRANSLATION_DISABLE_F16C=1")
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DANDROID_DISABLE_F16C=1 -DANDROID_NDK_TRANSLATION_DISABLE_F16C=1")
         message(STATUS "Android ${ANDROID_ABI} - Advanced instruction sets completely disabled for compatibility")
     endif()
 endif()

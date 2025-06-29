@@ -434,7 +434,7 @@ public class SettingsFragment extends Fragment {
             LogManager.logD(TAG, "Settings loaded successfully");
         } catch (Exception e) {
             LogManager.logE(TAG, "Failed to load settings: " + e.getMessage(), e);
-            Toast.makeText(requireContext(), "加载设置失败", Toast.LENGTH_SHORT).show();
+            Toast.makeText(requireContext(), getString(R.string.toast_load_settings_failed), Toast.LENGTH_SHORT).show();
         }
     }
     
@@ -455,17 +455,17 @@ public class SettingsFragment extends Fragment {
             
             // 验证值范围
             if (chunkSize < 100 || chunkSize > 4000) {
-                Toast.makeText(context, "分块大小必须在100-8192之间", Toast.LENGTH_SHORT).show();
+                Toast.makeText(context, getString(R.string.toast_chunk_size_range_old), Toast.LENGTH_SHORT).show();
                 return;
             }
             
             if (overlapSize < 20 || overlapSize > 800 || overlapSize >= chunkSize) {
-                Toast.makeText(context, "重叠大小必须在0-512之间", Toast.LENGTH_SHORT).show();
+                Toast.makeText(context, getString(R.string.toast_overlap_size_range_old), Toast.LENGTH_SHORT).show();
                 return;
             }
             
             if (minChunkSize < 10 || minChunkSize > 200 || minChunkSize >= chunkSize) {
-                Toast.makeText(context, "最小分块限制必须在50-1024之间", Toast.LENGTH_SHORT).show();
+                Toast.makeText(context, getString(R.string.toast_min_chunk_limit_range_old), Toast.LENGTH_SHORT).show();
                 return;
             }
             

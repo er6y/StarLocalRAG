@@ -31,6 +31,7 @@
     <string name="common_loading">Loading…</string>
     <string name="common_processing">Processing</string>
     <string name="common_preparing">Preparing</string>
+    <string name="common_paused">Paused</string>
     <string name="common_initializing">Initializing</string>
     <string name="common_downloading">Downloading</string>
     <string name="common_uploading">Uploading</string>
@@ -48,6 +49,7 @@
     <string name="common_select_all">Select All</string>
     <string name="common_new_with_dots">New…</string>
     <string name="common_close">Close</string>
+    
     <string name="common_ok">OK</string>
     <string name="common_cancel">Cancel</string>
     <string name="common_delete">Delete</string>
@@ -311,8 +313,14 @@
     <string name="processing_status_overwrite_deleted">Overwrite deleted</string>
     <string name="processing_status_task_interrupted">Task interrupted</string>
     <string name="processing_status_kb_creation_completed">Knowledge base creation completed</string>
-    <string name="processing_status_extracting_text">Extracting text</string>
-    <string name="processing_status_generating_vectors">Generating vectors</string>
+    
+    <!-- Knowledge base build status messages -->
+    <string name="kb_build_completed">Knowledge base build completed: %s</string>
+    <string name="kb_build_cancelled">Knowledge base build cancelled</string>
+    <string name="kb_build_success_log">Knowledge base build successfully completed: %s</string>
+    <string name="kb_build_cancelled_log">Knowledge base build cancelled: %s</string>
+    <string name="kb_build_failed_log">Knowledge base build failed</string>
+    <!-- 使用统一的资源名称，删除重复定义 -->
     <string name="processing_status_text_extraction_complete">Text extraction complete</string>
     <string name="processing_status_vectorization_complete">Vectorization complete</string>
     <string name="text_extraction_complete_chunks">Total %d text chunks</string>
@@ -339,8 +347,7 @@
     <!-- Progress state display text - merged to common_ prefix -->
     <string name="progress_state_paused">Paused</string>
 
-    <string name="progress_extracting_text">Extracting text</string>
-    <string name="progress_generating_vectors">Generating vectors</string>
+    <!-- 使用统一的资源名称，删除重复定义 -->
     <string name="progress_text_extraction_complete">Text extraction complete</string>
     <string name="progress_vectorization_complete">Vectorization processing complete</string>
 
@@ -487,6 +494,9 @@
     <string name="toast_save_settings_failed">Failed to save settings: %s</string>
     <string name="toast_model_dir_not_exist">Model directory does not exist: %s</string>
     <string name="toast_no_model_found">No models found in model directory: %s</string>
+    <string name="toast_model_path_not_directory">Model path is not a directory: %s</string>
+    <string name="toast_cannot_read_model_dir">Cannot read model directory: %s</string>
+    <string name="toast_no_valid_model_files">No valid model files found in model directory</string>
     <string name="toast_set_api_first">Please set API address and API Key first</string>
     <string name="toast_parse_model_list_failed">Failed to parse model list: %s</string>
     <string name="toast_get_model_list_failed">Failed to get model list: %s</string>
@@ -545,6 +555,27 @@
     <string name="toast_fetch_model_list_failed">Failed to fetch model list: %s</string>
 
     <string name="toast_cannot_get_note_page">Cannot get note page</string>
+    <string name="toast_kb_name_added">Knowledge base name added: %s</string>
+    <string name="toast_kb_name_empty">Knowledge base name cannot be empty</string>
+    <string name="toast_please_select_files">Please select files first</string>
+    <string name="toast_please_enter_kb_name">Please enter or select knowledge base name</string>
+    <string name="toast_please_select_embedding_model">Please select embedding model</string>
+    <string name="toast_task_cancelled">Task cancelled</string>
+    <string name="toast_battery_optimization_requested">Battery optimization ignore requested</string>
+    <string name="toast_task_interrupted">Task interrupted</string>
+    <string name="toast_kb_creation_complete">Knowledge base creation complete</string>
+    <string name="toast_kb_rename_failed">Knowledge base rename failed</string>
+    <string name="toast_kb_not_exist">Knowledge base does not exist: %s</string>
+    <string name="toast_chunk_size_range_old">Chunk size must be between 100-8192</string>
+    <string name="toast_overlap_size_range_old">Overlap size must be between 0-512</string>
+    <string name="toast_min_chunk_limit_range_old">Minimum chunk limit must be between 50-1024</string>
+    <string name="toast_text_selected">All text selected</string>
+    <string name="toast_log_copied">Log content copied to clipboard</string>
+    <string name="toast_log_cleared">Log cleared</string>
+    <string name="toast_share_failed">Failed to share log</string>
+
+    <!-- Log Messages -->
+    <string name="log_using_kb_for_query">Using knowledge base for query: %s</string>
 
     <!-- Embedding Model Display Text -->
     <string name="embedding_model_bge_small">BGE-Small</string>
@@ -941,7 +972,7 @@
     <string name="error_embedding_model_handler_failed">Error: Embedding model handler failed</string>
     <string name="chunking_text">Chunking text</string>
     <string name="text_chunking_complete">Text chunking complete, %d chunks total</string>
-    <string name="adding_chunk_progress">Adding text chunk %d/%d</string>
+    <string name="adding_chunk_progress" formatted="false">Adding text chunk %d/%d</string>
     <string name="all_chunks_added">All text chunks added</string>
     <string name="model_response">Model Response</string>
 

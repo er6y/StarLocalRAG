@@ -31,6 +31,7 @@
     <string name="common_loading">加载中...</string>
     <string name="common_processing">处理中</string>
     <string name="common_preparing">准备中</string>
+    <string name="common_paused">暂停中</string>
     <string name="common_initializing">初始化中</string>
     <string name="common_downloading">下载中</string>
     <string name="common_uploading">上传中</string>
@@ -48,6 +49,7 @@
     <string name="common_select_all">全选</string>
     <string name="common_new_with_dots">新建...</string>
     <string name="common_close">关闭</string>
+    
     <string name="common_ok">确定</string>
     <string name="common_cancel">取消</string>
     <string name="common_delete">删除</string>
@@ -311,8 +313,14 @@
     <string name="processing_status_overwrite_deleted">覆盖已删除</string>
     <string name="processing_status_task_interrupted">任务中断</string>
     <string name="processing_status_kb_creation_completed">知识库创建完成</string>
-    <string name="processing_status_extracting_text">正在提取文本</string>
-    <string name="processing_status_generating_vectors">正在生成向量</string>
+    
+    <!-- 知识库构建状态消息 -->
+    <string name="kb_build_completed">知识库构建完成: %s</string>
+    <string name="kb_build_cancelled">知识库构建已取消</string>
+    <string name="kb_build_success_log">知识库构建成功完成: %s</string>
+    <string name="kb_build_cancelled_log">知识库构建已取消: %s</string>
+    <string name="kb_build_failed_log">知识库构建失败</string>
+    <!-- 使用统一的资源名称，删除重复定义 -->
     <string name="processing_status_text_extraction_complete">文本提取完成</string>
     <string name="processing_status_vectorization_complete">向量化完成</string>
     <string name="text_extraction_complete_chunks">共 %d 个文本块</string>
@@ -339,12 +347,11 @@
     <!-- 进度状态显示文本 - 已合并到common_前缀 -->
     <string name="progress_state_paused">已暂停</string>
 
-    <string name="progress_extracting_text">正在提取文本</string>
-    <string name="progress_generating_vectors">正在生成向量</string>
+    <!-- 使用统一的资源名称，删除重复定义 -->
     <string name="progress_text_extraction_complete">文本提取完成</string>
     <string name="progress_vectorization_complete">向量化处理完成</string>
 
-    <!-- API URL -->
+    <!-- API URL 显示文本 -->
     <string name="api_url_local">本地</string>
     <string name="api_url_openai">OpenAI</string>
 
@@ -487,6 +494,9 @@
     <string name="toast_save_settings_failed">保存设置失败: %s</string>
     <string name="toast_model_dir_not_exist">模型目录不存在: %s</string>
     <string name="toast_no_model_found">模型目录中没有发现模型: %s</string>
+    <string name="toast_model_path_not_directory">模型路径不是目录: %s</string>
+    <string name="toast_cannot_read_model_dir">无法读取模型目录: %s</string>
+    <string name="toast_no_valid_model_files">模型目录中没有有效的模型文件</string>
     <string name="toast_set_api_first">请先设置API地址和API Key</string>
     <string name="toast_parse_model_list_failed">解析模型列表失败: %s</string>
     <string name="toast_get_model_list_failed">获取模型列表失败: %s</string>
@@ -545,6 +555,27 @@
     <string name="toast_fetch_model_list_failed">获取模型列表失败: %s</string>
 
     <string name="toast_cannot_get_note_page">无法获取笔记页面</string>
+    <string name="toast_kb_name_added">知识库名称已添加: %s</string>
+    <string name="toast_kb_name_empty">知识库名称不能为空</string>
+    <string name="toast_please_select_files">请先选择文件</string>
+    <string name="toast_please_enter_kb_name">请输入或选择知识库名称</string>
+    <string name="toast_please_select_embedding_model">请选择嵌入模型</string>
+    <string name="toast_task_cancelled">任务已取消</string>
+    <string name="toast_battery_optimization_requested">已请求忽略电池优化</string>
+    <string name="toast_task_interrupted">任务已中断</string>
+    <string name="toast_kb_creation_complete">知识库创建完成</string>
+    <string name="toast_kb_rename_failed">知识库重命名失败</string>
+    <string name="toast_kb_not_exist">知识库不存在: %s</string>
+    <string name="toast_chunk_size_range_old">分块大小必须在100-8192之间</string>
+    <string name="toast_overlap_size_range_old">重叠大小必须在0-512之间</string>
+    <string name="toast_min_chunk_limit_range_old">最小分块限制必须在50-1024之间</string>
+    <string name="toast_text_selected">已全选文本</string>
+    <string name="toast_log_copied">日志内容已复制到剪贴板</string>
+    <string name="toast_log_cleared">日志已清空</string>
+    <string name="toast_share_failed">分享日志失败</string>
+
+    <!-- 日志消息 -->
+    <string name="log_using_kb_for_query">使用知识库进行查询: %s</string>
 
     <!-- 嵌入模型显示文本 -->
     <string name="embedding_model_bge_small">BGE-Small</string>
@@ -941,7 +972,7 @@
     <string name="error_embedding_model_handler_failed">错误：嵌入模型处理器失败</string>
     <string name="chunking_text">正在分块文本</string>
     <string name="text_chunking_complete">文本分块完成，共%d块</string>
-    <string name="adding_chunk_progress">正在添加文本块 %d/%d</string>
+    <string name="adding_chunk_progress" formatted="false">正在添加文本块 %d/%d</string>
     <string name="all_chunks_added">所有文本块添加完成</string>
     <string name="model_response">模型回复</string>
 

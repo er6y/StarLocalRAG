@@ -864,11 +864,11 @@ public class JsonDatasetProcessor {
                 String role = message.getString("role");
                 String content = message.getString("content");
                 
-                if (role.equalsIgnoreCase("system")) {
+                if (role.equalsIgnoreCase(AppConstants.ChatRole.SYSTEM)) {
                     chunk.append("系统: ").append(content).append("\n\n");
-                } else if (role.equalsIgnoreCase("user") || role.equalsIgnoreCase("human")) {
+                } else if (role.equalsIgnoreCase(AppConstants.ChatRole.USER) || role.equalsIgnoreCase(AppConstants.ChatRole.HUMAN)) {
                     chunk.append("用户: ").append(content).append("\n\n");
-                } else if (role.equalsIgnoreCase("assistant") || role.equalsIgnoreCase("bot")) {
+                } else if (role.equalsIgnoreCase(AppConstants.ChatRole.ASSISTANT) || role.equalsIgnoreCase(AppConstants.ChatRole.BOT)) {
                     chunk.append("助手: ").append(content).append("\n\n");
                 } else {
                     chunk.append(role).append(": ").append(content).append("\n\n");

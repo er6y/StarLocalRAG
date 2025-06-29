@@ -325,24 +325,24 @@ public class KnowledgeBaseBuilderService extends Service {
                 if (progressCallback != null) {
                     if (success) {
                         progressCallback.onBuildCompleted(true);
-                        progressCallback.onTaskCompleted(true, "知识库构建完成: " + knowledgeBaseName);
-                        LogManager.logD(TAG, "知识库构建成功完成: " + knowledgeBaseName);
+                        progressCallback.onTaskCompleted(true, getString(R.string.kb_build_completed, knowledgeBaseName));
+                        LogManager.logD(TAG, getString(R.string.kb_build_success_log, knowledgeBaseName));
                     } else {
                         progressCallback.onBuildCompleted(false);
-                        progressCallback.onTaskCompleted(false, "知识库构建已取消");
-                        LogManager.logD(TAG, "知识库构建已取消: " + knowledgeBaseName);
+                        progressCallback.onTaskCompleted(false, getString(R.string.kb_build_cancelled));
+                        LogManager.logD(TAG, getString(R.string.kb_build_cancelled_log, knowledgeBaseName));
                     }
                 }
                 
                 // 更新最终通知 - 已注释掉通知更新
-                String finalStatus = success ? "知识库构建完成: " + knowledgeBaseName : "知识库构建已取消";
+                String finalStatus = success ? getString(R.string.kb_build_completed, knowledgeBaseName) : getString(R.string.kb_build_cancelled);
                 // updateNotification(finalStatus, success ? 100 : 0);
                 
                 // 延迟停止服务
                 stopSelfDelayed();
                 
             } catch (Exception e) {
-                LogManager.logE(TAG, "知识库构建失败", e);
+                LogManager.logE(TAG, getString(R.string.kb_build_failed_log), e);
                 
                 // 错误回调
                 if (progressCallback != null) {
@@ -441,9 +441,9 @@ public class KnowledgeBaseBuilderService extends Service {
                 int progress = 50 + (int) (percentage / 2);
                 
                 // Update progress with localized status
-                String status = StateDisplayManager.getProcessingStatusDisplayText(getApplicationContext(), 
-                    AppConstants.PROCESSING_STATUS_GENERATING_VECTORS) + " (" + processedChunks + "/" + totalChunks + ")";
-                updateProgress(progress, status);
+                //String status = StateDisplayManager.getProcessingStatusDisplayText(getApplicationContext(), 
+                //    AppConstants.PROCESSING_STATUS_GENERATING_VECTORS) + " (" + processedChunks + "/" + totalChunks + ")";
+                updateProgress(progress, null);
                 
                 LogManager.logD(TAG, "Vectorization progress: " + processedChunks + "/" + totalChunks + " (" + percentage + "%)");
             }
@@ -456,7 +456,7 @@ public class KnowledgeBaseBuilderService extends Service {
                 // Update progress with localized status
                 String status = StateDisplayManager.getProcessingStatusDisplayText(getApplicationContext(), 
                     AppConstants.PROCESSING_STATUS_TEXT_EXTRACTION_COMPLETE) + ", " + 
-                    getString(R.string.text_extraction_complete_chunks, totalChunks);
+                    getString(R.string.text_extraction_complete_chunks, totalChunks)+ "..." + getString(R.string.common_generating);
                 
                 LogManager.logD(TAG, "Text extraction completed, total chunks: " + totalChunks + ". Starting vectorization...");
                 updateProgress(50, status);

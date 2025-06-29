@@ -74,6 +74,25 @@ public class AppConstants {
     }
     
     /**
+     * 模型名称常量
+     */
+    public static class ModelName {
+        public static final String BGE_M3 = "bge-m3";
+        public static final String SBKN_BASE_V1_0 = "SBKNBaseV1.0";
+    }
+    
+    /**
+     * 对话角色常量
+     */
+    public static class ChatRole {
+        public static final String SYSTEM = "system";
+        public static final String USER = "user";
+        public static final String HUMAN = "human";
+        public static final String ASSISTANT = "assistant";
+        public static final String BOT = "bot";
+    }
+    
+    /**
      * 重排模型选择常量
      */
     public static class RerankerModel {
@@ -116,6 +135,18 @@ public class AppConstants {
         public static final String MD = "md";
         public static final String HTML = "html";
     }
+    
+    /**
+     * 文件名常量
+     */
+    public static class FileName {
+        public static final String CONFIG_JSON = "config.json";
+        public static final String TOKENIZER_JSON = "tokenizer.json";
+        public static final String SPECIAL_TOKENS_MAP_JSON = "special_tokens_map.json";
+        public static final String TOKENIZER_CONFIG_JSON = "tokenizer_config.json";
+        public static final String MODEL_ONNX = "model.onnx";
+        public static final String GENAI_CONFIG_JSON = "genai_config.json";
+    }
 
     /**
      * 配置键常量
@@ -131,7 +162,6 @@ public class AppConstants {
     
     // 向后兼容的常量定义
     public static final String API_URL_NEW = ApiUrl.NEW;
-    public static final String API_URL_LOCAL = "api_url_local";
     public static final String KNOWLEDGE_BASE_STATUS_LOADING = KnowledgeBaseState.LOADING;
     public static final String KNOWLEDGE_BASE_STATUS_NONE = KnowledgeBaseState.EMPTY;
     public static final String KNOWLEDGE_BASE_STATUS_NO_AVAILABLE = "no_available";

@@ -21,34 +21,34 @@ public class StateDisplayManager {
     public String getModelStateDisplay(String state) {
         switch (state) {
             case AppConstants.ModelState.DOWNLOADING:
-                return context.getString(R.string.common_download) + "中";
+                return context.getString(R.string.common_downloading);
             case AppConstants.ModelState.DOWNLOADED:
-                return "已" + context.getString(R.string.common_download);
+                return context.getString(R.string.common_downloaded);
             case AppConstants.ModelState.NOT_DOWNLOADED:
-                return "未" + context.getString(R.string.common_download);
+                return context.getString(R.string.model_state_not_downloaded);
             case AppConstants.ModelState.DOWNLOAD_FAILED:
                 return context.getString(R.string.common_download) + context.getString(R.string.common_failed);
             case AppConstants.ModelState.LOADING:
-                return "加载中";
+                return context.getString(R.string.common_loading);
             case AppConstants.ModelState.LOADED:
-                return "已加载";
+                return context.getString(R.string.common_loaded);
             case AppConstants.ModelState.LOAD_FAILED:
-                return "加载" + context.getString(R.string.common_failed);
+                return context.getString(R.string.common_failed);
             case AppConstants.ModelState.UNLOADED:
-                return "未加载";
+                return context.getString(R.string.model_state_unloaded);
             // MODEL_STATUS constants
             case AppConstants.MODEL_STATUS_DIRECTORY_NOT_EXIST:
-                return "目录不存在";
+                return context.getString(R.string.model_status_directory_not_exist); 
             case AppConstants.MODEL_STATUS_NOT_FOUND:
-                return "未找到";
+                return context.getString(R.string.model_status_not_found);
             case AppConstants.MODEL_STATUS_NO_AVAILABLE:
-                return "无可用";
+                return context.getString(R.string.model_status_no_available);
             case AppConstants.MODEL_STATUS_FETCH_FAILED:
-                return "获取" + context.getString(R.string.common_failed);
+                return context.getString(R.string.common_fetch_failed);
             case AppConstants.MODEL_STATUS_PLEASE_SELECT_EMBEDDING:
-                return "请选择嵌入模型";
+                return context.getString(R.string.model_status_please_select_embedding);
             case AppConstants.MODEL_STATUS_PARSE_FAILED:
-                return "解析" + context.getString(R.string.common_failed);
+                return context.getString(R.string.common_parse_failed);
             default:
                 return context.getString(R.string.common_unknown_model);
         }
@@ -86,9 +86,9 @@ public class StateDisplayManager {
     public String getProgressStateDisplay(String state) {
         switch (state) {
             case AppConstants.ProgressState.INITIALIZING:
-                return "初始化中";
+                return context.getString(R.string.common_initializing);
             case AppConstants.ProgressState.PROCESSING:
-                return "处理中";
+                return context.getString(R.string.common_processing);
             case AppConstants.ProgressState.COMPLETED:
                 return context.getString(R.string.common_completed);
             case AppConstants.ProgressState.FAILED:
@@ -96,9 +96,9 @@ public class StateDisplayManager {
             case AppConstants.ProgressState.CANCELLED:
                 return context.getString(R.string.common_cancelled);
             case AppConstants.ProgressState.PAUSED:
-                return context.getString(R.string.common_pause) + "中";
+                return context.getString(R.string.common_paused);
             default:
-                return "未知状态";
+                return context.getString(R.string.common_unknown_state);
         }
     }
     
@@ -108,15 +108,33 @@ public class StateDisplayManager {
     public String getApiUrlDisplay(String apiUrl) {
         switch (apiUrl) {
             case AppConstants.ApiUrl.LOCAL:
-                return "本地";
+                return context.getString(R.string.api_url_local);
             case AppConstants.ApiUrl.OPENAI:
-                return "OpenAI";
+                return context.getString(R.string.api_url_openai);
             case AppConstants.ApiUrl.CUSTOM:
-                return "自定义";
+                return context.getString(R.string.common_custom);
             case AppConstants.ApiUrl.NEW:
-                return "新建";
+                return context.getString(R.string.common_new);
             default:
                 return apiUrl; // 直接返回原始值
+        }
+    }
+    
+    /**
+     * Convert display text back to API URL constant
+     * 将显示文本转换回API URL常量
+     */
+    public String getApiUrlFromDisplayText(String displayText) {
+        if (displayText.equals(context.getString(R.string.api_url_local))) {
+            return AppConstants.ApiUrl.LOCAL;
+        } else if (displayText.equals(context.getString(R.string.api_url_openai))) {
+            return AppConstants.ApiUrl.OPENAI;
+        } else if (displayText.equals(context.getString(R.string.common_custom))) {
+            return AppConstants.ApiUrl.CUSTOM;
+        } else if (displayText.equals(context.getString(R.string.common_new))) {
+            return AppConstants.ApiUrl.NEW;
+        } else {
+            return displayText; // 直接返回原始值（自定义URL）
         }
     }
     
@@ -238,7 +256,7 @@ public class StateDisplayManager {
             case AppConstants.DIALOG_TITLE_ABOUT:
                 return context.getString(R.string.dialog_title_about);
             case AppConstants.DIALOG_MESSAGE_ABOUT:
-                return "StarLocalRAG - 本地RAG问答系统";
+                return context.getString(R.string.dialog_message_about);
             default:
                 return dialogKey; // Return original key as fallback
         }
@@ -271,6 +289,32 @@ public class StateDisplayManager {
     }
 
     /**
+     * Get display text for processing status
+     */
+    public String getProcessingStatusDisplay(String status) {
+        switch (status) {
+            case AppConstants.PROCESSING_STATUS_EXTRACTING_TEXT:
+                return context.getString(R.string.progress_text_extraction_keyword);
+            case AppConstants.PROCESSING_STATUS_GENERATING_VECTORS:
+                return context.getString(R.string.progress_vectorization_keyword);
+            case AppConstants.PROCESSING_STATUS_PREPARING:
+                return context.getString(R.string.common_preparing);
+            case AppConstants.PROCESSING_STATUS_OVERWRITE_DELETED:
+                return context.getString(R.string.processing_status_overwrite_deleted);
+            case AppConstants.PROCESSING_STATUS_TASK_INTERRUPTED:
+                return context.getString(R.string.processing_status_task_interrupted);
+            case AppConstants.PROCESSING_STATUS_KB_CREATION_COMPLETED:
+                return context.getString(R.string.processing_status_kb_creation_completed);
+            case AppConstants.PROCESSING_STATUS_TEXT_EXTRACTION_COMPLETE:
+                return context.getString(R.string.processing_status_text_extraction_complete);
+            case AppConstants.PROCESSING_STATUS_VECTORIZATION_COMPLETE:
+                return context.getString(R.string.processing_status_vectorization_complete);
+            default:
+                return status; // Return original status as fallback
+        }
+    }
+
+    /**
      * Automatically select corresponding display method based on state key type
      */
     public String getDisplayText(String stateType, String state) {
@@ -281,6 +325,8 @@ public class StateDisplayManager {
                 return getKnowledgeBaseStateDisplay(state);
             case "progress":
                 return getProgressStateDisplay(state);
+            case "processing_status":
+                return getProcessingStatusDisplay(state);
             case "api_url":
                 return getApiUrlDisplay(state);
             case "embedding_model":
@@ -319,6 +365,11 @@ public class StateDisplayManager {
     public static String getApiUrlDisplayText(Context context, String apiUrl) {
         StateDisplayManager manager = new StateDisplayManager(context);
         return manager.getApiUrlDisplay(apiUrl);
+    }
+    
+    public static String getApiUrlFromDisplayText(Context context, String displayText) {
+        StateDisplayManager manager = new StateDisplayManager(context);
+        return manager.getApiUrlFromDisplayText(displayText);
     }
     
     public static String getKnowledgeBaseStatusDisplayText(Context context, String status) {

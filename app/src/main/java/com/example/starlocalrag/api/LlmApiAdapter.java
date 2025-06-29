@@ -6,6 +6,7 @@ import android.util.Log;
 import com.android.volley.RequestQueue;
 import com.android.volley.toolbox.Volley;
 import com.example.starlocalrag.LogManager;
+import com.example.starlocalrag.AppConstants;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -58,7 +59,7 @@ public class LlmApiAdapter {
      * 根据API URL自动检测API类型
      */
     public ApiType detectApiType(String apiUrl) {
-        if (apiUrl.equals("local")) {
+        if (apiUrl.equalsIgnoreCase(AppConstants.ApiUrl.LOCAL)) {
             return ApiType.LOCAL;
         } else if (apiUrl.contains("ollama") || apiUrl.contains("localhost")) {
             return ApiType.OLLAMA;
@@ -130,7 +131,7 @@ public class LlmApiAdapter {
     private String getFullApiUrl(String baseUrl, ApiType apiType) {
         // 如果是本地模型，直接返回
         if (apiType == ApiType.LOCAL) {
-            return "local";
+            return AppConstants.ApiUrl.LOCAL;
         }
         
         // 移除URL末尾的斜杠（如果有）

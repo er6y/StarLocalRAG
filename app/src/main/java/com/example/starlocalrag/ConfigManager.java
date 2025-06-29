@@ -1704,10 +1704,10 @@ public class ConfigManager {
             JSONObject config = new JSONObject();
             
             // 基本路径设置 - 使用绝对路径而非相对路径
-            config.put(KEY_MODEL_PATH, "/storage/emulated/0/Download/starragdata/models");
-            config.put(KEY_EMBEDDING_MODEL_PATH, "/storage/emulated/0/Download/starragdata/embeddings");
-            config.put(KEY_RERANKER_MODEL_PATH, "/storage/emulated/0/Download/starragdata/rerankers");
-            config.put(KEY_KNOWLEDGE_BASE_PATH, "/storage/emulated/0/Download/starragdata/knowledge_bases");
+            config.put(KEY_MODEL_PATH, DEFAULT_MODEL_PATH);
+            config.put(KEY_EMBEDDING_MODEL_PATH, DEFAULT_EMBEDDING_MODEL_PATH);
+            config.put(KEY_RERANKER_MODEL_PATH, DEFAULT_RERANKER_MODEL_PATH);
+            config.put(KEY_KNOWLEDGE_BASE_PATH, DEFAULT_KNOWLEDGE_BASE_PATH);
             
             // 分块设置
             config.put(KEY_CHUNK_SIZE, 1000);

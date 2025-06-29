@@ -7,6 +7,7 @@ import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
 import android.util.Log;
 import com.example.starlocalrag.LogManager;
+import com.example.starlocalrag.AppConstants;
 import android.util.Pair;
 
 import org.json.JSONArray;
@@ -91,7 +92,7 @@ public class SQLiteVectorDatabaseHandler {
             this.creationTimestamp = System.currentTimeMillis();
             this.lastModifiedTimestamp = this.creationTimestamp;
             this.collection = "";
-            this.modelType = "local";
+            this.modelType = AppConstants.ApiUrl.LOCAL;
             this.vectorStoreType = "sqlite";
             this.modeldir = "";
             this.rerankerdir = "";

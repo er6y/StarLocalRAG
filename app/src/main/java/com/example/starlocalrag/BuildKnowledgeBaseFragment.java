@@ -724,9 +724,9 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                         spinnerKnowledgeBaseName.setSelection(position);
                     }
                     
-                    Utils.showToastSafely(requireContext(), "知识库名称已添加: " + newKnowledgeBaseName, Toast.LENGTH_SHORT);
+                    Utils.showToastSafely(requireContext(), getString(R.string.toast_kb_name_added, newKnowledgeBaseName), Toast.LENGTH_SHORT);
                 } else {
-                    Utils.showToastSafely(requireContext(), "知识库名称不能为空", Toast.LENGTH_SHORT);
+                    Utils.showToastSafely(requireContext(), getString(R.string.toast_kb_name_empty), Toast.LENGTH_SHORT);
                 }
             })
             .setNegativeButton(StateDisplayManager.getButtonDisplayText(requireContext(), AppConstants.BUTTON_TEXT_CANCEL), null)
@@ -826,19 +826,19 @@ public class BuildKnowledgeBaseFragment extends Fragment {
     private void processKnowledgeBase(String knowledgeBaseName, String embeddingModel, boolean overwrite) {
         // 检查是否已选择文件
         if (selectedFiles.isEmpty()) {
-            Utils.showToastSafely(requireContext(), "请先选择文件", Toast.LENGTH_SHORT);
+            Utils.showToastSafely(requireContext(), getString(R.string.toast_please_select_files), Toast.LENGTH_SHORT);
             return;
         }
         
         // 检查是否已选择知识库名称
         if (knowledgeBaseName == null || knowledgeBaseName.trim().isEmpty()) {
-            Utils.showToastSafely(requireContext(), "请输入或选择知识库名称", Toast.LENGTH_SHORT);
+            Utils.showToastSafely(requireContext(), getString(R.string.toast_please_enter_kb_name), Toast.LENGTH_SHORT);
             return;
         }
         
         // 检查是否已选择嵌入模型
         if (embeddingModel == null || embeddingModel.trim().isEmpty()) {
-            Utils.showToastSafely(requireContext(), "请选择嵌入模型", Toast.LENGTH_SHORT);
+            Utils.showToastSafely(requireContext(), getString(R.string.toast_please_select_embedding_model), Toast.LENGTH_SHORT);
             return;
         }
         
@@ -864,7 +864,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                 }
             }
             
-            Utils.showToastSafely(requireContext(), "任务已取消", Toast.LENGTH_SHORT);
+            Utils.showToastSafely(requireContext(), getString(R.string.toast_task_cancelled), Toast.LENGTH_SHORT);
             isProcessing = false;
             
             return;
@@ -980,7 +980,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
         if (activity != null) {
             batteryOptimizationDisabled = activity.requestIgnoreBatteryOptimizationIfNeeded();
             if (batteryOptimizationDisabled) {
-                Utils.showToastSafely(requireContext(), "已请求忽略电池优化", Toast.LENGTH_SHORT);
+                Utils.showToastSafely(requireContext(), getString(R.string.toast_battery_optimization_requested), Toast.LENGTH_SHORT);
             }
         }
         
@@ -1269,7 +1269,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
             // 检查Fragment是否仍然附加到Context
             if (isAdded() && getActivity() != null) {
                 buttonCreateKnowledgeBase.setText(StateDisplayManager.getButtonDisplayText(getActivity(), AppConstants.BUTTON_TEXT_NEW_KB));
-                Utils.showToastSafely(getActivity(), isTaskCancelled ? "任务已中断" : "知识库创建完成", Toast.LENGTH_SHORT);
+                Utils.showToastSafely(getActivity(), isTaskCancelled ? getString(R.string.toast_task_interrupted) : getString(R.string.toast_kb_creation_complete), Toast.LENGTH_SHORT);
             } else {
                 LogManager.logW(TAG, "Fragment未附加到Context，无法更新UI");
             }
@@ -1551,12 +1551,12 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                 LogManager.logD(TAG, "知识库重命名成功: " + oldName + " -> " + newName);
             } else {
                 // 重命名失败
-                Utils.showToastSafely(requireContext(), "知识库重命名失败", Toast.LENGTH_SHORT);
+                Utils.showToastSafely(requireContext(), getString(R.string.toast_kb_rename_failed), Toast.LENGTH_SHORT);
                 LogManager.logE(TAG, "知识库重命名失败: " + oldName + " -> " + newName);
             }
         } else {
             // 原目录不存在
-            Utils.showToastSafely(requireContext(), "知识库不存在: " + oldName, Toast.LENGTH_SHORT);
+            Utils.showToastSafely(requireContext(), getString(R.string.toast_kb_not_exist, oldName), Toast.LENGTH_SHORT);
             LogManager.logE(TAG, "知识库不存在: " + oldDir.getAbsolutePath());
         }
     }

@@ -9,7 +9,6 @@ android {
     // 添加NDK配置
     ndkVersion "25.1.8937393" // 使用合适的NDK版本
 
-    def buildTimeStr = new Date().format('yyyyMMddHHmmss')
     defaultConfig {
         applicationId "com.example.starlocalrag"
         minSdk 26 // Adjust based on required features and device support
@@ -18,6 +17,9 @@ android {
         versionName "1.0"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        
+        // 生成编译时间戳
+        def buildTimeStr = new Date().format('yyyyMMddHHmmss')
         buildConfigField "String", "BUILD_VERSION", "\"${buildTimeStr}\""
     }
 
@@ -57,11 +59,10 @@ android {
     // 添加性能优化配置
     packagingOptions {
         // 启用资源压缩
-        doNotStrip "*/arm64-v8a/*.so"
-        doNotStrip "*/armeabi-v7a/*.so"
         // 配置原生库提取
         jniLibs {
             useLegacyPackaging = true
+            keepDebugSymbols += ['*/arm64-v8a/*.so', '*/armeabi-v7a/*.so']
         }
     }
     

@@ -61,7 +61,8 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
     private final AtomicBoolean shouldStop = new AtomicBoolean(false);
     
     // 线程异常检测和强制终止
-    private static final long THREAD_TIMEOUT_MS = 30000; // 30秒超时
+    private static final long THREAD_TIMEOUT_MS = 60000; // 60秒超时
+    private static final long INFERENCE_TIMEOUT_MS = 120000; // 2分钟推理超时
     private static final long THREAD_CHECK_INTERVAL_MS = 5000; // 5秒检查间隔
     private static final int MAX_FORCE_TERMINATION_RETRIES = 3; // 最大强制终止重试次数
     
@@ -778,6 +779,9 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
                 LogManager.logD(TAG, "推理线程启动 [线程ID: " + currentInferenceThread.getId() + "]");
                 
                 isGenerating.set(true);
+                
+                // 启动超时监控线程
+                startInferenceTimeoutMonitor(callback);
                 
                 // 推理开始时必须重置停止标志
                 // 停止调试日志已移除
@@ -1600,6 +1604,48 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
         }
         
         return true;
+    }
+    
+    /**
+     * 启动推理超时监控
+     */
+    private void startInferenceTimeoutMonitor(LocalLlmHandler.StreamingCallback callback) {
+        CompletableFuture.runAsync(() -> {
+            try {
+                Thread.sleep(INFERENCE_TIMEOUT_MS);
+                
+                // 检查推理是否仍在进行
+                if (isGenerating.get() && currentInferenceThread != null) {
+                    LogManager.logW(TAG, "推理超时检测：推理已运行 " + INFERENCE_TIMEOUT_MS + "ms，强制终止");
+                    
+                    // 设置停止标志
+                    shouldStop.set(true);
+                    
+                    try {
+                        LlamaCppInference.set_should_stop(true);
+                    } catch (Exception e) {
+                        LogManager.logE(TAG, "设置JNI停止标志失败: " + e.getMessage());
+                    }
+                    
+                    // 强制终止推理线程
+                    if (forceTerminateInferenceThread()) {
+                        LogManager.logI(TAG, "推理超时：成功终止推理线程");
+                        if (callback != null) {
+                            callback.onError("推理超时：推理时间超过 " + (INFERENCE_TIMEOUT_MS / 1000) + " 秒，已自动终止");
+                        }
+                    } else {
+                        LogManager.logE(TAG, "推理超时：无法终止推理线程");
+                        if (callback != null) {
+                            callback.onError("推理超时：无法终止推理线程，请重启应用");
+                        }
+                    }
+                }
+            } catch (InterruptedException e) {
+                LogManager.logD(TAG, "推理超时监控线程被中断");
+            } catch (Exception e) {
+                LogManager.logE(TAG, "推理超时监控异常: " + e.getMessage(), e);
+            }
+        });
     }
     
     /**

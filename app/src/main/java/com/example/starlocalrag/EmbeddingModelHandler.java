@@ -300,16 +300,16 @@ public class EmbeddingModelHandler {
                 LogManager.logD(TAG, "  - " + file.getName() + (file.isDirectory() ? " [目录]" : " [文件, " + file.length() + " 字节]"));
                 
                 // 检查必要的配置文件
-                if (file.getName().equals("config.json")) {
+                if (file.getName().equals(AppConstants.FileName.CONFIG_JSON)) {
                     hasConfigJson = true;
                     LogManager.logD(TAG, "找到config.json文件");
-                } else if (file.getName().equals("tokenizer.json")) {
+                } else if (file.getName().equals(AppConstants.FileName.TOKENIZER_JSON)) {
                     hasTokenizerJson = true;
                     LogManager.logD(TAG, "找到tokenizer.json文件");
-                } else if (file.getName().equals("special_tokens_map.json")) {
+                } else if (file.getName().equals(AppConstants.FileName.SPECIAL_TOKENS_MAP_JSON)) {
                     hasSpecialTokensMap = true;
                     LogManager.logD(TAG, "找到special_tokens_map.json文件");
-                } else if (file.getName().equals("tokenizer_config.json")) {
+                } else if (file.getName().equals(AppConstants.FileName.TOKENIZER_CONFIG_JSON)) {
                     hasTokenizerConfig = true;
                     LogManager.logD(TAG, "找到tokenizer_config.json文件");
                 }
@@ -323,7 +323,7 @@ public class EmbeddingModelHandler {
             
             // 首先查找model.onnx文件
             for (File file : allFiles) {
-                if (file.isFile() && file.getName().equals("model.onnx")) {
+                if (file.isFile() && file.getName().equals(AppConstants.FileName.MODEL_ONNX)) {
                     LogManager.logD(TAG, "找到model.onnx文件: " + file.getAbsolutePath());
                     return file;
                 }
@@ -718,7 +718,7 @@ public class EmbeddingModelHandler {
         File modelDir;
         
         // 如果模型路径直接指向model.onnx文件，则使用其父目录
-        if (modelFile.getName().equals("model.onnx")) {
+        if (modelFile.getName().equals(AppConstants.FileName.MODEL_ONNX)) {
             modelDir = modelFile.getParentFile();
             LogManager.logD(TAG, "检测到model.onnx文件，使用其父目录作为模型目录: " + modelDir.getAbsolutePath());
         } else {
@@ -956,7 +956,7 @@ public class EmbeddingModelHandler {
             File tokenizerFile = new File(modelDir, "tokenizer.json");
             
             // 如果模型目录下没有tokenizer.json，尝试在父目录下查找
-            if (!tokenizerFile.exists() && modelDir.getName().equals("model.onnx")) {
+            if (!tokenizerFile.exists() && modelDir.getName().equals(AppConstants.FileName.MODEL_ONNX)) {
                 File parentDir = modelDir.getParentFile();
                 if (parentDir != null && parentDir.exists()) {
                     tokenizerFile = new File(parentDir, "tokenizer.json");

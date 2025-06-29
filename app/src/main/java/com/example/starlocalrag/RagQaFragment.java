@@ -214,7 +214,8 @@ public class RagQaFragment extends Fragment {
         editTextApiKey.setOnFocusChangeListener((v, hasFocus) -> {
             if (!hasFocus) {
                 String apiKey = editTextApiKey.getText().toString();
-                String apiUrl = spinnerApiUrl.getSelectedItem().toString();
+                String apiUrlDisplay = spinnerApiUrl.getSelectedItem().toString();
+                String apiUrl = StateDisplayManager.getApiUrlFromDisplayText(requireContext(), apiUrlDisplay);
                 if (!apiKey.isEmpty()) {
                     ConfigManager.saveApiKey(requireContext(), apiUrl, apiKey);
                     LogManager.logD(TAG, "Saved API Key to URL: " + apiUrl);
@@ -552,7 +553,8 @@ public class RagQaFragment extends Fragment {
     private void saveConfig() {
         try {
             // 获取当前选择的值
-            String apiUrl = spinnerApiUrl.getSelectedItem().toString();
+            String apiUrlDisplay = spinnerApiUrl.getSelectedItem().toString();
+            String apiUrl = StateDisplayManager.getApiUrlFromDisplayText(requireContext(), apiUrlDisplay);
             String apiKey = editTextApiKey.getText().toString();
             String model = spinnerApiModel.getSelectedItem().toString();
             String knowledgeBase = spinnerKnowledgeBase.getSelectedItem().toString();
@@ -645,7 +647,7 @@ public class RagQaFragment extends Fragment {
         // 添加预定义的API URL
         String newApiUrlText = StateDisplayManager.getApiUrlDisplayText(requireContext(), AppConstants.API_URL_NEW);
         for (String apiUrl : predefinedApiUrls) {
-            if (!apiUrl.equals(newApiUrlText) && !apiUrl.equals(AppConstants.API_URL_LOCAL) && !apiUrlsList.contains(apiUrl)) {
+            if (!apiUrl.equals(newApiUrlText) && !apiUrl.equals(AppConstants.ApiUrl.LOCAL) && !apiUrlsList.contains(apiUrl)) {
                 apiUrlsList.add(apiUrl);
             }
         }
@@ -653,7 +655,7 @@ public class RagQaFragment extends Fragment {
         // 添加自定义的API URL
         if (customApiUrls != null && customApiUrls.length > 0) {
             for (String apiUrl : customApiUrls) {
-                if (!apiUrl.equals(AppConstants.API_URL_LOCAL) && !apiUrlsList.contains(apiUrl)) {
+                if (!apiUrl.equals(AppConstants.ApiUrl.LOCAL) && !apiUrlsList.contains(apiUrl)) {
                     apiUrlsList.add(apiUrl);
                 }
             }
@@ -817,14 +819,15 @@ public class RagQaFragment extends Fragment {
             }
         } catch (Exception e) {
             LogManager.logE(TAG, "Failed to load knowledge base selection: " + e.getMessage(), e);
-            Toast.makeText(requireContext(), "加载知识库选择失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            Toast.makeText(requireContext(), getString(R.string.toast_load_kb_selection_failed, e.getMessage()), Toast.LENGTH_SHORT).show();
         }
     }
 
     private void handleSendStopClick() {
         if (!isSending) {
             // --- 开始发送 --- 
-            String apiUrl = spinnerApiUrl.getSelectedItem().toString();
+            String apiUrlDisplay = spinnerApiUrl.getSelectedItem().toString();
+            String apiUrl = StateDisplayManager.getApiUrlFromDisplayText(requireContext(), apiUrlDisplay);
             String apiKey = editTextApiKey.getText().toString();
             String model = spinnerApiModel.getSelectedItem().toString();
             String knowledgeBase = spinnerKnowledgeBase.getSelectedItem().toString();
@@ -836,19 +839,19 @@ public class RagQaFragment extends Fragment {
 
             // 基本验证
             if (userPrompt.trim().isEmpty()) {
-                Toast.makeText(requireContext(), "请输入用户问题", Toast.LENGTH_SHORT).show();
+                Toast.makeText(requireContext(), getString(R.string.toast_enter_user_question), Toast.LENGTH_SHORT).show();
                 return;
             }
             
             if (apiUrl.trim().isEmpty() || 
                 StateDisplayManager.isModelStatusDisplayText(requireContext(), model)) {
-                Toast.makeText(requireContext(), "请确保API地址和模型配置正确", Toast.LENGTH_SHORT).show();
+                Toast.makeText(requireContext(), getString(R.string.toast_ensure_api_model_set), Toast.LENGTH_SHORT).show();
                 return;
             }
             
             // 如果不是本地模型，需要检查API Key
-            if (!AppConstants.API_URL_LOCAL.equals(apiUrl) && apiKey.trim().isEmpty()) {
-                Toast.makeText(requireContext(), "请输入API Key", Toast.LENGTH_SHORT).show();
+            if (!AppConstants.ApiUrl.LOCAL.equals(apiUrl) && apiKey.trim().isEmpty()) {
+                Toast.makeText(requireContext(), getString(R.string.toast_enter_api_key), Toast.LENGTH_SHORT).show();
                 return;
             }
 
@@ -856,8 +859,9 @@ public class RagQaFragment extends Fragment {
             saveConfig();
             
             // 重置停止标志（开始新的推理前）
-            String currentApiUrl = spinnerApiUrl.getSelectedItem().toString();
-            if (AppConstants.API_URL_LOCAL.equals(currentApiUrl)) {
+            String currentApiUrlDisplay = spinnerApiUrl.getSelectedItem().toString();
+            String currentApiUrl = StateDisplayManager.getApiUrlFromDisplayText(requireContext(), currentApiUrlDisplay);
+            if (AppConstants.ApiUrl.LOCAL.equals(currentApiUrl)) {
                 try {
                     LocalLlmAdapter localAdapter = LocalLlmAdapter.getInstance(requireContext());
                     // 重置停止标志
@@ -888,10 +892,11 @@ public class RagQaFragment extends Fragment {
             LogManager.logD(TAG, "Set task cancellation flag to true");
             
             // 如果是本地模型，调用停止推理方法（无论isTaskRunning状态如何）
-            String currentApiUrl = spinnerApiUrl.getSelectedItem().toString();
+            String currentApiUrlDisplay = spinnerApiUrl.getSelectedItem().toString();
+            String currentApiUrl = StateDisplayManager.getApiUrlFromDisplayText(requireContext(), currentApiUrlDisplay);
             LogManager.logD(TAG, "Current API URL: " + currentApiUrl);
             
-            if ("local".equals(currentApiUrl)) {
+            if (AppConstants.ApiUrl.LOCAL.equals(currentApiUrl)) {
                 try {
                     LocalLlmAdapter localAdapter = LocalLlmAdapter.getInstance(requireContext());
                     LogManager.logD(TAG, "Preparing to call local LLM stop method");
@@ -908,8 +913,8 @@ public class RagQaFragment extends Fragment {
             isTaskRunning = false;
             LogManager.logD(TAG, "Force reset task state");
             
-            Toast.makeText(requireContext(), "请求已停止", Toast.LENGTH_SHORT).show();
-            appendToResponse("\n" + "请求已停止" + "。");
+            Toast.makeText(requireContext(), getString(R.string.toast_request_stopped), Toast.LENGTH_SHORT).show();
+            appendToResponse("\n" + getString(R.string.toast_request_stopped) + "。");
             buttonSendStop.setText(getString(R.string.button_send));
             isSending = false;
             LogManager.logD(TAG, "Stop processing completed, button state reset");
@@ -975,9 +980,10 @@ public class RagQaFragment extends Fragment {
                 });
                 
                 // 检查是否需要查询知识库
-                String configKnowledgeBase = ConfigManager.getKnowledgeBase(requireContext());
-                if (!configKnowledgeBase.isEmpty() && searchDepth > 0) {
-                    String kbInfo = "使用知识库进行查询: " + knowledgeBase;
+                String valueNone = getString(R.string.common_none);
+                String valueNoAvailableKb = getString(R.string.value_no_available_kb);
+                if (!valueNone.equals(knowledgeBase) && !valueNoAvailableKb.equals(knowledgeBase) && searchDepth > 0) {
+                    String kbInfo = getString(R.string.log_using_kb_for_query, knowledgeBase);
                     LogManager.logD(TAG, kbInfo);
                     //updateProgressOnUiThread(kbInfo);
                     
@@ -1133,6 +1139,14 @@ public class RagQaFragment extends Fragment {
         List<String> relevantDocs = new ArrayList<>();
 
         try {
+            // 检查是否选择了"无"知识库
+            String valueNone = getString(R.string.common_none);
+            String valueNoAvailableKb = getString(R.string.value_no_available_kb);
+            if (valueNone.equals(knowledgeBase) || valueNoAvailableKb.equals(knowledgeBase)) {
+                LogManager.logD(TAG, "No knowledge base selected (" + knowledgeBase + "), skipping knowledge base query");
+                return relevantDocs; // 返回空列表，不进行知识库查询
+            }
+            
             LogManager.logD(TAG, "Starting knowledge base query: " + knowledgeBase + ", query keywords: " + query);
             //updateProgressOnUiThread("开始查询知识库: " + knowledgeBase);
 
@@ -2042,7 +2056,8 @@ public class RagQaFragment extends Fragment {
     
     // 获取模型列表
     private void fetchModelsForApi() {
-        String apiUrl = spinnerApiUrl.getSelectedItem().toString();
+        String apiUrlDisplay = spinnerApiUrl.getSelectedItem().toString();
+        String apiUrl = StateDisplayManager.getApiUrlFromDisplayText(requireContext(), apiUrlDisplay);
         String apiKey = editTextApiKey.getText().toString();
         
         // 获取当前保存的模型名称，用于恢复选择
@@ -2052,17 +2067,19 @@ public class RagQaFragment extends Fragment {
         setupSpinner(spinnerApiModel, new String[]{StateDisplayManager.getModelStatusDisplayText(requireContext(), AppConstants.MODEL_STATUS_LOADING)});
         
         // 如果是本地模型，从本地模型目录中获取可用的模型列表
-        if (AppConstants.API_URL_LOCAL.equals(apiUrl)) {
-            LogManager.logD(TAG, "Getting local model list");
+        String localDisplayText = StateDisplayManager.getApiUrlDisplayText(requireContext(), AppConstants.ApiUrl.LOCAL);
+        
+        if (AppConstants.ApiUrl.LOCAL.equals(apiUrl)) {
             
             // 从配置中获取模型路径
             String modelPath = ConfigManager.getModelPath(requireContext());
+            
             File modelDir = new File(modelPath);
             
             if (!modelDir.exists() || !modelDir.isDirectory()) {
                 LogManager.logE(TAG, "Model directory does not exist: " + modelPath);
                 setupSpinner(spinnerApiModel, new String[]{StateDisplayManager.getModelStatusDisplayText(requireContext(), AppConstants.MODEL_STATUS_DIRECTORY_NOT_EXIST)});
-                Toast.makeText(requireContext(), "模型目录不存在: " + modelPath, Toast.LENGTH_SHORT).show();
+                Toast.makeText(requireContext(), getString(R.string.toast_model_dir_not_exist, modelPath), Toast.LENGTH_SHORT).show();
                 return;
             }
             
@@ -2072,14 +2089,15 @@ public class RagQaFragment extends Fragment {
             if (modelDirs == null || modelDirs.length == 0) {
                 LogManager.logE(TAG, "No models found in model directory: " + modelPath);
                 setupSpinner(spinnerApiModel, new String[]{StateDisplayManager.getModelStatusDisplayText(requireContext(), AppConstants.MODEL_STATUS_NOT_FOUND)});
-                Toast.makeText(requireContext(), "模型目录中没有发现模型: " + modelPath, Toast.LENGTH_SHORT).show();
+                Toast.makeText(requireContext(), getString(R.string.toast_no_model_found, modelPath), Toast.LENGTH_SHORT).show();
                 return;
             }
             
             // 提取模型名称
             List<String> modelsList = new ArrayList<>();
             for (File dir : modelDirs) {
-                modelsList.add(dir.getName());
+                String modelName = dir.getName();
+                modelsList.add(modelName);
             }
             
             // 更新UI
@@ -2100,7 +2118,7 @@ public class RagQaFragment extends Fragment {
         
         // 如果是在线模型，需要API Key
         if (apiUrl.isEmpty() || apiKey.isEmpty()) {
-            Toast.makeText(requireContext(), "请先设置API地址和API Key", Toast.LENGTH_SHORT).show();
+            Toast.makeText(requireContext(), getString(R.string.toast_set_api_first), Toast.LENGTH_SHORT).show();
             setupSpinner(spinnerApiModel, new String[]{StateDisplayManager.getModelStatusDisplayText(requireContext(), AppConstants.MODEL_STATUS_FETCH_FAILED)});
             return;
         }
@@ -2146,13 +2164,13 @@ public class RagQaFragment extends Fragment {
                 } catch (JSONException e) {
                     LogManager.logE(TAG, "Failed to parse model list", e);
                     setupSpinner(spinnerApiModel, new String[]{StateDisplayManager.getModelStatusDisplayText(requireContext(), AppConstants.MODEL_STATUS_PARSE_FAILED)});
-                    Toast.makeText(requireContext(), "解析模型列表失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                    Toast.makeText(requireContext(), getString(R.string.toast_parse_model_list_failed, e.getMessage()), Toast.LENGTH_SHORT).show();
                 }
             },
             error -> {
                 LogManager.logE(TAG, "Failed to get model list", error);
                 setupSpinner(spinnerApiModel, new String[]{StateDisplayManager.getModelStatusDisplayText(requireContext(), AppConstants.MODEL_STATUS_FETCH_FAILED)});
-                Toast.makeText(requireContext(), "获取模型列表失败: " + error.getMessage(), Toast.LENGTH_SHORT).show();
+                Toast.makeText(requireContext(), getString(R.string.toast_get_model_list_failed, error.getMessage()), Toast.LENGTH_SHORT).show();
             }
         ) {
             @Override
@@ -2188,10 +2206,11 @@ public class RagQaFragment extends Fragment {
         
         // 重置模型记忆 - 清除KV缓存和对话历史
         try {
-            String selectedApi = spinnerApiUrl.getSelectedItem().toString();
+            String selectedApiDisplay = spinnerApiUrl.getSelectedItem().toString();
+            String selectedApi = StateDisplayManager.getApiUrlFromDisplayText(getContext(), selectedApiDisplay);
             // 新对话调试日志已移除
             
-            if ("local".equals(selectedApi)) {
+            if (AppConstants.ApiUrl.LOCAL.equals(selectedApi)) {
                 // 新对话调试日志已移除
                 LocalLlmAdapter localAdapter = LocalLlmAdapter.getInstance(getContext());
                 if (localAdapter != null) {
@@ -2352,7 +2371,8 @@ public class RagQaFragment extends Fragment {
                 //updateProgressOnUiThread("标记模型使用结束，允许自动卸载");
                 
                 // 获取API信息
-                String apiUrl = spinnerApiUrl.getSelectedItem().toString();
+                String apiUrlDisplay = spinnerApiUrl.getSelectedItem().toString();
+                String apiUrl = StateDisplayManager.getApiUrlFromDisplayText(requireContext(), apiUrlDisplay);
                 String apiKey = editTextApiKey.getText().toString();
                 String apiModel = spinnerApiModel.getSelectedItem().toString();
                 
@@ -2855,7 +2875,8 @@ public class RagQaFragment extends Fragment {
             updateProgressOnUiThread("Mark model usage ended, allow auto unload");
             
             // 获取API信息
-            String apiUrl = spinnerApiUrl.getSelectedItem().toString();
+            String apiUrlDisplay = spinnerApiUrl.getSelectedItem().toString();
+            String apiUrl = StateDisplayManager.getApiUrlFromDisplayText(requireContext(), apiUrlDisplay);
             String apiKey = editTextApiKey.getText().toString();
             String apiModel = spinnerApiModel.getSelectedItem().toString();
             
@@ -2971,7 +2992,7 @@ public class RagQaFragment extends Fragment {
      */
     private void transferToKnowledgeNote(String text) {
         if (text == null || text.trim().isEmpty()) {
-            Toast.makeText(requireContext(), "没有选中文本或文本为空", Toast.LENGTH_SHORT).show();
+            Toast.makeText(requireContext(), getString(R.string.toast_no_selected_text_or_empty), Toast.LENGTH_SHORT).show();
             return;
         }
         
@@ -3017,7 +3038,7 @@ public class RagQaFragment extends Fragment {
                         knowledgeNoteFragment.insertTextToContentEditor(textToTransfer);
                         
                         // 显示提示信息
-                        Toast.makeText(requireContext(), "已转为笔记", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(requireContext(), getString(R.string.toast_transferred_to_note), Toast.LENGTH_SHORT).show();
                         LogManager.logD(TAG, "Converted text to knowledge base note, length: " + textToTransfer.length());
                     } else {
                         // 第一次尝试失败，再次延迟重试
@@ -3048,10 +3069,10 @@ public class RagQaFragment extends Fragment {
                                 if (retryFragment instanceof KnowledgeNoteFragment) {
                                     KnowledgeNoteFragment knowledgeNoteFragment = (KnowledgeNoteFragment) retryFragment;
                                     knowledgeNoteFragment.insertTextToContentEditor(textToTransfer);
-                                    Toast.makeText(requireContext(), "已转为笔记", Toast.LENGTH_SHORT).show();
+                                    Toast.makeText(requireContext(), getString(R.string.toast_transferred_to_note), Toast.LENGTH_SHORT).show();
                                     LogManager.logD(TAG, "Retry successful: Converted text to knowledge base note, length: " + textToTransfer.length());
                                 } else {
-                                    Toast.makeText(requireContext(), "无法获取笔记页面", Toast.LENGTH_SHORT).show();
+                                    Toast.makeText(requireContext(), getString(R.string.toast_cannot_get_note_page), Toast.LENGTH_SHORT).show();
                                     LogManager.logE(TAG, "Still unable to get KnowledgeNoteFragment instance after retry");
                                 }
                             } catch (Exception e) {
