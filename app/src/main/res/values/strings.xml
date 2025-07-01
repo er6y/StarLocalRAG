@@ -248,6 +248,7 @@
     <string name="dialog_title_kb_exists">知识库已存在</string>
     <string name="dialog_title_embedding_model_not_found">找不到嵌入模型</string>
     <string name="dialog_title_select_embedding_model">选择嵌入模型</string>
+    <string name="dialog_message_embedding_model_not_found">在 %1$s 目录中未找到嵌入模型文件。\n\n请将模型文件（.onnx或.gguf 格式）复制到此目录并重试。\n\n原始模型：%2$s</string>
 
 
     <string name="dialog_title_add_api_url">添加新的API地址</string>
@@ -458,6 +459,8 @@
     <string name="dialog_download_prompt_message">建议在Wi-Fi环境下下载，是否继续？</string>
     <string name="dialog_continue_download">继续下载</string>
     <string name="dialog_directory_exists_title">目录已存在</string>
+    <string name="dialog_download_confirm_title">下载确认</string>
+    <string name="dialog_download_confirm_message">确定要下载选中的模型吗？</string>
 
     <string name="dialog_interrupt">中断</string>
     <string name="log_start_download">开始下载</string>
@@ -975,5 +978,34 @@
     <string name="adding_chunk_progress" formatted="false">正在添加文本块 %d/%d</string>
     <string name="all_chunks_added">所有文本块添加完成</string>
     <string name="model_response">模型回复</string>
+    
+    <!-- KnowledgeNoteFragment 进度消息 -->
+    <string name="progress_mark_model_end_use">标记模型使用结束，允许自动卸载</string>
+    <string name="progress_chunk_params_info" formatted="false">使用分块参数：块大小=%d，重叠大小=%d，最小块大小=%d</string>
+    <string name="progress_db_chunk_count_before">添加前数据库文本块数量: %d</string>
+    <string name="progress_kb_metadata_updated">已更新知识库元数据中的模型信息</string>
+    <string name="warning_sqlite_load_failed">警告：加载SQLite向量数据库失败</string>
+    <string name="progress_new_db_metadata_created">已创建新的数据库元数据</string>
+    <string name="warning_update_db_metadata_failed">警告：更新数据库元数据失败: %s</string>
+    <string name="warning_update_kb_metadata_failed">警告：更新知识库元数据时发生错误: %s</string>
+    
+    <!-- 注意：以下资源已存在，请复用现有资源 -->
+    <!-- 分享日志: 使用 menu_share_logs -->
+    <!-- 清空日志: 使用 menu_clear_logs -->
+    <!-- 应用可能无法正常工作: 使用 toast_app_may_not_work_short -->
+    <!-- 无法打开文件访问权限设置: 使用 toast_cannot_open_file_permission_settings -->
+    <!-- 电池优化提示: 使用 toast_please_re_enable_battery_optimization -->
+    <!-- 请至少选择一个模型: 使用 dialog_select_at_least_one_model -->
+    <!-- 设置已保存: 使用 toast_settings_saved -->
+    <!-- 保存设置失败: 使用 toast_save_settings_failed -->
+    <!-- 删除API地址: 使用 dialog_title_delete_api_url -->
+    <!-- API地址不能为空: 使用 toast_api_url_empty -->
+    <!-- API地址已添加: 使用 toast_api_url_added -->
+    
+    <!-- 新增的唯一资源 -->
+    <string name="comment_refresh_log">刷新日志内容</string>
+    <string name="comment_copy_all">复制全部文本</string>
+    <string name="clipboard_log_content">日志内容</string>
+    <string name="dialog_title_add_api_url_simple">添加API地址</string>
 
 </resources>

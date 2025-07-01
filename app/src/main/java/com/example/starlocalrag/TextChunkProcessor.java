@@ -779,6 +779,10 @@ public class TextChunkProcessor {
             SQLiteVectorDatabaseHandler vectorDB = new SQLiteVectorDatabaseHandler(
                     new File(fullKnowledgeBasePath), model.getEmbeddingModel(), embeddingDimension);
             
+            // Set embedding model directory to metadata
+            vectorDB.getMetadata().setModeldir(embeddingModel);
+            logMessage("Set embedding model directory: " + embeddingModel);
+            
             // Set reranker model information to metadata
             String valueNone = context.getString(R.string.common_none);
             if (rerankerModel != null && !rerankerModel.isEmpty() && !valueNone.equals(rerankerModel)) {

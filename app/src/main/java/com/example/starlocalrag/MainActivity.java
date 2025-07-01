@@ -248,13 +248,13 @@ public class MainActivity extends AppCompatActivity implements SettingsFragment.
                         manageStorageLauncher.launch(intent);
                     });
                     builder.setNegativeButton(stateDisplayManager.getButtonDisplay(AppConstants.BUTTON_TEXT_CANCEL), (dialog, which) -> {
-                        Toast.makeText(this, "应用可能无法正常工作", Toast.LENGTH_LONG).show();
+                        Toast.makeText(this, getString(R.string.toast_app_may_not_work_short), Toast.LENGTH_LONG).show();
                     });
                     builder.setCancelable(false);
                     builder.show();
                 } catch (Exception e) {
                     LogManager.logE(TAG, "Cannot open file access permission settings: " + e.getMessage());
-                    Toast.makeText(this, "无法打开文件访问权限设置，请手动授予权限", Toast.LENGTH_LONG).show();
+                    Toast.makeText(this, getString(R.string.toast_cannot_open_file_permission_settings), Toast.LENGTH_LONG).show();
                 }
             } else if (Environment.isExternalStorageManager() && !hasStoragePermission) {
                 // 如果已经有权限但没有保存状态，则保存状态
@@ -302,7 +302,7 @@ public class MainActivity extends AppCompatActivity implements SettingsFragment.
             if (isIgnoringBatteryOptimizations()) {
                 Intent intent = new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS);
                 try {
-                    Toast.makeText(this, "请在设置中重新启用对本应用的电池优化", Toast.LENGTH_LONG).show();
+                    Toast.makeText(this, getString(R.string.toast_please_re_enable_battery_optimization), Toast.LENGTH_LONG).show();
                     startActivity(intent);
                     return true;
                 } catch (Exception e) {

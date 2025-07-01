@@ -44,11 +44,12 @@ public class LogViewFragment extends Fragment {
     
     // 提示文本常量
     // Toast消息将使用字符串资源
-    private static final String SHARE_CHOOSER_TITLE = "分享日志";
-    private static final String COMMENT_REFRESH_LOG = "刷新日志内容";
-    private static final String COMMENT_COPY_ALL = "复制全部文本";
-    private static final String COMMENT_CLEAR_LOG = "清空日志";
-    private static final String COMMENT_SHARE_LOG = "分享日志";
+    // 使用字符串资源替代硬编码字符串
+    // private static final String SHARE_CHOOSER_TITLE = "分享日志";
+    // private static final String COMMENT_REFRESH_LOG = "刷新日志内容";
+    // private static final String COMMENT_COPY_ALL = "复制全部文本";
+    // private static final String COMMENT_CLEAR_LOG = "清空日志";
+    // private static final String COMMENT_SHARE_LOG = "分享日志";
 
     private TextView textViewLog;
     private View scrollbarTrack;
@@ -386,7 +387,7 @@ public class LogViewFragment extends Fragment {
             // 复制全部文本
             if (textViewLog != null) {
                 ClipboardManager clipboard = (ClipboardManager) requireContext().getSystemService(Context.CLIPBOARD_SERVICE);
-                ClipData clip = ClipData.newPlainText("日志内容", textViewLog.getText());
+                ClipData clip = ClipData.newPlainText(getString(R.string.clipboard_log_content), textViewLog.getText());
                 clipboard.setPrimaryClip(clip);
                 Toast.makeText(requireContext(), getString(R.string.toast_log_copied), Toast.LENGTH_SHORT).show();
             }
@@ -482,7 +483,7 @@ public class LogViewFragment extends Fragment {
                 shareIntent.putExtra(Intent.EXTRA_STREAM, fileUri);
                 shareIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
                 
-                startActivity(Intent.createChooser(shareIntent, SHARE_CHOOSER_TITLE));
+                startActivity(Intent.createChooser(shareIntent, getString(R.string.menu_share_logs)));
             } catch (Exception e) {
                 Toast.makeText(requireContext(), getString(R.string.toast_share_failed) + ": " + e.getMessage(), Toast.LENGTH_SHORT).show();
             }

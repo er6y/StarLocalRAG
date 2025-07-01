@@ -24,6 +24,7 @@ import android.widget.ListView;
 import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.widget.ScrollView;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -91,6 +92,7 @@ public class KnowledgeNoteFragment extends Fragment {
     private EditText editTextTitle;
     private EditText editTextContent;
     private TextView textViewProgress;
+    private ScrollView scrollViewProgress;
     private Spinner spinnerKnowledgeBase;
     private Button buttonAddToKnowledgeBase;
     private ExecutorService executorService;
@@ -112,6 +114,7 @@ public class KnowledgeNoteFragment extends Fragment {
         editTextTitle = view.findViewById(R.id.editTextTitle);
         editTextContent = view.findViewById(R.id.editTextContent);
         textViewProgress = view.findViewById(R.id.textViewProgress);
+        scrollViewProgress = (ScrollView) textViewProgress.getParent();
         spinnerKnowledgeBase = view.findViewById(R.id.spinnerNoteKnowledgeBase);
         buttonAddToKnowledgeBase = view.findViewById(R.id.buttonAddToKnowledgeBase);
         
@@ -536,7 +539,7 @@ public class KnowledgeNoteFragment extends Fragment {
                         
                         // 标记模型使用结束（即使发生错误）
                         modelManager.markModelNotInUse();
-                        updateProgress("标记模型使用结束，允许自动卸载");
+                        updateProgress(getString(R.string.progress_mark_model_end_use));
                         
                         return;
                     }
@@ -546,7 +549,7 @@ public class KnowledgeNoteFragment extends Fragment {
                     int chunkOverlap = ConfigManager.getInt(requireContext(), ConfigManager.KEY_OVERLAP_SIZE, ConfigManager.DEFAULT_OVERLAP_SIZE);
                     int minChunkSize = ConfigManager.getMinChunkSize(requireContext());
                     
-                    updateProgress("使用分块参数：块大小=" + chunkSize + "，重叠大小=" + chunkOverlap + "，最小块大小=" + minChunkSize);
+                    updateProgress(getString(R.string.progress_chunk_params_info, chunkSize, chunkOverlap, minChunkSize));
                     
                     // 如果内容长度超过分块大小，需要进行分块处理
                     if (content.length() > chunkSize) {
@@ -573,7 +576,7 @@ public class KnowledgeNoteFragment extends Fragment {
                             float[] chunkEmbedding = embeddingHandler.generateEmbedding(chunk);
                             
                             // 添加文本块到数据库
-                            String chunkTitle = title + " (块 " + (i+1) + "/" + chunks.size() + ")";
+                            String chunkTitle = title + " (BLK " + (i+1) + "/" + chunks.size() + ")";
                             boolean chunkSuccess = noteVectorDb.addChunk(chunk, chunkTitle, chunkEmbedding);
                             
                             if (chunkSuccess) {
@@ -609,7 +612,7 @@ public class KnowledgeNoteFragment extends Fragment {
                         
                         // 获取添加前的文本块数量
                         int beforeChunkCount = noteVectorDb.getChunkCount();
-                        updateProgress("添加前数据库文本块数量: " + beforeChunkCount);
+                        updateProgress(getString(R.string.progress_db_chunk_count_before, beforeChunkCount));
                         
                         // 添加文本块到数据库
                         updateProgress(getString(R.string.saving_to_database));
@@ -672,12 +675,9 @@ public class KnowledgeNoteFragment extends Fragment {
         requireActivity().runOnUiThread(() -> {
             textViewProgress.append(message + "\n");
             // 滚动到底部
-            int scrollAmount = textViewProgress.getLayout().getLineTop(textViewProgress.getLineCount()) - textViewProgress.getHeight();
-            if (scrollAmount > 0) {
-                textViewProgress.scrollTo(0, scrollAmount);
-            } else {
-                textViewProgress.scrollTo(0, 0);
-            }
+            scrollViewProgress.post(() -> {
+                scrollViewProgress.fullScroll(ScrollView.FOCUS_DOWN);
+            });
         });
     }
 
@@ -762,19 +762,19 @@ public class KnowledgeNoteFragment extends Fragment {
                     // 更新嵌入模型路径
                     vectorDb.updateEmbeddingModel(embeddingModelPath);
                     LogManager.logD(TAG, "成功更新元数据");
-                    updateProgress("已更新知识库元数据中的模型信息");
+                    updateProgress(getString(R.string.progress_kb_metadata_updated));
                 } else {
                     LogManager.logE(TAG, "加载SQLite向量数据库失败");
-                    updateProgress("警告：加载SQLite向量数据库失败");
+                    updateProgress(getString(R.string.warning_sqlite_load_failed));
                     
                     // 尝试创建新的元数据
                     vectorDb.updateEmbeddingModel(embeddingModelPath);
                     LogManager.logD(TAG, "创建了新的数据库元数据");
-                    updateProgress("已创建新的数据库元数据");
+                    updateProgress(getString(R.string.progress_new_db_metadata_created));
                 }
             } catch (Exception e) {
                 LogManager.logE(TAG, "使用 SQLiteVectorDatabaseHandler 更新元数据失败", e);
-                updateProgress("警告：更新数据库元数据失败: " + e.getMessage());
+                updateProgress(getString(R.string.warning_update_db_metadata_failed, e.getMessage()));
             } finally {
                 // 确保关闭数据库
                 if (vectorDb != null) {
@@ -816,7 +816,7 @@ public class KnowledgeNoteFragment extends Fragment {
             }
         } catch (Exception e) {
             LogManager.logE(TAG, "更新知识库元数据时发生错误", e);
-            updateProgress("警告：更新知识库元数据时发生错误: " + e.getMessage());
+            updateProgress(getString(R.string.warning_update_kb_metadata_failed, e.getMessage()));
         }
     }
 

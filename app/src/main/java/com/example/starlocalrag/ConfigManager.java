@@ -156,11 +156,10 @@ public class ConfigManager {
     public static final float DEFAULT_TEXT_SIZE = 14f;
     
     // LLM 推理相关的默认值
-    public static final int DEFAULT_MAX_SEQUENCE_LENGTH = 1792;
+    public static final int DEFAULT_MAX_SEQUENCE_LENGTH = 4096;
     public static final boolean DEFAULT_NO_THINKING = false;
     public static final int DEFAULT_THREADS = 4;
-    public static final int DEFAULT_MAX_NEW_TOKENS = 4096; // 最大输出token数默认值
-    public static final int DEFAULT_KV_CACHE_SIZE = 512; // 兼容性保留，已废弃
+    public static final int DEFAULT_MAX_NEW_TOKENS = 512; // 最大输出token数默认值
     
     // LlamaCpp 相关默认值
     public static final String DEFAULT_LLAMACPP_MODEL_PATH = "files/models/llamacpp";
@@ -1286,6 +1285,21 @@ public class ConfigManager {
         }
     }
 
+    /**
+     * 检查配置管理器中是否存在api_keys配置
+     * @param context 上下文
+     * @return 是否存在api_keys配置
+     */
+    public static boolean hasApiKeysConfig(Context context) {
+        try {
+            JSONObject config = loadConfig(context);
+            return config.has("api_keys") && config.getJSONObject("api_keys").length() > 0;
+        } catch (JSONException e) {
+            LogManager.logE(TAG, "检查api_keys配置失败", e);
+            return false;
+        }
+    }
+    
     /**
      * 初始化默认API Keys
      * @param context 上下文

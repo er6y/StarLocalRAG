@@ -91,6 +91,17 @@
 
 # ===== 第三方库依赖处理 =====
 
+# AndroidX Startup 相关
+-keep class androidx.startup.** { *; }
+-dontwarn androidx.startup.**
+
+# AndroidX Emoji2 相关 - 防止EmojiCompatInitializer找不到的问题
+-keep class androidx.emoji2.** { *; }
+-dontwarn androidx.emoji2.**
+
+# 保持Emoji2初始化器
+-keep class androidx.emoji2.text.EmojiCompatInitializer { *; }
+
 # OkHttp相关
 -keep class okhttp3.** { *; }
 -keep interface okhttp3.** { *; }

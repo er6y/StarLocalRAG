@@ -428,7 +428,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
         LogManager.logD(TAG, "开始加载词嵌入模型");
         
         // 显示加载状态
-        String[] loadingState = {"加载中..."};
+        String[] loadingState = {getString(R.string.common_loading)};
         final ArrayAdapter<String> initialAdapter = new ArrayAdapter<>(requireContext(), android.R.layout.simple_spinner_item, loadingState);
         initialAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         spinnerEmbeddingModel.setAdapter(initialAdapter);
@@ -511,7 +511,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
         LogManager.logD(TAG, "初始化重排模型选择器");
         
         // 显示加载状态
-        String[] loadingState = {"加载中..."};
+        String[] loadingState = {getString(R.string.common_loading)};
         final ArrayAdapter<String> initialAdapter = new ArrayAdapter<>(requireContext(), android.R.layout.simple_spinner_item, loadingState);
         initialAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         spinnerRerankerModel.setAdapter(initialAdapter);

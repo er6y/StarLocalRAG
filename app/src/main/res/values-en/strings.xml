@@ -248,6 +248,7 @@
     <string name="dialog_title_kb_exists">Knowledge Base Exists</string>
     <string name="dialog_title_embedding_model_not_found">Embedding Model Not Found</string>
     <string name="dialog_title_select_embedding_model">Select Embedding Model</string>
+    <string name="dialog_message_embedding_model_not_found">No embedding model files found in %1$s directory.\n\nPlease copy model files (.onnx or .gguf format) to this directory and try again.\n\nOriginal model: %2$s</string>
 
 
     <string name="dialog_title_add_api_url">Add New API Address</string>
@@ -458,6 +459,8 @@
     <string name="dialog_download_prompt_message">It is recommended to download under Wi-Fi environment, continue?</string>
     <string name="dialog_continue_download">Continue Download</string>
     <string name="dialog_directory_exists_title">Directory Already Exists</string>
+    <string name="dialog_download_confirm_title">Download Confirmation</string>
+    <string name="dialog_download_confirm_message">Are you sure you want to download the selected models?</string>
 
     <string name="dialog_interrupt">Interrupt</string>
     <string name="log_start_download">Start download</string>
@@ -975,5 +978,34 @@
     <string name="adding_chunk_progress" formatted="false">Adding text chunk %d/%d</string>
     <string name="all_chunks_added">All text chunks added</string>
     <string name="model_response">Model Response</string>
+    
+    <!-- KnowledgeNoteFragment Progress Messages -->
+    <string name="progress_mark_model_end_use">Mark model usage end, allow auto unload</string>
+    <string name="progress_chunk_params_info" formatted="false">Using chunk parameters: chunk size=%d, overlap size=%d, min chunk size=%d</string>
+    <string name="progress_db_chunk_count_before">Database text chunk count before adding: %d</string>
+    <string name="progress_kb_metadata_updated">Updated model information in knowledge base metadata</string>
+    <string name="warning_sqlite_load_failed">Warning: Failed to load SQLite vector database</string>
+    <string name="progress_new_db_metadata_created">Created new database metadata</string>
+    <string name="warning_update_db_metadata_failed">Warning: Failed to update database metadata: %s</string>
+    <string name="warning_update_kb_metadata_failed">Warning: Error occurred while updating knowledge base metadata: %s</string>
+    
+    <!-- Note: Reuse existing resources to avoid duplication -->
+    <!-- Share log: use menu_share_logs -->
+    <!-- Clear log: use menu_clear_logs -->
+    <!-- App may not work properly: use toast_app_may_not_work_short -->
+    <!-- Cannot open file permission settings: use toast_cannot_open_file_permission_settings -->
+    <!-- Battery optimization reminder: use toast_please_re_enable_battery_optimization -->
+    <!-- Please select at least one model: use dialog_select_at_least_one_model -->
+    <!-- Settings saved: use toast_settings_saved -->
+    <!-- Save settings failed: use toast_save_settings_failed -->
+    <!-- Delete API URL: use dialog_title_delete_api_url -->
+    <!-- API URL cannot be empty: use toast_api_url_empty -->
+    <!-- API URL added: use toast_api_url_added -->
+    
+    <!-- New unique resources -->
+    <string name="comment_refresh_log">Refresh log content</string>
+    <string name="comment_copy_all">Copy all text</string>
+    <string name="clipboard_log_content">Log content</string>
+    <string name="dialog_title_add_api_url_simple">Add API URL</string>
 
 </resources>

@@ -63,8 +63,8 @@
         android:id="@+id/editTextContent"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        android:layout_marginTop="8dp"
-        android:layout_marginBottom="16dp"
+        android:layout_marginTop="4dp"
+        android:layout_marginBottom="8dp"
         android:gravity="top|start"
         android:inputType="textMultiLine"
         android:background="@null"
@@ -76,7 +76,7 @@
         android:hint="@string/hint_enter_content"
         android:textColorHint="#A0A0A0"
         app:layout_constraintTop_toBottomOf="@+id/textViewContentLabel"
-        app:layout_constraintBottom_toTopOf="@+id/viewContentUnderline"
+        app:layout_constraintBottom_toTopOf="@+id/textViewProgressLabel"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
@@ -86,8 +86,9 @@
         android:layout_width="0dp"
         android:layout_height="1dp"
         android:background="#6200EE"
+        android:layout_marginTop="2dp"
         android:layout_marginBottom="8dp"
-        app:layout_constraintBottom_toTopOf="@+id/textViewProgressLabel"
+        app:layout_constraintTop_toBottomOf="@+id/editTextContent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
@@ -97,27 +98,37 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="@string/label_add_progress"
-        android:layout_marginBottom="8dp"
+        android:layout_marginTop="4dp"
+        android:layout_marginBottom="4dp"
         android:textSize="14sp"
-        app:layout_constraintBottom_toTopOf="@+id/textViewProgress"
+        app:layout_constraintTop_toBottomOf="@+id/viewContentUnderline"
         app:layout_constraintStart_toStartOf="parent" />
 
     <!-- 添加进度显示框 -->
-    <TextView
-        android:id="@+id/textViewProgress"
+    <ScrollView
+        android:id="@+id/scrollViewProgress"
         android:layout_width="0dp"
         android:layout_height="60dp"
-        android:layout_marginBottom="16dp"
+        android:layout_marginTop="2dp"
+        android:layout_marginBottom="8dp"
         android:background="#E0E0E0"
-        android:padding="8dp"
-        android:textSize="14sp"
-        android:textIsSelectable="true"
-        android:longClickable="true"
-        android:contextClickable="true"
-        android:focusable="true"
+        app:layout_constraintTop_toBottomOf="@+id/textViewProgressLabel"
         app:layout_constraintBottom_toTopOf="@+id/knowledgeBaseContainer"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent" />
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <TextView
+            android:id="@+id/textViewProgress"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:padding="8dp"
+            android:textSize="14sp"
+            android:textIsSelectable="true"
+            android:longClickable="true"
+            android:contextClickable="true"
+            android:focusable="true" />
+
+    </ScrollView>
 
     <!-- 知识库行 -->
     <LinearLayout

@@ -99,20 +99,26 @@
             android:layout_marginTop="2dp"
             android:layout_marginBottom="0dp" />
 
-        <TextView
-            android:id="@+id/textViewProgress"
+        <ScrollView
             android:layout_width="match_parent"
             android:layout_height="120dp"
             android:background="@android:color/black"
-            android:textColor="@android:color/white"
-            android:fontFamily="monospace"
-            android:textSize="12sp"
-            android:padding="8dp"
-            android:scrollbars="vertical"
-            android:text="@string/text_waiting_download"
-            android:textIsSelectable="true"
-            android:longClickable="true"
-            android:layout_marginBottom="2dp" />
+            android:layout_marginBottom="2dp"
+            android:scrollbars="vertical">
+
+            <TextView
+                android:id="@+id/textViewProgress"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="@android:color/white"
+                android:fontFamily="monospace"
+                android:textSize="12sp"
+                android:padding="8dp"
+                android:text="@string/text_waiting_download"
+                android:textIsSelectable="true"
+                android:longClickable="true" />
+
+        </ScrollView>
 
         <!-- 下载按钮 -->
         <Button

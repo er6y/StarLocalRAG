@@ -181,8 +181,8 @@ public class RagQaFragment extends Fragment {
         loadApiUrlList();
         
         // 设置其他Spinner的初始数据
-        setupSpinner(spinnerApiModel, new String[]{"加载中..."});
-        setupSpinner(spinnerKnowledgeBase, new String[]{"加载中..."});
+        setupSpinner(spinnerApiModel, new String[]{getString(R.string.common_loading)});
+        setupSpinner(spinnerKnowledgeBase, new String[]{getString(R.string.common_loading)});
         
         // 为API URL Spinner添加选择监听器，自动加载对应的API Key
         spinnerApiUrl.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
@@ -580,10 +580,10 @@ public class RagQaFragment extends Fragment {
             // 重排数通过spinner选择监听器自动保存
             
             LogManager.logD(TAG, "Configuration saved to .config file");
-            Toast.makeText(requireContext(), "设置已保存", Toast.LENGTH_SHORT).show();
+            Toast.makeText(requireContext(), getString(R.string.toast_settings_saved), Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
             LogManager.logE(TAG, "Failed to save configuration", e);
-            Toast.makeText(requireContext(), "保存设置失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            Toast.makeText(requireContext(), getString(R.string.toast_save_settings_failed, e.getMessage()), Toast.LENGTH_SHORT).show();
         }
     }
     
@@ -628,12 +628,6 @@ public class RagQaFragment extends Fragment {
     private void loadApiUrlList() {
         LogManager.logD(TAG, "Starting to load API URL list");
         
-        // 获取预定义的API URL列表
-        String[] predefinedApiUrls = getResources().getStringArray(R.array.api_urls);
-        
-        // 获取设置中的API URL列表
-        String[] customApiUrls = ConfigManager.getApiUrls(requireContext());
-        
         // 合并预定义和自定义的API URL列表
         List<String> apiUrlsList = new ArrayList<>();
         
@@ -644,18 +638,27 @@ public class RagQaFragment extends Fragment {
         String localDisplayText = StateDisplayManager.getApiUrlDisplayText(requireContext(), AppConstants.ApiUrl.LOCAL);
         apiUrlsList.add(localDisplayText);
         
-        // 添加预定义的API URL
-        String newApiUrlText = StateDisplayManager.getApiUrlDisplayText(requireContext(), AppConstants.API_URL_NEW);
-        for (String apiUrl : predefinedApiUrls) {
-            if (!apiUrl.equals(newApiUrlText) && !apiUrl.equals(AppConstants.ApiUrl.LOCAL) && !apiUrlsList.contains(apiUrl)) {
-                apiUrlsList.add(apiUrl);
-            }
-        }
+        // 判断配置管理器中是否存在api_keys配置
+        boolean hasApiKeysConfig = ConfigManager.hasApiKeysConfig(requireContext());
         
-        // 添加自定义的API URL
-        if (customApiUrls != null && customApiUrls.length > 0) {
-            for (String apiUrl : customApiUrls) {
-                if (!apiUrl.equals(AppConstants.ApiUrl.LOCAL) && !apiUrlsList.contains(apiUrl)) {
+        if (hasApiKeysConfig) {
+            // 存在api_keys配置：全部采用配置管理器中的值
+            LogManager.logD(TAG, "Using API URLs from config manager");
+            String[] customApiUrls = ConfigManager.getApiUrls(requireContext());
+            if (customApiUrls != null && customApiUrls.length > 0) {
+                for (String apiUrl : customApiUrls) {
+                    if (!apiUrl.equals(AppConstants.ApiUrl.LOCAL) && !apiUrlsList.contains(apiUrl)) {
+                        apiUrlsList.add(apiUrl);
+                    }
+                }
+            }
+        } else {
+            // 不存在api_keys配置：采用代码默认的硬编码
+            LogManager.logD(TAG, "Using predefined API URLs from resources");
+            String[] predefinedApiUrls = getResources().getStringArray(R.array.api_urls);
+            String newApiUrlText = StateDisplayManager.getApiUrlDisplayText(requireContext(), AppConstants.API_URL_NEW);
+            for (String apiUrl : predefinedApiUrls) {
+                if (!apiUrl.equals(newApiUrlText) && !apiUrl.equals(AppConstants.ApiUrl.LOCAL) && !apiUrlsList.contains(apiUrl)) {
                     apiUrlsList.add(apiUrl);
                 }
             }
@@ -708,8 +711,8 @@ public class RagQaFragment extends Fragment {
         
         // 显示确认对话框
         android.app.AlertDialog.Builder builder = new android.app.AlertDialog.Builder(requireContext());
-        builder.setTitle("删除API地址")
-                .setMessage("确定要删除API地址 " + apiUrl + " 吗？")
+        builder.setTitle(getString(R.string.dialog_title_delete_api_url))
+                .setMessage(getString(R.string.dialog_message_delete_api_url, apiUrl))
                .setPositiveButton(getString(R.string.common_delete), (dialog, which) -> {
                    // 从配置中删除API URL
                    ConfigManager.removeApiUrl(requireContext(), apiUrl);
@@ -718,7 +721,7 @@ public class RagQaFragment extends Fragment {
                    loadApiUrlList();
                    
                    // 提示用户
-                   Toast.makeText(requireContext(), "API地址已删除", Toast.LENGTH_SHORT).show();
+                   Toast.makeText(requireContext(), getString(R.string.toast_api_url_deleted), Toast.LENGTH_SHORT).show();
                })
                .setNegativeButton(getString(R.string.common_cancel), null)
                .show();
@@ -735,7 +738,7 @@ public class RagQaFragment extends Fragment {
         
         // 创建对话框
         android.app.AlertDialog.Builder builder = new android.app.AlertDialog.Builder(requireContext());
-        builder.setTitle("添加API地址")
+        builder.setTitle(getString(R.string.dialog_title_add_api_url_simple))
                .setView(dialogView)
                .setPositiveButton(getString(R.string.common_add), (dialog, which) -> {
                    // 获取输入的API URL和Key
@@ -744,7 +747,7 @@ public class RagQaFragment extends Fragment {
                    
                    // 验证输入
                    if (newApiUrl.isEmpty()) {
-                       Toast.makeText(requireContext(), "API地址不能为空", Toast.LENGTH_SHORT).show();
+                       Toast.makeText(requireContext(), getString(R.string.toast_api_url_empty), Toast.LENGTH_SHORT).show();
                        return;
                    }
                    
@@ -757,7 +760,7 @@ public class RagQaFragment extends Fragment {
                    // 选择新添加的API URL
                    setSpinnerSelection(spinnerApiUrl, newApiUrl);
                    
-                   Toast.makeText(requireContext(), "API地址已添加", Toast.LENGTH_SHORT).show();
+                   Toast.makeText(requireContext(), getString(R.string.toast_api_url_added), Toast.LENGTH_SHORT).show();
                })
                .setNegativeButton(getString(R.string.common_cancel), null);
         
@@ -799,8 +802,9 @@ public class RagQaFragment extends Fragment {
             
             LogManager.logD(TAG, "Loaded " + directories.length + " knowledge bases");
         } else {
-            setupSpinner(spinnerKnowledgeBase, new String[]{StateDisplayManager.getKnowledgeBaseStatusDisplayText(requireContext(), AppConstants.KNOWLEDGE_BASE_STATUS_NONE), StateDisplayManager.getKnowledgeBaseStatusDisplayText(requireContext(), AppConstants.KNOWLEDGE_BASE_STATUS_NO_AVAILABLE)});
-            LogManager.logD(TAG, "No available knowledge bases found");
+            // 当没有知识库时，只显示"无"选项
+            setupSpinner(spinnerKnowledgeBase, new String[]{getString(R.string.common_none)});
+            LogManager.logD(TAG, "No available knowledge bases found, showing only 'None' option");
         }
     }
     
@@ -2606,10 +2610,9 @@ public class RagQaFragment extends Fragment {
         // 如果没有可用模型，显示错误信息并提示用户添加模型
         if (availableModels.isEmpty()) {
             android.app.AlertDialog.Builder builder = new android.app.AlertDialog.Builder(requireContext());
-            builder.setTitle("Embedding Model Not Found")
-                   .setMessage("No embedding model files found in " + embeddingModelPath + " directory.\n\nPlease copy model files (.bin, .onnx, .pt or .model format) to this directory and try again.\n\n" +
-                               "Original model: " + originalModel)
-                   .setPositiveButton("OK", null)
+            builder.setTitle(getString(R.string.dialog_title_embedding_model_not_found))
+                   .setMessage(getString(R.string.dialog_message_embedding_model_not_found, embeddingModelPath, originalModel))
+                   .setPositiveButton(getString(R.string.common_ok), null)
                    .show();
             return;
         }
@@ -2659,7 +2662,7 @@ public class RagQaFragment extends Fragment {
         
         // 创建对话框
         android.app.AlertDialog.Builder builder = new android.app.AlertDialog.Builder(requireContext());
-        builder.setTitle("Select Embedding Model")
+        builder.setTitle(getString(R.string.dialog_title_select_embedding_model))
                .setView(dialogView)
                .setCancelable(false)
                .setPositiveButton("OK", (dialog, which) -> {

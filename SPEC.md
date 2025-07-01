@@ -38,6 +38,16 @@ StarLocalRAG 是一个基于 Android 平台的本地 RAG（Retrieval-Augmented G
 - **紧凑布局**：横向排列相关功能组件
 - **配置记忆**：自动保存用户选择的模型和参数
 - **思考模式**：支持 `/no_think` 指令控制推理模式
+- **滚动优化**：所有状态显示框支持上下滚动翻看文本内容
+  - RAG 问答回答框：使用 ScrollView 包裹，支持流畅滚动
+  - 知识库构建状态框：支持文件列表和进度信息滚动
+  - 知识库笔记状态框：使用 ScrollView 包裹，支持进度信息滚动
+  - 模型下载进度框：使用 ScrollView 包裹，支持下载日志滚动
+  - 日志查看区域：自定义滚动条实现，支持精确滚动控制
+- **知识库下拉优化**：简化知识库选择逻辑
+  - 移除"Empty knowledge base"和"Unknown State"等状态显示
+  - 当知识库目录不存在或无可用知识库时，仅显示"无"选项
+  - 确保用户界面简洁明了，避免混淆的状态信息
 
 #### 2.1.3 推理参数优先级
 
@@ -404,6 +414,25 @@ public class ModelParamsReader {
 - **修复**：将`equals`改为`equalsIgnoreCase`，支持大小写不敏感的比较
 - **影响文件**：`LlmApiAdapter.java`、`LlmModelFactory.java`
 - **影响**：确保本地模型能正确调用LocalLlmAdapter而非StreamingApiClient
+
+**Release版本EmojiCompatInitializer崩溃修复**（2024年修复）：
+- **问题**：Release版本启动时崩溃，错误信息"ClassNotFoundException: androidx.emoji2.text.EmojiCompatInitializer"
+- **原因**：项目使用了androidx.startup库但缺少androidx.emoji2依赖，ProGuard混淆时移除了EmojiCompatInitializer类
+- **修复**：
+  1. 在`build.gradle`中添加androidx.emoji2相关依赖（emoji2:1.4.0、emoji2-views:1.4.0、emoji2-views-helper:1.4.0）
+  2. 在`proguard-rules.pro`中添加androidx.startup和androidx.emoji2的keep规则
+- **影响文件**：`app/build.gradle`、`app/proguard-rules.pro`
+- **影响**：确保Release版本能正常启动，解决androidx.startup初始化问题
+
+**知识库笔记页面UI布局修复**（2024年修复）：
+- **问题**：知识库笔记页面布局错乱，笔记内容文本框消失，进度框标签位置错误并与标题标签重叠
+- **原因**：ConstraintLayout约束关系配置错误，内容输入框使用0dp高度但约束到下划线导致被压缩，进度框缺少正确的顶部约束
+- **修复**：
+  1. 将内容输入框高度从0dp改为固定200dp，移除底部约束到下划线
+  2. 调整内容下划线约束为顶部约束到内容输入框
+  3. 修复进度标签和进度框的约束关系，确保正确的垂直布局顺序
+- **影响文件**：`fragment_knowledge_note.xml`
+- **影响**：确保知识库笔记页面UI组件正确显示和布局
 
 ## 7. 国际化与多语言支持
 
@@ -882,6 +911,57 @@ if (!AppConstants.ApiUrl.LOCAL.equals(apiUrl) && apiKey.trim().isEmpty()) {
 - 统一了字符串资源管理规范
 - 提高了代码的可维护性和可扩展性
 
+#### 8.1.7 向量数据库modeldir字段设置修复
+
+**问题描述**：
+- 知识库构建过程中，向量数据库的 `modeldir` 字段为空
+- 导致生成的向量数据库缺少嵌入模型目录信息
+- 影响后续查询时的模型匹配和加载
+
+**问题根源**：
+- `TextChunkProcessor.java` 中初始化向量数据库后，只设置了 `rerankerdir`
+- 缺少对 `modeldir` 字段的设置，导致该字段保持默认空值
+- 与 `rerankerdir` 的设置逻辑不一致
+
+**修复内容**：
+1. **添加modeldir设置**：
+   - 在向量数据库初始化后立即设置 `modeldir` 字段
+   - 使用传入的 `embeddingModel` 参数作为模型目录名
+   - 添加相应的日志记录
+
+**修复文件清单**：
+1. `TextChunkProcessor.java`：在第782-784行添加modeldir设置逻辑
+
+**优化效果**：
+- 确保向量数据库包含完整的模型信息
+- 提高了知识库元数据的完整性
+- 便于后续查询时的模型匹配和验证
+
+#### 8.1.8 EmbeddingModelUtils 硬编码字符串国际化
+
+**问题描述**：
+- `EmbeddingModelUtils.java` 中存在硬编码的中文字符串"根目录"
+- 导致模型选择对话框中的显示文本缺乏国际化支持
+- 影响多语言环境下的用户体验
+
+**问题根源**：
+- 第143行直接使用硬编码字符串 `availableEmbeddingModels.add("根目录")`
+- 虽然已有对应的字符串资源 `R.string.embedding_model_root_directory`
+- 但在获取可用模型列表时未使用资源引用
+
+**修复内容**：
+1. **字符串资源化**：
+   - 将硬编码的"根目录"替换为 `context.getString(R.string.embedding_model_root_directory)`
+   - 确保与其他地方的使用保持一致
+
+**修复文件清单**：
+1. `EmbeddingModelUtils.java`：第143行硬编码字符串替换为资源引用
+
+**优化效果**：
+- 完善了模型选择对话框的国际化支持
+- 统一了字符串资源的使用规范
+- 提高了代码的一致性和可维护性
+
 **修复效果**：
 - 实现了全面的Toast消息国际化支持
 - 提升了用户体验的一致性
@@ -957,9 +1037,292 @@ if (!AppConstants.ApiUrl.LOCAL.equals(apiUrl) && apiKey.trim().isEmpty()) {
 - `StateDisplayManager.java`：修复国际化问题
 - `app/build.gradle`：优化编译时间戳生成配置
 
-### 8.3 代码质量最佳实践
+### 8.3 KnowledgeNoteFragment硬编码字符串国际化修复
 
-#### 8.3.1 常量管理
+#### 8.3.1 问题识别
+**硬编码字符串问题**：
+- `KnowledgeNoteFragment.java` 中存在多处硬编码的中文提示信息
+- 影响应用的国际化完整性和用户体验
+- 在英文环境下仍显示中文内容
+
+**涉及的硬编码字符串**：
+- 第539行："标记模型使用结束，允许自动卸载"
+- 第549行："使用分块参数：块大小=...，重叠大小=...，最小块大小=..."
+- 第612行："添加前数据库文本块数量: ..."
+- 第765行："已更新知识库元数据中的模型信息"
+- 第768行："警告：加载SQLite向量数据库失败"
+- 第773行："已创建新的数据库元数据"
+- 第777行："警告：更新数据库元数据失败: ..."
+- 第819行："警告：更新知识库元数据时发生错误: ..."
+
+#### 8.3.2 修复实现
+**字符串资源添加**：
+在 `strings.xml` 和 `strings-en.xml` 中添加对应的国际化字符串：
+```xml
+<!-- 中文资源 -->
+<string name="progress_mark_model_end_use">标记模型使用结束，允许自动卸载</string>
+<string name="progress_chunk_params_info" formatted="false">使用分块参数：块大小=%d，重叠大小=%d，最小块大小=%d</string>
+<string name="progress_db_chunk_count_before">添加前数据库文本块数量: %d</string>
+<string name="progress_kb_metadata_updated">已更新知识库元数据中的模型信息</string>
+<string name="warning_sqlite_load_failed">警告：加载SQLite向量数据库失败</string>
+<string name="progress_new_db_metadata_created">已创建新的数据库元数据</string>
+<string name="warning_update_db_metadata_failed">警告：更新数据库元数据失败: %s</string>
+<string name="warning_update_kb_metadata_failed">警告：更新知识库元数据时发生错误: %s</string>
+
+<!-- 英文资源 -->
+<string name="progress_mark_model_end_use">Mark model usage end, allow auto unload</string>
+<string name="progress_chunk_params_info" formatted="false">Using chunk parameters: chunk size=%d, overlap size=%d, min chunk size=%d</string>
+<string name="progress_db_chunk_count_before">Database text chunk count before adding: %d</string>
+<string name="progress_kb_metadata_updated">Updated model information in knowledge base metadata</string>
+<string name="warning_sqlite_load_failed">Warning: Failed to load SQLite vector database</string>
+<string name="progress_new_db_metadata_created">Created new database metadata</string>
+<string name="warning_update_db_metadata_failed">Warning: Failed to update database metadata: %s</string>
+<string name="warning_update_kb_metadata_failed">Warning: Error occurred while updating knowledge base metadata: %s</string>
+```
+
+**代码修改**：
+将所有硬编码字符串替换为 `getString(R.string.xxx)` 调用：
+```java
+// 修改前
+updateProgress("标记模型使用结束，允许自动卸载");
+
+// 修改后
+updateProgress(getString(R.string.progress_mark_model_end_use));
+```
+
+#### 8.3.3 修复效果
+**国际化完整性**：
+- 所有进度提示信息支持中英文切换
+- 确保在不同语言环境下显示正确的本地化内容
+
+**代码质量提升**：
+- 消除硬编码字符串，提高代码可维护性
+- 统一字符串资源管理，便于后续维护和扩展
+
+**用户体验改善**：
+- 英文环境下不再显示中文内容
+- 提供一致的多语言用户体验
+
+**修复文件清单**：
+- `KnowledgeNoteFragment.java`：替换8处硬编码字符串
+- `app/src/main/res/values/strings.xml`：添加8个中文字符串资源
+- `app/src/main/res/values-en/strings.xml`：添加8个英文字符串资源
+
+### 8.4 多文件硬编码字符串国际化修复
+
+#### 8.4.1 问题识别
+在代码审查中发现多个Fragment和Activity文件中存在硬编码的中文字符串：
+
+**LogViewFragment.java**：
+- 第47-51行：分享选择器标题、日志操作注释等常量
+- 第389行：剪贴板内容标签
+
+**MainActivity.java**：
+- 第251行："应用可能无法正常工作"
+- 第257行："无法打开文件访问权限设置，请手动授予权限"
+- 第305行："请在设置中重新启用此应用的电池优化"
+
+**ModelDownloadFragment.java**：
+- 第212行："请至少选择一个模型"
+
+**RagQaFragment.java**：
+- 第583-584行："设置已保存"、"保存设置失败"
+- 第586-587行："删除API地址"、"添加API地址"
+- 第747-748行："API地址不能为空"
+- 第760-761行："API地址已添加"
+
+#### 8.4.2 修复实现
+**字符串资源添加**：
+在 `strings.xml` 和 `strings-en.xml` 中添加对应的国际化字符串：
+```xml
+<!-- LogViewFragment 相关资源 -->
+<string name="share_chooser_title">分享日志</string>
+<string name="comment_refresh_log">刷新日志内容</string>
+<string name="comment_copy_all">复制全部文本</string>
+<string name="comment_clear_log">清空日志</string>
+<string name="comment_share_log">分享日志</string>
+<string name="clipboard_log_content">日志内容</string>
+
+<!-- MainActivity Toast 消息 -->
+<string name="toast_app_may_not_work_properly">应用可能无法正常工作</string>
+<string name="toast_cannot_open_file_permission_settings_manual">无法打开文件访问权限设置，请手动授予权限</string>
+<string name="toast_please_re_enable_battery_optimization_settings">请在设置中重新启用此应用的电池优化</string>
+
+<!-- ModelDownloadFragment Toast 消息 -->
+<string name="toast_please_select_at_least_one_model">请至少选择一个模型</string>
+
+<!-- RagQaFragment Toast 和对话框消息 -->
+<string name="toast_settings_saved_simple">设置已保存</string>
+<string name="toast_save_settings_failed_simple">保存设置失败: %s</string>
+<string name="dialog_title_delete_api_url_simple">删除API地址</string>
+<string name="dialog_title_add_api_url_simple">添加API地址</string>
+<string name="toast_api_url_cannot_be_empty">API地址不能为空</string>
+<string name="toast_api_url_added_simple">API地址已添加</string>
+```
+
+**代码修改**：
+将所有硬编码字符串替换为 `getString(R.string.xxx)` 调用：
+```java
+// LogViewFragment 修改示例
+// 修改前
+ClipData clip = ClipData.newPlainText("日志内容", textViewLog.getText());
+startActivity(Intent.createChooser(shareIntent, SHARE_CHOOSER_TITLE));
+
+// 修改后
+ClipData clip = ClipData.newPlainText(getString(R.string.clipboard_log_content), textViewLog.getText());
+startActivity(Intent.createChooser(shareIntent, getString(R.string.share_chooser_title)));
+
+// MainActivity 修改示例
+// 修改前
+Toast.makeText(this, "应用可能无法正常工作", Toast.LENGTH_LONG).show();
+
+// 修改后
+Toast.makeText(this, getString(R.string.toast_app_may_not_work_properly), Toast.LENGTH_LONG).show();
+
+// RagQaFragment 修改示例
+// 修改前
+.setTitle("删除API地址")
+Toast.makeText(requireContext(), "设置已保存", Toast.LENGTH_SHORT).show();
+
+// 修改后
+.setTitle(getString(R.string.dialog_title_delete_api_url_simple))
+Toast.makeText(requireContext(), getString(R.string.toast_settings_saved_simple), Toast.LENGTH_SHORT).show();
+```
+
+#### 8.4.3 修复效果
+- **国际化完整性**：消除了多个核心文件中的硬编码字符串，全面支持中英文切换
+- **代码质量提升**：统一使用字符串资源，提高代码可维护性和一致性
+- **用户体验改善**：为不同语言用户提供完整的本地化体验
+- **资源复用优化**：优先复用现有字符串资源，避免重复定义
+
+#### 8.4.4 修复文件清单
+- `app/src/main/java/com/example/starlocalrag/LogViewFragment.java`：替换5处硬编码字符串
+- `app/src/main/java/com/example/starlocalrag/MainActivity.java`：替换3处硬编码Toast消息
+- `app/src/main/java/com/example/starlocalrag/ModelDownloadFragment.java`：替换1处硬编码Toast消息
+- `app/src/main/java/com/example/starlocalrag/RagQaFragment.java`：替换6处硬编码字符串
+- `app/src/main/res/values/strings.xml`：添加15个中文字符串资源
+- `app/src/main/res/values-en/strings.xml`：添加15个英文字符串资源
+
+### 8.5 字符串资源重复清理
+
+#### 8.5.1 问题识别
+在国际化修复过程中发现大量重复的字符串资源：
+- "分享日志" 出现3次（`menu_share_logs`, `share_chooser_title`, `comment_share_log`）
+- "清空日志" 出现2次（`menu_clear_logs`, `comment_clear_log`）
+- "应用可能无法正常工作" 出现2次（`toast_app_may_not_work_short`, `toast_app_may_not_work_properly`）
+- "请在设置中重新启用...电池优化" 出现2次
+- "无法打开文件访问权限设置" 出现2次
+- "请至少选择一个模型" 出现2次
+- "设置已保存" 出现2次
+- "删除API地址" 出现4次
+- 其他多处重复资源
+
+#### 8.5.2 清理实现
+**资源文件清理**：
+- 删除重复的字符串资源，保留原有资源
+- 在注释中标明应使用的原有资源名称
+- 仅保留真正唯一的新增资源（如 `comment_refresh_log`, `clipboard_log_content` 等）
+
+**代码修改**：
+- 将所有使用重复资源的代码改为使用原有资源
+- 确保功能不受影响的前提下统一资源引用
+
+#### 8.5.3 清理效果
+- **资源优化**：从15个重复资源减少到4个唯一资源
+- **维护性提升**：避免多处修改同一文本内容
+- **一致性保证**：统一使用相同的字符串资源
+- **文件精简**：减少资源文件大小和复杂度
+
+#### 8.5.4 清理文件清单
+- `app/src/main/res/values/strings.xml`：删除11个重复资源
+- `app/src/main/res/values-en/strings.xml`：删除11个重复资源
+- `app/src/main/java/com/example/starlocalrag/LogViewFragment.java`：修改资源引用
+- `app/src/main/java/com/example/starlocalrag/MainActivity.java`：修改3处资源引用
+- `app/src/main/java/com/example/starlocalrag/ModelDownloadFragment.java`：修改1处资源引用
+- `app/src/main/java/com/example/starlocalrag/RagQaFragment.java`：修改5处资源引用
+
+### 8.6 API URL列表逻辑优化
+
+#### 8.6.1 问题识别
+在RAG问答页面的API URL弹出菜单中，存在配置管理器中的api_keys配置与硬编码默认值混用的问题：
+- 同时加载预定义API URL列表（硬编码）和配置管理器中的自定义API URL
+- 导致数据来源不一致，增加维护复杂度
+- 用户配置与默认配置混合显示，逻辑不清晰
+
+#### 8.6.2 优化实现
+
+**逻辑分离策略**：
+- 先判断ConfigManager中的.config是否存在"api_keys"配置
+- 存在：全部采用配置管理器中的值
+- 不存在：采用代码默认的硬编码
+- 避免混用两种数据源
+
+**代码修改**：
+1. **RagQaFragment.java**：
+   - 修改`loadApiUrlList()`方法逻辑
+   - 添加`hasApiKeysConfig`判断条件
+   - 根据配置存在性选择数据源
+
+2. **ConfigManager.java**：
+   - 新增`hasApiKeysConfig(Context context)`方法
+   - 检查配置文件中是否存在有效的api_keys配置
+
+#### 8.6.3 优化效果
+- **逻辑清晰**：明确区分配置数据源和默认数据源
+- **维护简化**：避免两种数据源的冲突和重复
+- **用户体验**：配置行为更加一致和可预期
+- **代码健壮**：减少数据源混用导致的潜在问题
+
+#### 8.6.4 修改文件清单
+- `app/src/main/java/com/example/starlocalrag/RagQaFragment.java`：优化API URL列表加载逻辑
+- `app/src/main/java/com/example/starlocalrag/ConfigManager.java`：新增配置检查方法
+
+### 8.7 国际化支持优化
+
+#### 8.7.1 问题识别
+**硬编码字符串问题**：
+- ModelDownloadFragment和RagQaFragment中存在大量硬编码的中文字符串
+- 对话框标题、消息、日志输出等未使用国际化资源
+- 影响应用的多语言支持和维护性
+
+#### 8.7.2 优化实现
+
+**国际化资源完善**：
+- 添加缺失的字符串资源到strings.xml和strings-en.xml
+- 统一使用getString()方法获取本地化字符串
+- 支持参数化字符串格式化
+
+**代码修改**：
+1. **资源文件更新**：
+   - 添加`dialog_download_confirm_title`和`dialog_download_confirm_message`
+   - 添加`dialog_message_embedding_model_not_found`支持参数化
+   - 完善现有国际化资源的使用
+
+2. **ModelDownloadFragment.java**：
+   - 下载确认对话框使用国际化资源
+   - 目录存在对话框使用国际化资源
+   - 所有日志消息使用国际化资源
+
+3. **RagQaFragment.java**：
+   - API地址删除对话框使用国际化资源
+   - 嵌入模型相关对话框使用国际化资源
+   - Toast消息使用国际化资源
+
+#### 8.7.3 优化效果
+- **多语言支持**：完整支持中英文界面切换
+- **维护性提升**：字符串集中管理，便于修改和翻译
+- **代码规范**：消除硬编码字符串，提高代码质量
+- **用户体验**：根据系统语言自动适配界面语言
+
+#### 8.7.4 修改文件清单
+- `app/src/main/res/values/strings.xml`：添加中文国际化资源
+- `app/src/main/res/values-en/strings.xml`：添加英文国际化资源
+- `app/src/main/java/com/example/starlocalrag/ModelDownloadFragment.java`：替换硬编码字符串
+- `app/src/main/java/com/example/starlocalrag/RagQaFragment.java`：替换硬编码字符串
+
+### 8.8 代码质量最佳实践
+
+#### 8.8.1 常量管理
 
 **集中化常量定义**：
 - 所有API相关常量统一在 `AppConstants.ApiUrl` 中定义

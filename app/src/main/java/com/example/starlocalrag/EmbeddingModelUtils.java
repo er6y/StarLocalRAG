@@ -140,7 +140,7 @@ public class EmbeddingModelUtils {
                 // 也检查根目录中的模型文件
                 File[] rootModelFiles = embeddingModelDir.listFiles(file -> isModelFile(file));
                 if (rootModelFiles != null && rootModelFiles.length > 0) {
-                    availableEmbeddingModels.add("根目录");
+                    availableEmbeddingModels.add(context.getString(R.string.embedding_model_root_directory));
                 }
             }
             
