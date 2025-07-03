@@ -24,6 +24,9 @@ public class LocalLlmAdapter {
     // 单例实例
     private static LocalLlmAdapter instance;
     
+    private volatile boolean isLoading = false;
+    private final Object loadingLock = new Object();
+    
     /**
      * 获取单例实例
      */
@@ -52,36 +55,60 @@ public class LocalLlmAdapter {
     public void callLocalModel(String modelName, String prompt, LlmApiAdapter.ApiCallback callback) {
         LogManager.logD(TAG, "调用本地模型: " + modelName);
         
-        // 检查模型是否已加载
-        if (localLlmHandler.isModelLoaded() && modelName.equals(localLlmHandler.getCurrentModelName())) {
-            LogManager.logD(TAG, "模型已加载，直接执行推理: " + modelName);
-            executeInference(prompt, callback);
-            return;
+        synchronized (loadingLock) {
+            // 检查模型是否已加载
+            if (localLlmHandler.isModelLoaded() && modelName.equals(localLlmHandler.getCurrentModelName())) {
+                LogManager.logD(TAG, "模型已加载，直接执行推理: " + modelName);
+                executeInference(prompt, callback);
+                return;
+            }
+            
+            // 检查是否正在加载
+            if (isLoading) {
+                LogManager.logW(TAG, "模型正在加载中，请稍后再试: " + modelName);
+                callback.onError("模型正在加载中，请稍后再试");
+                return;
+            }
+            
+            LogManager.logD(TAG, "加载模型: " + modelName);
+            isLoading = true;
         }
         
-        LogManager.logD(TAG, "加载模型: " + modelName);
-        
-        // 加载模型
-        localLlmHandler.loadModel(modelName, new LocalLlmHandler.StreamingCallback() {
-            @Override
-            public void onToken(String token) {
-                // 加载过程中不会有token回调
+        // 异步加载模型
+        try {
+            localLlmHandler.loadModel(modelName, new LocalLlmHandler.StreamingCallback() {
+                @Override
+                public void onToken(String token) {
+                    // 模型加载过程中不需要处理token
+                }
+                
+                @Override
+                public void onComplete(String fullResponse) {
+                    LogManager.logD(TAG, "模型加载完成: " + modelName);
+                    synchronized (loadingLock) {
+                        isLoading = false;
+                    }
+                    // 模型加载完成后执行推理
+                    executeInference(prompt, callback);
+                }
+                
+                @Override
+                public void onError(String errorMessage) {
+                    LogManager.logE(TAG, "模型加载失败: " + modelName + ", 错误: " + errorMessage);
+                    synchronized (loadingLock) {
+                        isLoading = false;
+                    }
+                    callback.onError("模型加载失败: " + errorMessage);
+                }
+            });
+        } catch (Exception e) {
+            // 确保在任何异常情况下都重置isLoading标志
+            LogManager.logE(TAG, "调用模型加载时发生异常: " + modelName, e);
+            synchronized (loadingLock) {
+                isLoading = false;
             }
-            
-            @Override
-            public void onComplete(String fullResponse) {
-                LogManager.logD(TAG, "模型加载完成: " + fullResponse);
-                // 模型加载完成后，执行推理
-                LogManager.logI(TAG, "模型加载成功，开始执行推理");
-                executeInference(prompt, callback);
-            }
-            
-            @Override
-            public void onError(String errorMessage) {
-                LogManager.logE(TAG, "模型加载失败: " + errorMessage);
-                callback.onError("模型加载失败: " + errorMessage);
-            }
-        });
+            callback.onError("调用模型加载时发生异常: " + e.getMessage());
+        }
     }
     
     /**
@@ -218,6 +245,29 @@ public class LocalLlmAdapter {
             LogManager.logW(TAG, "[新对话调试] localLlmHandler为空，无法重置模型记忆");
         }
         // 新对话调试日志已移除
+    }
+    
+    /**
+     * 重置加载状态标志
+     * 用于解决并发调用时的状态同步问题
+     */
+    public void resetLoadingState() {
+        synchronized (loadingLock) {
+            if (isLoading) {
+                LogManager.logW(TAG, "手动重置isLoading标志");
+                isLoading = false;
+            }
+        }
+    }
+    
+    /**
+     * 检查当前是否正在加载模型
+     * @return true如果正在加载，false否则
+     */
+    public boolean isLoading() {
+        synchronized (loadingLock) {
+            return isLoading;
+        }
     }
     
     /**

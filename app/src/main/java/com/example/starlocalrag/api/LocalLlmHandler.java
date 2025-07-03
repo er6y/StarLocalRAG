@@ -481,64 +481,77 @@ public class LocalLlmHandler {
         modelLoading.set(true);
         currentModelName = modelName;
         
-        // 在后台线程中加载模型
-        executorService.execute(() -> {
-            try {
-                // 释放之前的资源
-                if (inferenceEngine != null) {
-                    inferenceEngine.release();
+        // 添加外层try-catch确保modelLoading状态总是被重置
+        try {
+            // 异步加载模型
+            executorService.submit(() -> {
+                try {
+                    LogManager.logI(TAG, "开始加载模型: " + modelName);
+                    
+                    // 释放之前的资源
+                    if (inferenceEngine != null) {
+                        inferenceEngine.release();
+                    }
+                    
+                    modelLoaded.set(false);
+                    
+                    // 1. 确保模型文件存在
+                    String modelPath = ConfigManager.getModelPath(context);
+                    File modelDir = new File(modelPath, modelName);
+                    
+                    if (!modelDir.exists() || !modelDir.isDirectory()) {
+                        throw new IOException("Model file does not exist: " + modelDir.getAbsolutePath());
+                    }
+                    
+                    // 2. 检测模型类型并选择推理引擎
+                    InferenceEngine selectedEngine = selectInferenceEngine(modelDir);
+                    if (selectedEngine == null) {
+                        throw new IOException("Unable to determine model type or unsupported model format: " + modelDir.getAbsolutePath());
+                    }
+                    
+                    // 如果推理引擎发生变化，释放旧引擎
+                    if (inferenceEngine != null && !inferenceEngine.getEngineType().equals(selectedEngine.getEngineType())) {
+                        inferenceEngine.release();
+                    }
+                    inferenceEngine = selectedEngine;
+                    
+                    // 3. 加载模型配置（只支持LlamaCpp）
+                    ModelConfig modelConfig = createBasicModelConfig(modelDir.getAbsolutePath());
+                    
+                    // 4. 初始化推理引擎
+                    inferenceEngine.initialize(modelDir.getAbsolutePath(), modelConfig);
+                    
+                    // 5. 标记模型已加载
+                    modelLoaded.set(true);
+                    
+                    LogManager.logI(TAG, "✓ 模型加载成功: " + modelName + " (引擎: " + inferenceEngine.getEngineType() + ")");
+                    
+                    if (callback != null) {
+                        callback.onComplete("Model loaded successfully: " + modelName);
+                    }
+                } catch (Exception e) {
+                    LogManager.logE(TAG, "模型加载失败: " + e.getMessage(), e);
+                    if (callback != null) {
+                        callback.onError("模型加载失败: " + e.getMessage());
+                    }
+                } finally {
+                    // 确保modelLoading状态总是被重置
+                    modelLoading.set(false);
                 }
-                
-                modelLoaded.set(false);
-                
-                // 1. 确保模型文件存在
-                String modelPath = ConfigManager.getModelPath(context);
-                File modelDir = new File(modelPath, modelName);
-                
-                if (!modelDir.exists() || !modelDir.isDirectory()) {
-                    throw new IOException("Model file does not exist: " + modelDir.getAbsolutePath());
-                }
-                
-                // 2. 检测模型类型并选择推理引擎
-                InferenceEngine selectedEngine = selectInferenceEngine(modelDir);
-                if (selectedEngine == null) {
-                    throw new IOException("Unable to determine model type or unsupported model format: " + modelDir.getAbsolutePath());
-                }
-                
-                // 如果推理引擎发生变化，释放旧引擎
-                if (inferenceEngine != null && !inferenceEngine.getEngineType().equals(selectedEngine.getEngineType())) {
-                    inferenceEngine.release();
-                }
-                inferenceEngine = selectedEngine;
-                
-                // 3. 加载模型配置（只支持LlamaCpp）
-                ModelConfig modelConfig = createBasicModelConfig(modelDir.getAbsolutePath());
-                
-                // 4. 初始化推理引擎
-                inferenceEngine.initialize(modelDir.getAbsolutePath(), modelConfig);
-                
-                // 4. 标记模型已加载
-                modelLoaded.set(true);
-                modelLoading.set(false);
-                
-                LogManager.logI(TAG, "✓ 模型加载成功: " + modelName + " (引擎: " + inferenceEngine.getEngineType() + ")");
-                
-                if (callback != null) {
-                    callback.onComplete("Model loaded successfully: " + modelName);
-                }
-                
-            } catch (Exception e) {
-                modelLoaded.set(false);
-                modelLoading.set(false);
-                
-                String errorMsg = "Model loading failed: " + e.getMessage();
-                LogManager.logE(TAG, errorMsg, e);
-                
-                if (callback != null) {
-                    callback.onError(errorMsg);
-                }
+            });
+        } catch (Exception e) {
+            LogManager.logE(TAG, "启动模型加载任务失败: " + e.getMessage(), e);
+            modelLoading.set(false);
+            if (callback != null) {
+                callback.onError("启动模型加载任务失败: " + e.getMessage());
             }
-        });
+        } finally {
+            // 外层finally块确保在任何异常情况下都重置modelLoading状态
+            if (modelLoading.get()) {
+                LogManager.logW(TAG, "外层异常处理：重置modelLoading状态");
+                modelLoading.set(false);
+            }
+        }
     }
     
     /**

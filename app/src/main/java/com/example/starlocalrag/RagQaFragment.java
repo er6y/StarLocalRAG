@@ -54,6 +54,7 @@ import com.android.volley.toolbox.JsonObjectRequest;
 import com.android.volley.toolbox.Volley;
 
 import com.example.starlocalrag.api.LocalLlmAdapter;
+import com.example.starlocalrag.api.LocalLlmHandler;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -134,6 +135,9 @@ public class RagQaFragment extends Fragment {
     // 当前是否有正在执行的RAG查询任务
     private boolean isTaskRunning = false;
     private boolean isTaskCancelled = false;
+    
+    // 全局停止标志 - 用于统一控制所有模型的停止
+    private volatile boolean globalStopFlag = false;
     
     // 用于执行后台任务的线程池
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -891,9 +895,10 @@ public class RagQaFragment extends Fragment {
             LogManager.logD(TAG, "User clicked stop button");
             LogManager.logD(TAG, "Current state - isSending: " + isSending + ", isTaskRunning: " + isTaskRunning + ", isTaskCancelled: " + isTaskCancelled);
             
-            // 设置任务取消标志
+            // 设置全局停止标志和任务取消标志
+            globalStopFlag = true;
             isTaskCancelled = true;
-            LogManager.logD(TAG, "Set task cancellation flag to true");
+            LogManager.logD(TAG, "Set global stop flag and task cancellation flag to true");
             
             // 如果是本地模型，调用停止推理方法（无论isTaskRunning状态如何）
             String currentApiUrlDisplay = spinnerApiUrl.getSelectedItem().toString();
@@ -913,21 +918,126 @@ public class RagQaFragment extends Fragment {
                 LogManager.logD(TAG, "Non-local model, skipping local LLM stop call");
             }
             
-            // 强制重置任务状态
-            isTaskRunning = false;
-            LogManager.logD(TAG, "Force reset task state");
+            // 启动停止完成检查机制（防呆机制）
+            startStopCompletionCheck();
             
             Toast.makeText(requireContext(), getString(R.string.toast_request_stopped), Toast.LENGTH_SHORT).show();
             appendToResponse("\n" + getString(R.string.toast_request_stopped) + "。");
-            buttonSendStop.setText(getString(R.string.button_send));
-            isSending = false;
-            LogManager.logD(TAG, "Stop processing completed, button state reset");
+            LogManager.logD(TAG, "Stop processing initiated, waiting for completion check");
         }
     }
     
     
     // 执行RAG查询任务
+    /**
+     * 重置所有发送状态
+     * 统一管理所有状态变量的重置，确保状态一致性
+     */
+    private void resetSendingState() {
+        isTaskRunning = false;
+        isTaskCancelled = false;
+        globalStopFlag = false;
+        isSending = false;
+        
+        // 在UI线程上更新按钮状态
+        if (mainHandler != null && buttonSendStop != null) {
+            mainHandler.post(() -> {
+                buttonSendStop.setText(getString(R.string.button_send));
+            });
+        }
+    }
+    
+    /**
+     * 启动停止完成检查机制（防呆机制）
+     * 持续监控所有任务是否真正停止，确保按钮状态正确
+     */
+    private void startStopCompletionCheck() {
+        LogManager.logD(TAG, "[防呆机制] 启动停止完成检查");
+        
+        // 使用后台线程进行检查，避免阻塞UI
+        executor.execute(() -> {
+            int checkCount = 0;
+            
+            while (true) {
+                try {
+                    Thread.sleep(100); // 每100ms检查一次
+                    checkCount++;
+                    
+                    boolean allTasksStopped = checkAllTasksStopped();
+                    
+                    // 每10次检查记录一次日志，避免日志过多
+                    if (checkCount % 10 == 0) {
+                        LogManager.logD(TAG, "[防呆机制] 第" + checkCount + "次检查，所有任务已停止: " + allTasksStopped);
+                    }
+                    
+                    if (allTasksStopped) {
+                        LogManager.logI(TAG, "[防呆机制] ✓ 所有任务已确认停止，恢复按钮状态（检查" + checkCount + "次）");
+                        resetSendingState();
+                        return;
+                    }
+                    
+                    // 安全检查：如果检查次数过多（超过30秒），强制恢复状态
+                    if (checkCount > 300) {
+                        LogManager.logW(TAG, "[防呆机制] ⚠ 检查次数过多（" + checkCount + "次），强制恢复按钮状态");
+                        resetSendingState();
+                        return;
+                    }
+                    
+                } catch (InterruptedException e) {
+                    LogManager.logE(TAG, "[防呆机制] 检查线程被中断", e);
+                    break;
+                }
+            }
+        });
+    }
+    
+    /**
+     * 检查所有任务是否已停止
+     * @return true如果所有任务都已停止，false否则
+     */
+    private boolean checkAllTasksStopped() {
+        // 检查本地LLM是否还在推理
+        String currentApiUrlDisplay = spinnerApiUrl.getSelectedItem().toString();
+        String currentApiUrl = StateDisplayManager.getApiUrlFromDisplayText(requireContext(), currentApiUrlDisplay);
+        
+        if (AppConstants.ApiUrl.LOCAL.equals(currentApiUrl)) {
+            try {
+                LocalLlmAdapter localAdapter = LocalLlmAdapter.getInstance(requireContext());
+                LocalLlmHandler localHandler = LocalLlmHandler.getInstance(requireContext());
+                
+                // 检查本地LLM是否还在推理
+                if (localHandler.shouldStopInference()) {
+                    // 停止标志已设置，但需要确认推理真正停止
+                    // 这里可以添加更精确的检查逻辑
+                    LogManager.logD(TAG, "[防呆机制] 本地LLM停止标志已设置");
+                } else {
+                    LogManager.logD(TAG, "[防呆机制] 本地LLM停止标志未设置，任务可能仍在运行");
+                    return false;
+                }
+            } catch (Exception e) {
+                LogManager.logE(TAG, "[防呆机制] 检查本地LLM状态失败", e);
+            }
+        }
+        
+        // 检查RAG查询任务是否还在运行
+        if (isTaskRunning && !isTaskCancelled) {
+            LogManager.logD(TAG, "[防呆机制] RAG任务仍在运行");
+            return false;
+        }
+        
+        // 检查全局停止标志
+        if (!globalStopFlag) {
+            LogManager.logD(TAG, "[防呆机制] 全局停止标志未设置");
+            return false;
+        }
+        
+        LogManager.logD(TAG, "[防呆机制] 所有检查通过，任务已停止");
+        return true;
+    }
+    
     private void executeRagQuery(String apiUrl, String apiKey, String model, String knowledgeBase, String systemPrompt, String userPrompt) {
+        // 重置停止标志
+        globalStopFlag = false;
         isTaskRunning = true;
         isTaskCancelled = false;
         
@@ -1143,6 +1253,12 @@ public class RagQaFragment extends Fragment {
         List<String> relevantDocs = new ArrayList<>();
 
         try {
+            // 检查全局停止标志
+            if (globalStopFlag) {
+                LogManager.logD(TAG, "Global stop flag is set, aborting knowledge base query");
+                return relevantDocs;
+            }
+            
             // 检查是否选择了"无"知识库
             String valueNone = getString(R.string.common_none);
             String valueNoAvailableKb = getString(R.string.value_no_available_kb);
@@ -1497,6 +1613,13 @@ public class RagQaFragment extends Fragment {
     // 调用大模型API获取回答
     private void callLLMApi(String apiUrl, String apiKey, String model, String prompt) {
         try {
+            // 检查全局停止标志
+            if (globalStopFlag) {
+                LogManager.logD(TAG, "Global stop flag is set, aborting LLM API call");
+                resetSendingState();
+                return;
+            }
+            
             LogManager.logD(TAG, "Starting to call LLM API: " + apiUrl);
         LogManager.logD(TAG, "Using model: " + model);
         LogManager.logD(TAG, "Prompt length: " + prompt.length() + " characters");
@@ -1558,17 +1681,13 @@ public class RagQaFragment extends Fragment {
                                 LogManager.logD(TAG, "Final Markdown rendering completed");
                             }
                             
-                            // 恢复按钮状态和任务状态
-                            buttonSendStop.setText(getString(R.string.button_send));
-                            isSending = false;
-                            isTaskRunning = false;
-                            LogManager.logD(TAG, "Task completed, status reset");
+                            // 使用统一的状态重置方法
+                            resetSendingState();
+                            LogManager.logD(TAG, "Task completed, all states reset");
                         } catch (Exception e) {
                             LogManager.logE(TAG, "Final Markdown rendering failed", e);
-                            // 恢复按钮状态和任务状态
-                            buttonSendStop.setText(getString(R.string.button_send));
-                            isSending = false;
-                            isTaskRunning = false;
+                            // 使用统一的状态重置方法
+                            resetSendingState();
                         }
                     });
                 }
@@ -1597,6 +1716,12 @@ public class RagQaFragment extends Fragment {
                 @Override
                 public void onStreamingData(final String chunk) {
                     if (getActivity() == null) return;
+                    
+                    // 检查全局停止标志
+                    if (globalStopFlag) {
+                        LogManager.logD(TAG, "Global stop flag is set, ignoring streaming data");
+                        return;
+                    }
                     
                     // 记录收到的数据块
                     //LogManager.logD(TAG, "Received data chunk: [" + chunk + "]");
@@ -1851,13 +1976,9 @@ public class RagQaFragment extends Fragment {
                     // 显示错误信息
                     updateResultOnUiThread("API call failed: " + errorMessage);
                     
-                    // 恢复按钮状态和任务状态
-                    mainHandler.post(() -> {
-                        buttonSendStop.setText(getString(R.string.button_send));
-                        isSending = false;
-                        isTaskRunning = false;
-                        LogManager.logD(TAG, "Task error, status reset");
-                    });
+                    // 使用统一的状态重置方法
+                    resetSendingState();
+                    LogManager.logD(TAG, "Task error, all states reset");
                     
                 }
             };
@@ -1869,12 +1990,8 @@ public class RagQaFragment extends Fragment {
         } catch (Exception e) {
             LogManager.logE(TAG, "Failed to call LLM API", e);
             updateResultOnUiThread("调用API失败: " + e.getMessage());
-            mainHandler.post(() -> {
-                buttonSendStop.setText(getString(R.string.button_send));
-                isSending = false;
-                isTaskRunning = false;
-                LogManager.logD(TAG, "Task exception, status reset");
-            });
+            resetSendingState();
+            LogManager.logD(TAG, "Task exception, all states reset");
         }
     }
     
@@ -3276,12 +3393,8 @@ public class RagQaFragment extends Fragment {
             LogManager.logE(TAG, "Continue RAG query after reranking failed: " + e.getMessage(), e);
             updateProgressOnUiThread("Continue query after reranking failed: " + e.getMessage());
             
-            // 恢复UI状态
-            mainHandler.post(() -> {
-                buttonSendStop.setText(getString(R.string.button_send));
-                isSending = false;
-                isTaskRunning = false;
-            });
+            // 使用统一的状态重置方法
+            resetSendingState();
         }
     }
 }

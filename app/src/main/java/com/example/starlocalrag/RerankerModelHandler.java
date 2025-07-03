@@ -51,8 +51,8 @@ public class RerankerModelHandler {
     private int sessionRetryCount = 0;                    // 当前重试次数
     private long lastSessionCheckTime = 0;                // 上次会话检查时间
     
-    // TokenizerManager实例
-    private TokenizerManager tokenizerManager;
+    // TokenizerManager实例 - 不再缓存，每次动态获取
+    // private TokenizerManager tokenizerManager; // 移除缓存的实例
     
     // 模型输入输出名称（根据具体模型调整）
     private static final String INPUT_IDS = "input_ids";
@@ -177,32 +177,31 @@ public class RerankerModelHandler {
             LogManager.logI(TAG, "Model input names: " + session.getInputNames());
             LogManager.logI(TAG, "Model output names: " + session.getOutputNames());
             
-            // 初始化TokenizerManager
+            // 初始化TokenizerManager - 不再缓存实例，每次动态获取
             //LogManager.logI(TAG, "开始初始化TokenizerManager...");
             try {
-                tokenizerManager = TokenizerManager.getInstance(context);
+                TokenizerManager tempTokenizerManager = TokenizerManager.getInstance(context);
                 
                 // 获取tokenizer.json文件所在的目录
                 File modelDir = modelFile.getParentFile();
                 
                 if (modelDir != null && modelDir.exists()) {
                     LogManager.logI(TAG, "Trying to initialize tokenizer from model directory: " + modelDir.getAbsolutePath());
-                    boolean tokenizerSuccess = tokenizerManager.initialize(modelDir);
+                    boolean tokenizerSuccess = tempTokenizerManager.initialize(modelDir);
                     
                     if (tokenizerSuccess) {
-                        //LogManager.logI(TAG, "TokenizerManager初始化成功");
-                        //LogManager.logI(TAG, "Tokenizer特殊token数量: " + tokenizerManager.getSpecialTokensSize());
+                        LogManager.logI(TAG, "TokenizerManager初始化成功，将使用动态获取方式");
+                        //LogManager.logI(TAG, "Tokenizer特殊token数量: " + tempTokenizerManager.getSpecialTokensSize());
                     } else {
                         LogManager.logW(TAG, "TokenizerManager initialization failed, will use simplified tokenizer");
-                        tokenizerManager = null;
                     }
                 } else {
                     LogManager.logW(TAG, "Unable to get model directory, will use simplified tokenizer");
-                    tokenizerManager = null;
+                    // 不再设置成员变量为null，因为我们使用动态获取方式
                 }
             } catch (Exception e) {
                 LogManager.logE(TAG, "TokenizerManager initialization exception: " + e.getMessage(), e);
-                tokenizerManager = null;
+                // 不再设置成员变量为null，因为我们使用动态获取方式
             }
             
             isInitialized.set(true);
@@ -297,6 +296,21 @@ public class RerankerModelHandler {
         //LogManager.logI(TAG, "Document count: " + (documents != null ? documents.size() : 0));
         //LogManager.logI(TAG, "topK: " + topK);
         //LogManager.logI(TAG, "Model initialization status: " + isInitialized.get());
+        
+        // 首先检查TokenizerManager状态
+        LogManager.logI(TAG, "🔍 检查TokenizerManager状态...");
+        String statusReport = checkTokenizerManagerStatus();
+        LogManager.logI(TAG, statusReport);
+        
+        // 验证TokenizerManager是否可用
+        if (getCurrentTokenizerManager() == null) {
+            LogManager.logW(TAG, "⚠️ TokenizerManager不可用，尝试重新初始化...");
+            if (!validateAndReinitializeTokenizer()) {
+                LogManager.logE(TAG, "❌ TokenizerManager重新初始化失败，返回原始顺序");
+                return convertToRerankResults(documents);
+            }
+            LogManager.logI(TAG, "✅ TokenizerManager重新初始化成功");
+        }
         
         if (!isInitialized.get()) {
             LogManager.logE(TAG, "Reranker model not initialized");
@@ -444,7 +458,7 @@ public class RerankerModelHandler {
                 
                 // 关键的推理调用
                 //LogManager.logI(TAG, "🚀 Calling session.run()...");
-                LogManager.logI(TAG, "Inference timeout setting: 5 minutes");
+                LogManager.logI(TAG, "Inference timeout setting: 10 minutes");
                 
                 // 使用Future来实现超时机制
                 java.util.concurrent.ExecutorService executor = java.util.concurrent.Executors.newSingleThreadExecutor();
@@ -458,11 +472,11 @@ public class RerankerModelHandler {
                 
                 OrtSession.Result output;
                 try {
-                    // 设置5ss分钟超时
-                    output = future.get(300, java.util.concurrent.TimeUnit.SECONDS);
+                    // 设置10分钟超时
+                    output = future.get(600, java.util.concurrent.TimeUnit.SECONDS);
                     // LogManager.logI(TAG, "✅ session.run() 返回成功");
                 } catch (java.util.concurrent.TimeoutException e) {
-                    LogManager.logE(TAG, "⏰ Inference timeout (5 minutes), canceling task");
+                    LogManager.logE(TAG, "⏰ Inference timeout (10 minutes), canceling task");
                     future.cancel(true);
                     executor.shutdownNow();
                     continue; // 跳过这个文档
@@ -604,19 +618,30 @@ public class RerankerModelHandler {
     private Map<String, OnnxTensor> tokenizeInput(String text) throws OrtException {
         long tokenizeStartTime = System.currentTimeMillis();
         
-        // Check TokenizerManager status
-        if (tokenizerManager == null || !tokenizerManager.isInitialized()) {
-            throw new IllegalStateException("TokenizerManager not initialized or unavailable, unable to perform tokenization");
+        // 首先尝试获取当前TokenizerManager实例
+        TokenizerManager currentTokenizerManager = getCurrentTokenizerManager();
+        
+        // 如果获取失败，尝试验证并重新初始化
+        if (currentTokenizerManager == null) {
+            LogManager.logW(TAG, "TokenizerManager实例无效，尝试重新初始化...");
+            if (!validateAndReinitializeTokenizer()) {
+                throw new IllegalStateException("TokenizerManager not initialized or unavailable, unable to perform tokenization");
+            }
+            // 重新获取实例
+            currentTokenizerManager = getCurrentTokenizerManager();
+            if (currentTokenizerManager == null) {
+                throw new IllegalStateException("TokenizerManager重新初始化后仍然无效");
+            }
         }
         
-        LogManager.logI(TAG, "✅ TokenizerManager initialized, using professional tokenizer");
-        return tokenizeWithTokenizerManager(text, tokenizeStartTime);
+        LogManager.logI(TAG, "✅ TokenizerManager initialized, using professional tokenizer (dynamic instance with validation)");
+        return tokenizeWithTokenizerManager(text, tokenizeStartTime, currentTokenizerManager);
     }
     
     /**
      * Use TokenizerManager for tokenization
      */
-    private Map<String, OnnxTensor> tokenizeWithTokenizerManager(String text, long startTime) throws OrtException {
+    private Map<String, OnnxTensor> tokenizeWithTokenizerManager(String text, long startTime, TokenizerManager tokenizerManager) throws OrtException {
         try {
             LogManager.logI(TAG, "🔧 === Using TokenizerManager for professional tokenization ===");
             
@@ -704,6 +729,18 @@ public class RerankerModelHandler {
             
         } catch (Exception e) {
             LogManager.logE(TAG, "❌ TokenizerManager tokenization failed: " + e.getMessage(), e);
+            
+            // 检查是否是分词器未初始化的错误
+            if (e.getMessage() != null && e.getMessage().contains("分词器未初始化")) {
+                LogManager.logW(TAG, "检测到分词器未初始化错误，这可能是由于TokenizerManager被重置导致的");
+                LogManager.logW(TAG, "建议检查TokenizerManager的状态管理和重置逻辑");
+            }
+            
+            // 检查是否是ONNX Runtime相关错误
+            if (e.getMessage() != null && e.getMessage().contains("OrtException")) {
+                LogManager.logW(TAG, "检测到ONNX Runtime错误，可能与输入张量维度有关");
+            }
+            
             throw new OrtException("Tokenization processing failed: " + e.getMessage());
         }
     }
@@ -969,6 +1006,96 @@ public class RerankerModelHandler {
             LogManager.logE(TAG, "Internal initialization failed: " + e.getMessage(), e);
             return false;
         }
+    }
+    
+    /**
+     * 获取当前TokenizerManager实例并验证状态
+     * @return 有效的TokenizerManager实例，如果无效则返回null
+     */
+    private TokenizerManager getCurrentTokenizerManager() {
+        try {
+            TokenizerManager manager = TokenizerManager.getInstance(context);
+            if (manager != null && manager.isInitialized()) {
+                LogManager.logD(TAG, "TokenizerManager状态验证通过: 实例有效且已初始化");
+                return manager;
+            } else {
+                LogManager.logW(TAG, "TokenizerManager实例无效或未初始化");
+                if (manager == null) {
+                    LogManager.logW(TAG, "  - TokenizerManager实例为null");
+                } else {
+                    LogManager.logW(TAG, "  - TokenizerManager实例存在但未初始化");
+                }
+                return null;
+            }
+        } catch (Exception e) {
+            LogManager.logE(TAG, "获取TokenizerManager实例时发生异常: " + e.getMessage(), e);
+            return null;
+        }
+    }
+    
+    /**
+     * 检查TokenizerManager状态的详细信息
+     * @return 状态检查报告
+     */
+    public String checkTokenizerManagerStatus() {
+        StringBuilder report = new StringBuilder();
+        report.append("=== TokenizerManager状态检查报告 ===\n");
+        
+        try {
+            TokenizerManager manager = TokenizerManager.getInstance(context);
+            if (manager == null) {
+                report.append("❌ TokenizerManager实例: null\n");
+                return report.toString();
+            }
+            
+            report.append("✅ TokenizerManager实例: 存在\n");
+            report.append("📋 初始化状态: ").append(manager.isInitialized() ? "已初始化" : "未初始化").append("\n");
+            
+            if (manager.isInitialized()) {
+                // 可以添加更多状态检查
+                report.append("🔧 分词器可用性: 可用\n");
+            } else {
+                report.append("⚠️ 分词器可用性: 不可用\n");
+            }
+            
+        } catch (Exception e) {
+            report.append("❌ 状态检查异常: ").append(e.getMessage()).append("\n");
+        }
+        
+        return report.toString();
+    }
+    
+    /**
+     * 验证TokenizerManager状态并尝试重新初始化
+     * @return 是否成功获取有效的TokenizerManager
+     */
+    private boolean validateAndReinitializeTokenizer() {
+        TokenizerManager manager = getCurrentTokenizerManager();
+        if (manager != null) {
+            return true;
+        }
+        
+        LogManager.logW(TAG, "TokenizerManager状态无效，尝试重新初始化...");
+        try {
+            // 尝试重新获取并初始化TokenizerManager
+            manager = TokenizerManager.getInstance(context);
+            if (manager != null) {
+                // 获取模型目录进行重新初始化
+                File modelFile = new File(modelPath);
+                File modelDir = modelFile.getParentFile();
+                if (modelDir != null && modelDir.exists()) {
+                    boolean success = manager.initialize(modelDir);
+                    if (success) {
+                        LogManager.logI(TAG, "TokenizerManager重新初始化成功");
+                        return true;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            LogManager.logE(TAG, "TokenizerManager重新初始化失败: " + e.getMessage(), e);
+        }
+        
+        return false;
     }
     
     /**

@@ -95,6 +95,20 @@
 -keep class androidx.startup.** { *; }
 -dontwarn androidx.startup.**
 
+# AndroidX Lifecycle 相关 - 修复ProcessLifecycleInitializer找不到的问题
+-keep class androidx.lifecycle.** { *; }
+-dontwarn androidx.lifecycle.**
+
+# 保持ProcessLifecycleInitializer
+-keep class androidx.lifecycle.ProcessLifecycleInitializer { *; }
+
+# AndroidX ProfileInstaller 相关 - 修复ProfileInstallerInitializer找不到的问题
+-keep class androidx.profileinstaller.** { *; }
+-dontwarn androidx.profileinstaller.**
+
+# 保持ProfileInstallerInitializer
+-keep class androidx.profileinstaller.ProfileInstallerInitializer { *; }
+
 # AndroidX Emoji2 相关 - 防止EmojiCompatInitializer找不到的问题
 -keep class androidx.emoji2.** { *; }
 -dontwarn androidx.emoji2.**
@@ -158,6 +172,40 @@
 -keep class com.example.starlocalrag.api.** { *; }
 -keep class com.example.starlocalrag.LocalLlmHandler { *; }
 -keep class com.example.starlocalrag.LocalLlmHandler$** { *; }
+
+# 保持所有应用的Fragment和Activity类
+-keep class com.example.starlocalrag.*Fragment { *; }
+-keep class com.example.starlocalrag.*Activity { *; }
+-keep class com.example.starlocalrag.MainActivity { *; }
+
+# 保持所有点击事件处理方法
+-keepclassmembers class * {
+    public void onClick(android.view.View);
+    public void handle*Click*();
+    public void on*Click*();
+}
+
+# 保持所有Adapter类
+-keep class com.example.starlocalrag.*Adapter { *; }
+-keep class com.example.starlocalrag.*Adapter$** { *; }
+
+# 保持所有Manager和Handler类
+-keep class com.example.starlocalrag.*Manager { *; }
+-keep class com.example.starlocalrag.*Handler { *; }
+-keep class com.example.starlocalrag.*Manager$** { *; }
+-keep class com.example.starlocalrag.*Handler$** { *; }
+
+# 保持所有应用类的公共方法和字段
+-keep class com.example.starlocalrag.** {
+    public <fields>;
+    public <methods>;
+}
+
+# 保持View Binding相关类
+-keep class com.example.starlocalrag.databinding.** { *; }
+
+# 保持所有内部类和匿名类
+-keep class com.example.starlocalrag.**$* { *; }
 
 # 保持JNI相关
 -keepclasseswithmembernames class * {

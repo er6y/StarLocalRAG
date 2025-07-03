@@ -629,6 +629,9 @@ public class KnowledgeNoteFragment extends Fragment {
                         updateProgress(getString(R.string.new_chunk_count, afterChunkCount - beforeChunkCount));
                     }
                     
+                    // 在关闭数据库之前检查文本块数量
+                    boolean hasChunks = noteVectorDb.getChunkCount() > 0;
+                    
                     // 关闭数据库
                     noteVectorDb.close();
                     
@@ -636,7 +639,7 @@ public class KnowledgeNoteFragment extends Fragment {
                     modelManager.markModelNotInUse();
                     updateProgress(getString(R.string.mark_model_end_use));
                     
-                    if (noteVectorDb.getChunkCount() > 0) {
+                    if (hasChunks) {
                         updateProgress(getString(R.string.note_added_success));
                     }
                     

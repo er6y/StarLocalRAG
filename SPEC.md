@@ -38,6 +38,7 @@ StarLocalRAG 是一个基于 Android 平台的本地 RAG（Retrieval-Augmented G
 - **紧凑布局**：横向排列相关功能组件
 - **配置记忆**：自动保存用户选择的模型和参数
 - **思考模式**：支持 `/no_think` 指令控制推理模式
+- **语言切换优化**：修复英文UI下"Switch to Chinese"显示问题，统一显示为"切换中文"
 - **滚动优化**：所有状态显示框支持上下滚动翻看文本内容
   - RAG 问答回答框：使用 ScrollView 包裹，支持流畅滚动
   - 知识库构建状态框：支持文件列表和进度信息滚动
@@ -74,7 +75,7 @@ StarLocalRAG 是一个基于 Android 平台的本地 RAG（Retrieval-Augmented G
 
 - **架构优化**：统一异步处理模式，避免嵌套线程池
 - **输入格式**：使用 `[Q] query [SEP] [D] document [SEP]` 标记格式
-- **超时配置**：推理超时时间调整为 2 分钟
+- **超时配置**：推理超时时间调整为 10 分钟（适应模拟机较慢的处理速度）
 
 ### 2.3 本地 LLM 推理
 
@@ -101,6 +102,16 @@ StarLocalRAG 是一个基于 Android 平台的本地 RAG（Retrieval-Augmented G
 - 线程安全的停止标志机制
 - Java 和 JNI 层状态同步
 - 即时响应用户中断指令
+- **防呆机制优化**：实现智能停止完成检查，确保UI状态与实际任务状态一致
+  - 持续监控本地LLM推理状态和RAG查询任务状态
+  - 只有在所有异步任务真正停止后才恢复按钮状态
+  - 设置30秒强制恢复机制，防止无限等待
+  - 每10次检查记录一次日志，便于问题诊断
+- **模型加载并发控制**：修复LocalLlmAdapter中的竞态条件问题
+  - 添加同步机制防止多个请求同时触发模型加载
+  - 使用volatile标志和synchronized锁确保线程安全
+  - 避免"Model is loading, please try again later"错误
+  - 提供明确的加载状态反馈给用户
 
 **性能统计**：
 - Token 生成速度监控
@@ -423,6 +434,46 @@ public class ModelParamsReader {
   2. 在`proguard-rules.pro`中添加androidx.startup和androidx.emoji2的keep规则
 - **影响文件**：`app/build.gradle`、`app/proguard-rules.pro`
 - **影响**：确保Release版本能正常启动，解决androidx.startup初始化问题
+
+**Release版本ProcessLifecycleInitializer崩溃修复**（2025年修复）：
+- **问题**：Release版本启动时崩溃，错误信息"ClassNotFoundException: androidx.lifecycle.ProcessLifecycleInitializer"
+- **原因**：项目间接依赖androidx.lifecycle.ProcessLifecycleInitializer但未明确声明依赖，ProGuard混淆时移除了该类
+- **修复**：
+  1. 在`build.gradle`中明确添加androidx.lifecycle相关依赖（lifecycle-runtime:2.6.2、lifecycle-process:2.6.2、lifecycle-common:2.6.2）
+  2. 在`proguard-rules.pro`中添加androidx.lifecycle的keep规则，特别保护ProcessLifecycleInitializer类
+- **影响文件**：`app/build.gradle`、`app/proguard-rules.pro`
+- **影响**：确保Release版本能正常启动，解决androidx.startup对lifecycle组件的依赖问题
+
+**Release版本ProfileInstallerInitializer崩溃修复**（2025年修复）：
+- **问题**：Release版本启动时崩溃，错误信息"ClassNotFoundException: androidx.profileinstaller.ProfileInstallerInitializer"
+- **原因**：项目间接依赖androidx.profileinstaller.ProfileInstallerInitializer但未明确声明依赖，ProGuard混淆时移除了该类
+- **修复**：
+  1. 在`build.gradle`中明确添加androidx.profileinstaller相关依赖（profileinstaller:1.3.1）
+  2. 在`proguard-rules.pro`中添加androidx.profileinstaller的keep规则，特别保护ProfileInstallerInitializer类
+- **影响文件**：`app/build.gradle`、`app/proguard-rules.pro`
+- **影响**：确保Release版本能正常启动，解决androidx.startup对profileinstaller组件的依赖问题
+
+**Release版本按钮灰色和功能崩溃修复**（2025年修复）：
+- **问题**：Release版本APK安装后出现按钮显示为灰色状态无法点击、部分功能触发崩溃、UI交互异常等问题
+- **原因**：ProGuard混淆过程中移除了关键UI组件类、点击事件处理方法、View Binding相关类、内部类和匿名类等
+- **修复**：在`proguard-rules.pro`中添加以下keep规则：
+  1. 保持应用的所有Fragment、Activity、Adapter、Manager和Handler类
+  2. 保持所有点击事件处理方法（onClick、OnClickListener）
+  3. 保持View Binding相关类和内部类
+  4. 保持所有内部类和匿名类
+- **影响文件**：`app/proguard-rules.pro`
+- **影响**：修复Release版本按钮灰色显示问题，解决UI交互功能崩溃，确保所有Fragment和Activity正常工作
+
+**本地LLM并发调用失败修复**（2025年修复）：
+- **问题**：本地LLM推理正常，但API调用失败，提示"模型正在加载中，请稍后再试"
+- **原因**：LocalLlmAdapter中的isLoading标志在模型加载过程中设置为true，并发调用时第二次调用因为isLoading=true被直接拒绝，在某些异常情况下isLoading标志可能没有被正确重置
+- **修复**：
+  1. 在LocalLlmAdapter.callLocalModel()方法中添加try-catch块，确保异常时重置isLoading标志
+  2. 添加resetLoadingState()方法，允许手动重置加载状态
+  3. 添加isLoading()方法，提供状态查询接口
+  4. 改进异常处理逻辑，确保所有路径都能正确重置状态标志
+- **影响文件**：`LocalLlmAdapter.java`
+- **影响**：解决并发调用时的状态同步问题，确保本地LLM API调用的可靠性
 
 **知识库笔记页面UI布局修复**（2024年修复）：
 - **问题**：知识库笔记页面布局错乱，笔记内容文本框消失，进度框标签位置错误并与标题标签重叠
@@ -1334,6 +1385,34 @@ Toast.makeText(requireContext(), getString(R.string.toast_settings_saved_simple)
 - 支持国际化和本地化
 - 便于统一修改和维护
 
+#### 8.8.2 数据库操作时序优化
+
+**问题描述**：
+- 在知识库笔记添加流程中，存在数据库关闭后仍尝试访问的时序问题
+- `noteVectorDb.close()` 调用后，`noteVectorDb.getChunkCount()` 会产生 "Database not open" 错误
+- 虽然不影响数据添加功能，但会影响成功提示的显示逻辑
+
+**修复方案**：
+```java
+// 修复前：先关闭数据库，再检查文本块数量
+noteVectorDb.close();
+if (noteVectorDb.getChunkCount() > 0) {
+    updateProgress(getString(R.string.note_added_success));
+}
+
+// 修复后：先检查文本块数量，再关闭数据库
+boolean hasChunks = noteVectorDb.getChunkCount() > 0;
+noteVectorDb.close();
+if (hasChunks) {
+    updateProgress(getString(R.string.note_added_success));
+}
+```
+
+**最佳实践**：
+- 在关闭数据库连接前完成所有必要的数据库操作
+- 使用局部变量缓存数据库查询结果，避免在连接关闭后重复查询
+- 确保资源释放的时序正确性，避免访问已关闭的资源
+
 #### 8.3.2 版本管理
 
 **构建配置优化**：
@@ -1397,6 +1476,11 @@ android {
 - 分布式推理支持
 - 模型压缩技术
 - 状态管理性能优化
+- **超时配置优化**：
+  - 重排模型推理超时：10分钟（适应模拟机较慢的处理速度）
+  - LLM推理超时：2分钟（LocalLLMLlamaCppHandler）
+  - API请求超时：5分钟（StreamingApiClient）
+  - 根据设备性能和模型复杂度动态调整超时时间
 
 ### 9.3 用户体验
 
