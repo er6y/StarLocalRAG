@@ -99,8 +99,17 @@ test_onnx.py
 *.lai
 *.lo
 
-# 特别保留 JNI 库文件
-!**/*.so
+# 排除大的 JNI 库文件（超过GitHub限制）
+**/*.so
+*.apk
+*.aab
+
+# 排除大的发布文件
+StarLocalRAG_release*.apk
+app/release/
+
+# 排除大的JNI库文件
+app/src/main/jniLibs/
 /log.ini
 /app/debug
 /Rerankers
