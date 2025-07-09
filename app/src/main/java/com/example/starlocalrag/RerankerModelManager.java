@@ -201,6 +201,15 @@ public class RerankerModelManager {
                 
                 LogManager.logI(TAG, "Reranker model loaded successfully, starting rerank execution");
                 
+                // 检查全局停止标志
+                if (GlobalStopManager.isGlobalStopRequested()) {
+                    LogManager.logD(TAG, "Global stop requested, aborting rerank execution");
+                    if (callback != null) {
+                        mainHandler.post(() -> callback.onRerankError("Operation stopped by user"));
+                    }
+                    return;
+                }
+                
                 // 开始重排文档（不显示进度信息）
                 
                 // 执行重排

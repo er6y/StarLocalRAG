@@ -4,6 +4,7 @@ import android.content.Context;
 import android.util.Log;
 
 import com.example.starlocalrag.api.TokenizerManager;
+import com.example.starlocalrag.GlobalStopManager;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -139,6 +140,12 @@ public class EmbeddingModelHandler {
      * @throws Exception 如果加载失败
      */
     public EmbeddingModelHandler(Context context, String modelPath, boolean useGpu) throws Exception {
+        // 检查全局停止标志
+        if (GlobalStopManager.isGlobalStopRequested()) {
+            LogManager.logD(TAG, "检测到全局停止请求，取消模型加载");
+            throw new Exception("模型加载被用户取消");
+        }
+        
         LogManager.logD(TAG, "创建EmbeddingModelHandler实例，context: " + (context != null ? "有效" : "null") + ", 模型路径: " + modelPath);
         this.context = context;
         this.modelPath = modelPath;
@@ -146,6 +153,12 @@ public class EmbeddingModelHandler {
         this.useGpu = useGpu;
         
         try {
+            // 再次检查停止标志
+            if (GlobalStopManager.isGlobalStopRequested()) {
+                LogManager.logD(TAG, "检测到全局停止请求，取消模型加载");
+                throw new Exception("模型加载被用户取消");
+            }
+            
             if (this.modelType == ModelType.TORCH_SCRIPT) {
                 // 加载TorchScript模型
                 this.torchModel = Module.load(modelPath);
@@ -403,6 +416,12 @@ public class EmbeddingModelHandler {
      */
     private boolean loadOnnxModel(String modelPath) {
         try {
+            // 检查全局停止标志
+            if (GlobalStopManager.isGlobalStopRequested()) {
+                LogManager.logD(TAG, "检测到全局停止请求，取消ONNX模型加载");
+                return false;
+            }
+            
             LogManager.logD(TAG, "开始加载ONNX模型: " + modelPath);
             
             // 检查模型路径
@@ -444,6 +463,12 @@ public class EmbeddingModelHandler {
             }
             
             // 创建ONNX运行时环境
+            
+            // 检查停止标志
+            if (GlobalStopManager.isGlobalStopRequested()) {
+                LogManager.logD(TAG, "检测到全局停止请求，取消ONNX运行时环境创建");
+                return false;
+            }
             
             try {
                 ortEnvironment = OrtEnvironment.getEnvironment();
@@ -571,6 +596,12 @@ public class EmbeddingModelHandler {
             
             // 加载模型
             
+            // 检查停止标志
+            if (GlobalStopManager.isGlobalStopRequested()) {
+                LogManager.logD(TAG, "检测到全局停止请求，取消ONNX模型会话创建");
+                return false;
+            }
+            
             // 检查模型文件是否存在
             File modelFileCheck = new File(modelPath);
             if (!modelFileCheck.exists()) {
@@ -582,8 +613,6 @@ public class EmbeddingModelHandler {
                 LogManager.logE(TAG, "模型文件无法读取: " + modelPath);
                 return false;
             }
-            
-
             
             try {
                 onnxSession = ortEnvironment.createSession(modelPath, sessionOptions);
@@ -822,21 +851,43 @@ public class EmbeddingModelHandler {
             LogManager.logD(TAG, "从目录名称提取模型名称: " + modelName);
         }
         
-        // 在加载新的tokenizer之前，确保释放之前的资源
+        // 在加载新的tokenizer之前，确保安全释放之前的资源
         if (tokenizer != null) {
-            LogManager.logD(TAG, "释放之前的tokenizer资源");
+            LogManager.logD(TAG, "开始释放之前的tokenizer资源...");
             try {
+                // 添加延迟，确保所有操作完成
+                Thread.sleep(50);
                 tokenizer.close();
+                LogManager.logI(TAG, "之前的tokenizer资源释放完成");
             } catch (Exception e) {
                 LogManager.logW(TAG, "关闭tokenizer资源失败: " + e.getMessage());
+            } finally {
+                tokenizer = null;
             }
-            tokenizer = null;
         }
         
-        // 重置全局TokenizerManager，确保使用新模型的tokenizer
+        // 安全重置全局TokenizerManager，确保使用新模型的tokenizer
         if (context != null) {
-            LogManager.logD(TAG, "重置TokenizerManager以加载新模型");
-            TokenizerManager.resetManager();
+            LogManager.logD(TAG, "准备重置TokenizerManager以加载新模型...");
+            try {
+                // 检查全局停止标志，如果正在停止则跳过重置
+                if (GlobalStopManager.isGlobalStopRequested()) {
+                    LogManager.logW(TAG, "检测到全局停止标志，跳过TokenizerManager重置");
+                    throw new IOException("操作被用户取消");
+                }
+                
+                // 添加延迟，确保之前的操作完全完成
+                Thread.sleep(100);
+                
+                TokenizerManager.resetManager();
+                LogManager.logI(TAG, "TokenizerManager重置完成");
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                throw new IOException("TokenizerManager重置被中断");
+            } catch (Exception e) {
+                LogManager.logE(TAG, "TokenizerManager重置失败: " + e.getMessage(), e);
+                throw new IOException("TokenizerManager重置失败: " + e.getMessage(), e);
+            }
         }
         
         // 初始化TokenizerManager
@@ -1208,42 +1259,10 @@ public class EmbeddingModelHandler {
             long endTime = System.currentTimeMillis();
             LogManager.logD(TAG, "生成嵌入向量耗时: " + (endTime - startTime) + "ms");
             
-            // 检查配置是否启用归一化
-            boolean shouldNormalize = true; // 默认启用
-            if (context != null) {
-                shouldNormalize = ConfigManager.getBoolean(context, 
-                    ConfigManager.KEY_LLAMACPP_NORMALIZE_EMBEDDINGS, 
-                    ConfigManager.DEFAULT_LLAMACPP_NORMALIZE_EMBEDDINGS);
-            }
-            
-            // 对向量进行L2归一化（如果配置启用）
-            if (shouldNormalize) {
-                embedding = normalizeVector(embedding);
-                LogManager.logD(TAG, "已启用向量归一化");
-            } else {
-                LogManager.logD(TAG, "已禁用向量归一化，保持原始向量");
-            }
-            
-            // 打印前5个和后5个向量值，帮助调试
-            if (embedding != null && embedding.length > 10) {
-                StringBuilder sb = new StringBuilder("嵌入向量样例 (前5个值): ");
-                for (int i = 0; i < 5; i++) {
-                    sb.append(embedding[i]).append(", ");
-                }
-                sb.append(" ... (后5个值): ");
-                for (int i = embedding.length - 5; i < embedding.length; i++) {
-                    sb.append(embedding[i]).append(", ");
-                }
-                LogManager.logD(TAG, sb.toString());
-                
-                // 计算向量范数，帮助确认归一化是否有效
-                double norm = 0.0;
-                for (float v : embedding) {
-                    norm += v * v;
-                }
-                norm = Math.sqrt(norm);
-                LogManager.logD(TAG, "嵌入向量L2范数: " + norm + " (应接近1.0)");
-            }
+            // 记录原始向量信息（不进行归一化，留给上层方法处理）
+            LogManager.logD(TAG, "原始嵌入向量维度: " + embedding.length);
+            LogManager.logD(TAG, "嵌入向量样例 (前5个值): " + 
+                Arrays.toString(Arrays.copyOfRange(embedding, 0, Math.min(5, embedding.length))));
             
             // 创建一个副本，避免在关闭张量后访问其内存
             float[] embeddingCopy = Arrays.copyOf(embedding, embedding.length);
@@ -1267,6 +1286,12 @@ public class EmbeddingModelHandler {
     public float[] generateEmbedding(String text) throws Exception {
         LogManager.logD(TAG, "开始生成嵌入向量，文本长度: " + text.length());
         
+        // 检查全局停止标志
+        if (GlobalStopManager.isGlobalStopRequested()) {
+            LogManager.logD(TAG, "检测到全局停止标志，中断嵌入向量生成");
+            throw new InterruptedException("嵌入向量生成被用户停止");
+        }
+        
         if (text == null || text.isEmpty()) {
             LogManager.logW(TAG, "输入文本为空，返回空向量");
             return new float[0];
@@ -1276,6 +1301,12 @@ public class EmbeddingModelHandler {
             // 根据模型类型生成嵌入向量
             float[] embedding;
             long startTime = System.currentTimeMillis();
+            
+            // 再次检查停止标志
+            if (GlobalStopManager.isGlobalStopRequested()) {
+                LogManager.logD(TAG, "检测到全局停止标志，中断嵌入向量生成");
+                throw new InterruptedException("嵌入向量生成被用户停止");
+            }
             
             if (modelType == ModelType.ONNX) {
                 // 检查ONNX会话状态并尝试恢复
@@ -1929,44 +1960,94 @@ public class EmbeddingModelHandler {
     }
     
     /**
-     * 对向量进行L2归一化
+     * 对向量进行L2归一化（增强版，包含异常处理）
      * @param vector 输入向量
      * @return 归一化后的向量
      */
     private float[] normalizeVector(float[] vector) {
-        //LogManager.logD(TAG, "对嵌入向量进行L2归一化，向量长度: " + vector.length);
+        LogManager.logD(TAG, "Starting enhanced vector normalization, vector length: " + vector.length);
         
-        float[] normalized = new float[vector.length];
+        // 1. 向量异常检测和修复
+        VectorAnomalyHandler.AnomalyResult anomalyResult = VectorAnomalyHandler.detectAnomalies(vector, -1);
+        
+        float[] processedVector = vector;
+        if (anomalyResult.isAnomalous) {
+            LogManager.logW(TAG, String.format("Vector anomaly detected before normalization: %s (severity: %.2f) - %s", 
+                    anomalyResult.type.name(), anomalyResult.severity, anomalyResult.description));
+            
+            // 修复向量异常
+            processedVector = VectorAnomalyHandler.repairVector(vector, anomalyResult.type);
+            if (processedVector == null) {
+                LogManager.logE(TAG, "Failed to repair vector anomaly, using original vector");
+                processedVector = vector;
+            } else {
+                LogManager.logD(TAG, "Vector anomaly repaired successfully");
+            }
+        }
+        
+        // 2. 计算L2范数
+        float[] normalized = new float[processedVector.length];
         float norm = 0.0f;
         
-        // 计算L2范数（欧几里德范数）
-        for (float v : vector) {
+        for (float v : processedVector) {
             norm += v * v;
         }
         norm = (float) Math.sqrt(norm);
         
-        // 记录归一化前的范数
-        //LogManager.logD(TAG, "归一化前的向量L2范数: " + norm);
+        LogManager.logD(TAG, String.format("Vector L2 norm before normalization: %.6f", norm));
         
-        // 如果范数太小，返回零向量以避免数值问题
-        if (norm < 1e-6) {
-            LogManager.logW(TAG, "向量范数接近零 (" + norm + ")，返回零向量");
-            return new float[vector.length];
+        // 3. 处理零向量或极小范数的情况
+        if (norm < 1e-6f) {
+            LogManager.logW(TAG, String.format("Vector norm too small (%.2e), generating random unit vector", norm));
+            
+            // 生成随机单位向量
+            java.util.Random random = new java.util.Random();
+            for (int i = 0; i < normalized.length; i++) {
+                normalized[i] = (float) (random.nextGaussian() * 0.1);
+            }
+            
+            // 重新计算范数
+            norm = 0.0f;
+            for (float v : normalized) {
+                norm += v * v;
+            }
+            norm = (float) Math.sqrt(norm);
+            
+            // 归一化随机向量
+            if (norm > 1e-6f) {
+                for (int i = 0; i < normalized.length; i++) {
+                    normalized[i] /= norm;
+                }
+            } else {
+                // 如果随机向量仍然有问题，使用默认单位向量
+                LogManager.logW(TAG, "Random vector also has small norm, using default unit vector");
+                Arrays.fill(normalized, 0.0f);
+                if (normalized.length > 0) {
+                    normalized[0] = 1.0f;
+                }
+            }
+        } else {
+            // 4. 正常归一化
+            for (int i = 0; i < processedVector.length; i++) {
+                normalized[i] = processedVector[i] / norm;
+            }
         }
         
-        // 归一化
-        for (int i = 0; i < vector.length; i++) {
-            normalized[i] = vector[i] / norm;
-        }
-        
-        // 验证归一化结果
+        // 5. 验证归一化结果
         float newNorm = 0.0f;
         for (float v : normalized) {
             newNorm += v * v;
         }
         newNorm = (float) Math.sqrt(newNorm);
         
-        LogManager.logD(TAG, "归一化后的向量L2范数: " + newNorm + " (应接近1.0)");
+        LogManager.logD(TAG, String.format("Vector L2 norm after normalization: %.6f (should be close to 1.0)", newNorm));
+        
+        // 6. 最终异常检测
+        VectorAnomalyHandler.AnomalyResult finalResult = VectorAnomalyHandler.detectAnomalies(normalized, -1);
+        if (finalResult.isAnomalous) {
+            LogManager.logW(TAG, String.format("Normalized vector still has anomalies: %s - %s", 
+                    finalResult.type.name(), finalResult.description));
+        }
         
         return normalized;
     }

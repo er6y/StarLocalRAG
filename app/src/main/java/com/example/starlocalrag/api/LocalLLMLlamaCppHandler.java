@@ -5,8 +5,10 @@ import android.content.Context;
 import android.util.Log;
 
 import com.example.starlocalrag.ConfigManager;
+import com.example.starlocalrag.GlobalStopManager;
 import com.example.starlocalrag.LogManager;
 import com.example.starlocalrag.SettingsFragment;
+import com.starlocalrag.tokenizers.UnicodeDecoder;
 import com.starlocalrag.llamacpp.LlamaCppInference;
 import com.starlocalrag.llamacpp.NativeLibraryLoader;
 import org.json.JSONObject;
@@ -61,15 +63,15 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
     private final AtomicBoolean shouldStop = new AtomicBoolean(false);
     
     // 线程异常检测和强制终止
-    private static final long THREAD_TIMEOUT_MS = 60000; // 60秒超时
-    private static final long INFERENCE_TIMEOUT_MS = 120000; // 2分钟推理超时
+    private static final long THREAD_TIMEOUT_MS = -1; // 禁用线程超时检查
+    private static final long INFERENCE_TIMEOUT_MS = Long.MAX_VALUE; // 取消推理超时限制，允许长时间推理
     private static final long THREAD_CHECK_INTERVAL_MS = 5000; // 5秒检查间隔
     private static final int MAX_FORCE_TERMINATION_RETRIES = 3; // 最大强制终止重试次数
     
     private volatile Thread currentInferenceThread = null;
     private volatile long inferenceThreadStartTime = 0;
     private volatile long lastThreadHealthCheckTime = 0;
-    private final AtomicBoolean threadHealthCheckEnabled = new AtomicBoolean(true);
+    private final AtomicBoolean threadHealthCheckEnabled = new AtomicBoolean(false); // 禁用线程健康检查
     private final AtomicInteger forceTerminationRetryCount = new AtomicInteger(0);
     private volatile CompletableFuture<?> currentInferenceTask = null;
     
@@ -199,12 +201,15 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
             throw new RuntimeException("模型加载失败: " + ggufFile.getAbsolutePath());
         }
         
-        // 3. 创建上下文（GPU层数已在模型加载时设置）
-        contextHandle = LlamaCppInference.new_context_with_params(modelHandle, contextSize, actualThreads, 0);
+        // 3. 创建上下文（传递正确的参数：模型句柄、上下文大小、线程数、GPU层数）
+        contextHandle = LlamaCppInference.new_context_with_params(modelHandle, contextSize, actualThreads, nGpuLayers);
         if (contextHandle == 0) {
             LlamaCppInference.free_model(modelHandle);
             throw new RuntimeException("上下文创建失败");
         }
+        
+        LogManager.logI(TAG, String.format("上下文创建成功 - contextSize: %d, threads: %d, gpuLayers: %d", 
+            contextSize, actualThreads, nGpuLayers));
         
         // 4. 预分配batch和sampler - 内存池管理
         preallocateResources();
@@ -251,7 +256,7 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
     /**
      * 获取batch资源 - 内存池管理
      */
-    private long acquireBatch(int requiredSize) {
+    private synchronized long acquireBatch(int requiredSize) {
         // 如果预分配的batch可用且大小足够，则复用
         if (preallocatedBatch != 0 && requiredSize <= preallocatedBatchSize && 
             batchInUse.compareAndSet(false, true)) {
@@ -260,23 +265,37 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
         }
         
         // 否则动态分配
-        long batch = LlamaCppInference.new_batch(requiredSize, 0, 1);
-        LogManager.logD(TAG, "动态分配batch: " + batch + ", 大小: " + requiredSize);
-        return batch;
+        try {
+            long batch = LlamaCppInference.new_batch(requiredSize, 0, 1);
+            LogManager.logD(TAG, "动态分配batch: " + batch + ", 大小: " + requiredSize);
+            return batch;
+        } catch (Exception e) {
+            LogManager.logE(TAG, "动态分配batch失败: " + e.getMessage(), e);
+            return 0;
+        }
     }
     
     /**
      * 释放batch资源 - 内存池管理
      */
-    private void releaseBatch(long batch) {
+    private synchronized void releaseBatch(long batch) {
+        if (batch == 0) {
+            LogManager.logW(TAG, "尝试释放无效的batch句柄: 0");
+            return;
+        }
+        
         if (batch == preallocatedBatch) {
             // 预分配的batch，标记为可用
             batchInUse.set(false);
             LogManager.logD(TAG, "释放预分配batch回池: " + batch);
         } else {
             // 动态分配的batch，直接释放
-            LlamaCppInference.free_batch(batch);
-            LogManager.logD(TAG, "释放动态batch: " + batch);
+            try {
+                LlamaCppInference.free_batch(batch);
+                LogManager.logD(TAG, "释放动态batch: " + batch);
+            } catch (Exception e) {
+                LogManager.logE(TAG, "释放动态batch失败: " + batch, e);
+            }
         }
     }
     
@@ -654,7 +673,7 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
     /**
      * 获取sampler资源 - 内存池管理
      */
-    private long acquireSampler(LocalLlmHandler.InferenceParams params) {
+    private synchronized long acquireSampler(LocalLlmHandler.InferenceParams params) {
         LocalLlmHandler.InferenceParams finalParams = null;
         
         // 检查是否优先使用手动参数
@@ -692,31 +711,45 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
         }
         
         // 否则动态分配
-        long sampler = finalParams != null ? 
-            LlamaCppInference.new_sampler_with_full_params(
-                finalParams.getTemperature(),
-                finalParams.getTopP(),
-                finalParams.getTopK(),
-                finalParams.getRepetitionPenalty()
-            ) : LlamaCppInference.new_sampler();
-        LogManager.logD(TAG, "动态分配sampler: " + sampler + 
-            (finalParams != null ? String.format(" (temp=%.2f, top_p=%.2f, top_k=%d, repeat_penalty=%.2f)", 
-                finalParams.getTemperature(), finalParams.getTopP(), finalParams.getTopK(), finalParams.getRepetitionPenalty()) : " (默认参数)"));
-        return sampler;
+        try {
+            long sampler = finalParams != null ? 
+                LlamaCppInference.new_sampler_with_full_params(
+                    finalParams.getTemperature(),
+                    finalParams.getTopP(),
+                    finalParams.getTopK(),
+                    finalParams.getRepetitionPenalty()
+                ) : LlamaCppInference.new_sampler();
+            LogManager.logD(TAG, "动态分配sampler: " + sampler + 
+                (finalParams != null ? String.format(" (temp=%.2f, top_p=%.2f, top_k=%d, repeat_penalty=%.2f)", 
+                    finalParams.getTemperature(), finalParams.getTopP(), finalParams.getTopK(), finalParams.getRepetitionPenalty()) : " (默认参数)"));
+            return sampler;
+        } catch (Exception e) {
+            LogManager.logE(TAG, "动态分配sampler失败: " + e.getMessage(), e);
+            return 0;
+        }
     }
     
     /**
      * 释放sampler资源 - 内存池管理
      */
-    private void releaseSampler(long sampler) {
+    private synchronized void releaseSampler(long sampler) {
+        if (sampler == 0) {
+            LogManager.logW(TAG, "尝试释放无效的sampler句柄: 0");
+            return;
+        }
+        
         if (sampler == preallocatedSampler) {
             // 预分配的sampler，标记为可用
             samplerInUse.set(false);
             LogManager.logD(TAG, "释放预分配sampler回池: " + sampler);
         } else {
             // 动态分配的sampler，直接释放
-            LlamaCppInference.free_sampler(sampler);
-            LogManager.logD(TAG, "释放动态sampler: " + sampler);
+            try {
+                LlamaCppInference.free_sampler(sampler);
+                LogManager.logD(TAG, "释放动态sampler: " + sampler);
+            } catch (Exception e) {
+                LogManager.logE(TAG, "释放动态sampler失败: " + sampler, e);
+            }
         }
     }
     
@@ -750,6 +783,15 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
     
     public void generateText(String prompt, LocalLlmHandler.InferenceParams params, 
                            LocalLlmHandler.StreamingCallback callback) {
+        // 检查全局停止标志
+        if (GlobalStopManager.isGlobalStopRequested()) {
+            LogManager.logD(TAG, "Detected global stop flag, interrupting text generation");
+            if (callback != null) {
+                callback.onError("Text generation interrupted by global stop flag");
+            }
+            return;
+        }
+        
         if (!isInitialized.get()) {
             String error = "推理引擎未初始化";
             LogManager.logE(TAG, error);
@@ -859,8 +901,16 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
             lastUsedTime = System.currentTimeMillis();
             
             try {
-                // 清空KV缓存
-                LlamaCppInference.kv_cache_clear(contextHandle);
+                // 清空KV缓存 - 添加有效性检查
+                if (contextHandle != 0) {
+                    LlamaCppInference.kv_cache_clear(contextHandle);
+                } else {
+                    LogManager.logW(TAG, "contextHandle为0，跳过KV缓存清理");
+                    if (callback != null) {
+                        callback.onError("推理引擎未正确初始化");
+                    }
+                    return;
+                }
                 
                 // 调试日志已移除
                 
@@ -874,8 +924,12 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
                 // 生成循环
                 LlamaCppInference.IntVar currentPos = new LlamaCppInference.IntVar(tokenCount);
                 
-                for (int i = 0; i < maxTokens && !shouldStop.get(); i++) {
-                    // Stop debugging loop logging removed
+                for (int i = 0; i < maxTokens && !shouldStop.get() && !GlobalStopManager.isGlobalStopRequested(); i++) {
+                    // 检查全局停止标志
+                    if (GlobalStopManager.isGlobalStopRequested()) {
+                        LogManager.logD(TAG, "Detected global stop flag during generation loop, breaking");
+                        break;
+                    }
                     
                     if (shouldStop.get()) {
                         // 停止调试日志已移除
@@ -908,7 +962,7 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
                     String token = LlamaCppInference.completion_loop(contextHandle, batch, sampler, maxTokens, currentPos);
                     
                     // JNI调用返回后再次检查停止标志
-                    if (shouldStop.get()) {
+                    if (shouldStop.get() || GlobalStopManager.isGlobalStopRequested()) {
                         // 停止调试日志已移除
                         break;
                     }
@@ -917,7 +971,23 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
                         break;
                     }
                     
-                    fullResponse.append(token);
+                    // 对从LlamaCpp返回的token进行Unicode修复
+                    String fixedToken = token;
+                    try {
+                        // 使用UnicodeDecoder进行多重修复，确保完全解码
+                        fixedToken = UnicodeDecoder.decodeUnicodeEscapes(token);
+                        // 如果仍然包含转义序列，再次修复
+                        while (fixedToken.contains("\\u") && !fixedToken.equals(token)) {
+                            token = fixedToken;
+                            fixedToken = UnicodeDecoder.decodeUnicodeEscapes(token);
+                        }
+                        LogManager.logD(TAG, String.format("Token Unicode修复: '%s' -> '%s'", token, fixedToken));
+                    } catch (Exception e) {
+                        LogManager.logW(TAG, "Token Unicode修复失败: " + e.getMessage());
+                        fixedToken = token; // 回退到原始token
+                    }
+                    
+                    fullResponse.append(fixedToken);
                     totalTokensGenerated.incrementAndGet();
                     currentSessionTokens.incrementAndGet();
                     
@@ -925,7 +995,7 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
                     updateMemoryMonitoring();
                     
                     if (callback != null) {
-                        callback.onToken(token);
+                        callback.onToken(fixedToken);
                     }
                 }
             } finally {
@@ -988,8 +1058,16 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
             lastUsedTime = System.currentTimeMillis();
             
             try {
-                // 清空KV缓存
-                LlamaCppInference.kv_cache_clear(contextHandle);
+                // 清空KV缓存 - 添加有效性检查
+                if (contextHandle != 0) {
+                    LlamaCppInference.kv_cache_clear(contextHandle);
+                } else {
+                    LogManager.logW(TAG, "contextHandle为0，跳过KV缓存清理");
+                    if (callback != null) {
+                        callback.onError("推理引擎未正确初始化");
+                    }
+                    return;
+                }
                 
                 // 调试日志已移除
                 
@@ -1006,8 +1084,12 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
                 // 生成循环
                 LlamaCppInference.IntVar currentPos = new LlamaCppInference.IntVar(tokenCount);
                 
-                for (int i = 0; i < maxTokens && !shouldStop.get(); i++) {
-                    // Traditional streaming loop debugging logging removed
+                for (int i = 0; i < maxTokens && !shouldStop.get() && !GlobalStopManager.isGlobalStopRequested(); i++) {
+                    // 检查全局停止标志
+                    if (GlobalStopManager.isGlobalStopRequested()) {
+                        LogManager.logD(TAG, "Detected global stop flag during traditional streaming loop, breaking");
+                        break;
+                    }
                     
                     if (shouldStop.get()) {
                         // 停止调试日志已移除
@@ -1027,7 +1109,23 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
                         break;
                     }
                     
-                    fullResponse.append(token);
+                    // 对从LlamaCpp返回的token进行Unicode修复
+                    String fixedToken = token;
+                    try {
+                        // 使用UnicodeDecoder进行多重修复，确保完全解码
+                        fixedToken = UnicodeDecoder.decodeUnicodeEscapes(token);
+                        // 如果仍然包含转义序列，再次修复
+                        while (fixedToken.contains("\\u") && !fixedToken.equals(token)) {
+                            token = fixedToken;
+                            fixedToken = UnicodeDecoder.decodeUnicodeEscapes(token);
+                        }
+                        LogManager.logD(TAG, String.format("传统API Token Unicode修复: '%s' -> '%s'", token, fixedToken));
+                    } catch (Exception e) {
+                        LogManager.logW(TAG, "传统API Token Unicode修复失败: " + e.getMessage());
+                        fixedToken = token; // 回退到原始token
+                    }
+                    
+                    fullResponse.append(fixedToken);
                     totalTokensGenerated.incrementAndGet();
                     currentSessionTokens.incrementAndGet();
                     
@@ -1035,7 +1133,7 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
                     updateMemoryMonitoring();
                     
                     if (callback != null) {
-                        callback.onToken(token);
+                        callback.onToken(fixedToken);
                     }
                 }
                 
@@ -1179,8 +1277,13 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
                 StringBuilder result = new StringBuilder();
                 
                 try {
-                    // 清空KV缓存
-                LlamaCppInference.kv_cache_clear(contextHandle);
+                    // 清空KV缓存 - 添加有效性检查
+                    if (contextHandle != 0) {
+                        LlamaCppInference.kv_cache_clear(contextHandle);
+                    } else {
+                        LogManager.logW(TAG, "contextHandle为0，跳过KV缓存清理");
+                        return "";
+                    }
                 
                 // 调试日志已移除
                 
@@ -1199,7 +1302,27 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
                         if (token == null || token.isEmpty()) {
                             break;
                         }
-                        result.append(token);
+                        
+                        // 多重Unicode修复逻辑
+                        String originalToken = token;
+                        String fixedToken = token;
+                        int maxAttempts = 3;
+                        
+                        for (int attempt = 0; attempt < maxAttempts; attempt++) {
+                            String previousToken = fixedToken;
+                            fixedToken = UnicodeDecoder.decodeUnicodeEscapes(fixedToken);
+                            
+                            // 如果没有变化，说明已经完全解码
+                            if (fixedToken.equals(previousToken)) {
+                                break;
+                            }
+                        }
+                        
+                        if (!originalToken.equals(fixedToken)) {
+                            LogManager.logD(TAG, "Unicode修复: " + originalToken + " -> " + fixedToken);
+                        }
+                        
+                        result.append(fixedToken);
                     }
                 } finally {
                     // 清理资源
@@ -1226,7 +1349,7 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
     }
     
     @Override
-    public void stopInference() {
+    public synchronized void stopInference() {
         LogManager.logD(TAG, "[停止调试] 停止标志当前状态: " + shouldStop.get());
         shouldStop.set(true);
         
@@ -1484,7 +1607,7 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
     }
     
     @Override
-    public void release() {
+    public synchronized void release() {
         LogManager.logI(TAG, "释放LlamaCpp推理引擎资源");
         
         // 停止当前生成
@@ -1492,29 +1615,31 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
         
         // 释放LlamaCpp句柄
         if (contextHandle != 0) {
+            long contextToFree = contextHandle;
+            contextHandle = 0; // 先置零，防止重复释放
+            
             try {
-                LlamaCppInference.free_context(contextHandle);
+                LlamaCppInference.free_context(contextToFree);
                 LogManager.logI(TAG, "上下文资源释放完成");
             } catch (Exception e) {
-                LogManager.logW(TAG, "释放上下文时发生异常", e);
+                LogManager.logW(TAG, "释放上下文时发生异常: " + contextToFree, e);
             }
-            contextHandle = 0;
         }
         
         if (modelHandle != 0) {
+            long modelToFree = modelHandle;
+            modelHandle = 0; // 先置零，防止重复释放
+            
             try {
-                LlamaCppInference.free_model(modelHandle);
+                LlamaCppInference.free_model(modelToFree);
                 LogManager.logI(TAG, "模型资源释放完成");
             } catch (Exception e) {
-                LogManager.logW(TAG, "释放模型时发生异常", e);
+                LogManager.logW(TAG, "释放模型时发生异常: " + modelToFree, e);
             }
-            modelHandle = 0;
         }
         
         // 释放预分配资源
         releasePreallocatedResources();
-        
-
         
         // 关闭线程池
         if (executorService != null && !executorService.isShutdown()) {
@@ -1543,22 +1668,41 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
     /**
      * 释放预分配资源
      */
-    private void releasePreallocatedResources() {
+    private synchronized void releasePreallocatedResources() {
+        LogManager.logI(TAG, "开始释放预分配资源");
+        
         try {
+            // 释放预分配batch
             if (preallocatedBatch != 0) {
-                LlamaCppInference.free_batch(preallocatedBatch);
-                LogManager.logI(TAG, "预分配batch资源释放完成: " + preallocatedBatch);
-                preallocatedBatch = 0;
+                long batchToFree = preallocatedBatch;
+                preallocatedBatch = 0; // 先置零，防止重复释放
+                
+                try {
+                    LlamaCppInference.free_batch(batchToFree);
+                    LogManager.logI(TAG, "预分配batch资源释放完成: " + batchToFree);
+                } catch (Exception e) {
+                    LogManager.logE(TAG, "释放预分配batch失败: " + batchToFree, e);
+                }
             }
             
+            // 释放预分配sampler
             if (preallocatedSampler != 0) {
-                LlamaCppInference.free_sampler(preallocatedSampler);
-                LogManager.logI(TAG, "预分配sampler资源释放完成: " + preallocatedSampler);
-                preallocatedSampler = 0;
+                long samplerToFree = preallocatedSampler;
+                preallocatedSampler = 0; // 先置零，防止重复释放
+                
+                try {
+                    LlamaCppInference.free_sampler(samplerToFree);
+                    LogManager.logI(TAG, "预分配sampler资源释放完成: " + samplerToFree);
+                } catch (Exception e) {
+                    LogManager.logE(TAG, "释放预分配sampler失败: " + samplerToFree, e);
+                }
             }
             
+            // 重置使用标志
             batchInUse.set(false);
             samplerInUse.set(false);
+            
+            LogManager.logI(TAG, "预分配资源释放完成");
         } catch (Exception e) {
             LogManager.logE(TAG, "释放预分配资源失败", e);
         }
@@ -1589,8 +1733,8 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
             LogManager.logD(TAG, "线程健康检查 [线程ID: " + currentInferenceThread.getId() + 
                            ", 运行时间: " + threadRunTime + "ms, 状态: " + currentInferenceThread.getState() + "]");
             
-            // 检查线程是否超时
-            if (threadRunTime > THREAD_TIMEOUT_MS) {
+            // 检查线程是否超时（如果THREAD_TIMEOUT_MS为-1则跳过超时检查）
+            if (THREAD_TIMEOUT_MS > 0 && threadRunTime > THREAD_TIMEOUT_MS) {
                 LogManager.logW(TAG, "检测到推理线程超时，运行时间: " + threadRunTime + "ms > " + THREAD_TIMEOUT_MS + "ms");
                 return false;
             }
@@ -1761,7 +1905,7 @@ public class LocalLLMLlamaCppHandler implements LocalLlmHandler.InferenceEngine 
         // 新对话调试日志已移除
         
         try {
-            // 清除KV缓存
+            // 清除KV缓存 - 添加有效性检查
             if (contextHandle != 0) {
                 // 新对话调试日志已移除
                 LlamaCppInference.kv_cache_clear(contextHandle);

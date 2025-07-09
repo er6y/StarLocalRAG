@@ -74,6 +74,28 @@ public class TokenizerJNI {
      */
     public static native String decode(long tokenizerPtr, String ids, boolean skipSpecialTokens);
     
+    /**
+     * 解码token ID为文本并修复Unicode转义序列
+     * @param tokenizerPtr 分词器指针
+     * @param ids JSON格式的token ID数组
+     * @param skipSpecialTokens 是否跳过特殊token
+     * @return 解码并修复Unicode后的文本
+     */
+    public static String decodeWithUnicodeFix(long tokenizerPtr, String ids, boolean skipSpecialTokens) {
+        String result = decode(tokenizerPtr, ids, skipSpecialTokens);
+        return UnicodeDecoder.decodeUnicodeEscapes(result);
+    }
+    
+    /**
+     * 解码token ID为文本并修复Unicode转义序列（默认不跳过特殊token）
+     * @param tokenizerPtr 分词器指针
+     * @param ids JSON格式的token ID数组
+     * @return 解码并修复Unicode后的文本
+     */
+    public static String decodeWithUnicodeFix(long tokenizerPtr, String ids) {
+        return decodeWithUnicodeFix(tokenizerPtr, ids, false);
+    }
+    
 
     
     /**

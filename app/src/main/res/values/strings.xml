@@ -28,6 +28,8 @@
     <string name="common_idle">空闲</string>
     <string name="common_busy">忙碌</string>
     <string name="common_none">无</string>
+    <string name="common_yes">是</string>
+    <string name="common_no">否</string>
     <string name="common_loading">加载中...</string>
     <string name="common_processing">处理中</string>
     <string name="common_preparing">准备中</string>
@@ -295,6 +297,12 @@
     <string name="error_vector_dimension_mismatch">向量维度不匹配</string>
     <string name="error_dimension_must_match">维度必须匹配</string>
     <string name="error_check_vector_dimension">检查向量维度时出错</string>
+    
+    <!-- 向量异常处理相关 -->
+    <string name="vector_anomaly_detected_repairing">检测到向量异常，正在修复...</string>
+    <string name="vector_repair_failed_using_random">向量修复失败，使用随机向量替代</string>
+    <string name="vector_repair_success">向量修复成功</string>
+    <string name="vector_processing_error">向量处理错误: %s</string>
     <string name="error_network">网络错误</string>
     <string name="error_permission_denied">权限被拒绝</string>
 

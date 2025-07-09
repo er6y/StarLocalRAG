@@ -33,6 +33,7 @@ public class AppConstants {
         public static final String LOAD_FAILED = "load_failed";
         public static final String EMPTY = "empty";
         public static final String READY = "ready";
+        public static final String NONE = "none";
     }
 
     /**

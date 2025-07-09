@@ -767,6 +767,12 @@ public class SQLiteVectorDatabaseHandler {
         LogManager.logI(TAG, "Database file size: " + dbFile.length() + " bytes, readable: " + dbFile.canRead() + ", writable: " + dbFile.canWrite());
         
         try {
+            // Check global stop flag before opening database
+            if (GlobalStopManager.isGlobalStopRequested()) {
+                LogManager.logD(TAG, "Global stop requested, aborting database loading");
+                return false;
+            }
+            
             // Open database
             LogManager.logI(TAG, "Starting to open database connection...");
             openDatabase();
@@ -777,6 +783,13 @@ public class SQLiteVectorDatabaseHandler {
             }
             
             LogManager.logI(TAG, "Database connection successful, database object: " + database + ", path: " + database.getPath() + ", read-only: " + database.isReadOnly());
+            
+            // Check global stop flag before loading metadata
+            if (GlobalStopManager.isGlobalStopRequested()) {
+                LogManager.logD(TAG, "Global stop requested, aborting metadata loading");
+                closeDatabase();
+                return false;
+            }
             
             // Load metadata
             LogManager.logI(TAG, "Starting to load metadata...");
@@ -879,22 +892,83 @@ public class SQLiteVectorDatabaseHandler {
             throw new IllegalArgumentException("Vector dimensions do not match");
         }
         
+        // 1. 向量异常检测和修复
+        VectorAnomalyHandler.AnomalyResult anomaly1 = VectorAnomalyHandler.detectAnomalies(vec1, -1);
+        VectorAnomalyHandler.AnomalyResult anomaly2 = VectorAnomalyHandler.detectAnomalies(vec2, -1);
+        
+        float[] processedVec1 = vec1;
+        float[] processedVec2 = vec2;
+        
+        // 修复第一个向量的异常
+        if (anomaly1.isAnomalous) {
+            LogManager.logW(TAG, String.format("Vector 1 anomaly detected in similarity calculation: %s (severity: %.2f)", 
+                    anomaly1.type.name(), anomaly1.severity));
+            processedVec1 = VectorAnomalyHandler.repairVector(vec1, anomaly1.type);
+            if (processedVec1 == null) {
+                LogManager.logE(TAG, "Failed to repair vector 1 anomaly, using original vector");
+                processedVec1 = vec1;
+            }
+        }
+        
+        // 修复第二个向量的异常
+        if (anomaly2.isAnomalous) {
+            LogManager.logW(TAG, String.format("Vector 2 anomaly detected in similarity calculation: %s (severity: %.2f)", 
+                    anomaly2.type.name(), anomaly2.severity));
+            processedVec2 = VectorAnomalyHandler.repairVector(vec2, anomaly2.type);
+            if (processedVec2 == null) {
+                LogManager.logE(TAG, "Failed to repair vector 2 anomaly, using original vector");
+                processedVec2 = vec2;
+            }
+        }
+        
+        // 2. 计算余弦相似度
         float dotProduct = 0.0f;
         float normA = 0.0f;
         float normB = 0.0f;
         
-        for (int i = 0; i < vec1.length; i++) {
-            dotProduct += vec1[i] * vec2[i];
-            normA += vec1[i] * vec1[i];
-            normB += vec2[i] * vec2[i];
+        for (int i = 0; i < processedVec1.length; i++) {
+            float val1 = processedVec1[i];
+            float val2 = processedVec2[i];
+            
+            // 检查单个值的异常
+            if (Float.isNaN(val1) || Float.isInfinite(val1)) {
+                LogManager.logW(TAG, String.format("Anomalous value in vector 1 at index %d: %f", i, val1));
+                val1 = 0.0f;
+            }
+            if (Float.isNaN(val2) || Float.isInfinite(val2)) {
+                LogManager.logW(TAG, String.format("Anomalous value in vector 2 at index %d: %f", i, val2));
+                val2 = 0.0f;
+            }
+            
+            dotProduct += val1 * val2;
+            normA += val1 * val1;
+            normB += val2 * val2;
         }
         
-        if (normA <= 1e-6 || normB <= 1e-6) {
-            LogManager.logW(TAG, "Vector norm close to zero, returning zero similarity");
-            return 0;
+        // 3. 检查范数异常
+        if (normA <= 1e-6f || normB <= 1e-6f) {
+            LogManager.logW(TAG, String.format("Vector norm too small: normA=%.2e, normB=%.2e, returning zero similarity", normA, normB));
+            return 0.0f;
         }
         
+        // 4. 计算最终相似度
         float similarity = dotProduct / (float)(Math.sqrt(normA) * Math.sqrt(normB));
+        
+        // 5. 检查相似度结果异常
+        if (Float.isNaN(similarity) || Float.isInfinite(similarity)) {
+            LogManager.logW(TAG, String.format("Anomalous similarity result: %f, returning zero", similarity));
+            return 0.0f;
+        }
+        
+        // 6. 钳制相似度到合理范围 [-1, 1]
+        if (similarity > 1.0f) {
+            LogManager.logW(TAG, String.format("Similarity > 1.0: %f, clamping to 1.0", similarity));
+            similarity = 1.0f;
+        } else if (similarity < -1.0f) {
+            LogManager.logW(TAG, String.format("Similarity < -1.0: %f, clamping to -1.0", similarity));
+            similarity = -1.0f;
+        }
+        
         return similarity;
     }
     
@@ -932,6 +1006,13 @@ public class SQLiteVectorDatabaseHandler {
             
             // Iterate through all text chunks
             while (cursor.moveToNext()) {
+                // Check global stop flag
+                if (GlobalStopManager.isGlobalStopRequested()) {
+                    LogManager.logD(TAG, "Global stop requested, aborting database search");
+                    cursor.close();
+                    return results;
+                }
+                
                 int contentIndex = cursor.getColumnIndex(COLUMN_CONTENT);
                 int metadataIndex = cursor.getColumnIndex(COLUMN_METADATA);
                 int embeddingIndex = cursor.getColumnIndex(COLUMN_EMBEDDING);

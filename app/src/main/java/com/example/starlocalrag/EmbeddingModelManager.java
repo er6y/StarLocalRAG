@@ -333,6 +333,13 @@ public class EmbeddingModelManager {
         
         executor.execute(() -> {
             try {
+                // 检查全局停止标志
+                if (GlobalStopManager.isGlobalStopRequested()) {
+                    LogManager.logD(TAG, "Global stop requested, aborting model loading");
+                    mainHandler.post(() -> callback.onModelError(new Exception("Operation stopped by user")));
+                    return;
+                }
+                
                 // 更新最后访问时间
                 lastAccessTime = System.currentTimeMillis();
                 
@@ -357,6 +364,13 @@ public class EmbeddingModelManager {
                         currentModel = null;
                     } else {
                         LogManager.getInstance(applicationContext).i(TAG, "未加载模型，无需关闭");
+                    }
+                    
+                    // 再次检查全局停止标志
+                    if (GlobalStopManager.isGlobalStopRequested()) {
+                        LogManager.logD(TAG, "Global stop requested, aborting model loading before load");
+                        mainHandler.post(() -> callback.onModelError(new Exception("Operation stopped by user")));
+                        return;
                     }
                     
                     // 尝试加载模型
@@ -416,6 +430,12 @@ public class EmbeddingModelManager {
             LogManager.logD(TAG, loadMsg);
             notifyLoadProgress(modelPath, "正在加载模型...");
             LogManager.getInstance(applicationContext).i(TAG, loadMsg);
+            
+            // 在创建EmbeddingModelHandler实例前检查全局停止标志
+            if (GlobalStopManager.isGlobalStopRequested()) {
+                LogManager.logD(TAG, "Global stop requested, aborting EmbeddingModelHandler creation");
+                throw new Exception("Operation stopped by user");
+            }
             
             // 直接使用EmbeddingModelHandler，它内部会处理GPU回退逻辑
             EmbeddingModelHandler model = new EmbeddingModelHandler(applicationContext, modelPath, useGpu);

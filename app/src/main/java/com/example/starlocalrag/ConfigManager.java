@@ -189,6 +189,102 @@ public class ConfigManager {
     public static final String DEFAULT_LANGUAGE = "CHN"; // 默认中文
 
     private static JSONObject configCache = null;
+    
+    /**
+     * 检查是否为需要多语言处理的配置键
+     * @param key 配置键
+     * @return 是否需要多语言处理
+     */
+    private static boolean isMultiLanguageConfigKey(String key) {
+        return KEY_API_URL.equals(key) || 
+               KEY_KNOWLEDGE_BASE.equals(key) || 
+               KEY_LAST_SELECTED_RERANKER_MODEL.equals(key);
+    }
+    
+    /**
+     * 将显示文本转换为资源键
+     * @param context 上下文
+     * @param displayText 显示文本
+     * @return 资源键，如果无法转换则返回null
+     */
+    private static String convertDisplayTextToResourceKey(Context context, String displayText) {
+        if (displayText == null) {
+            return null;
+        }
+        
+        // API URL 相关转换
+        if (displayText.equals(context.getString(R.string.api_url_local))) {
+            return "api_url_local";
+        }
+        if (displayText.equals(context.getString(R.string.api_url_openai))) {
+            return "api_url_openai";
+        }
+        if (displayText.equals(context.getString(R.string.common_custom))) {
+            return "common_custom";
+        }
+        if (displayText.equals(context.getString(R.string.common_new))) {
+            return "common_new";
+        }
+        
+        // 通用 "无" 相关转换
+        if (displayText.equals(context.getString(R.string.common_none))) {
+            return "common_none";
+        }
+        
+        // 知识库状态相关转换
+        if (displayText.equals(context.getString(R.string.kb_state_empty))) {
+            return "kb_state_empty";
+        }
+        if (displayText.equals(context.getString(R.string.common_loading))) {
+            return "common_loading";
+        }
+        if (displayText.equals(context.getString(R.string.common_ready))) {
+            return "common_ready";
+        }
+        
+        // 重排模型相关转换
+        if (displayText.equals(context.getString(R.string.reranker_model_bge_reranker))) {
+            return "reranker_model_bge_reranker";
+        }
+        
+        // 如果不是特殊的多语言文本，返回null表示不需要转换
+        return null;
+    }
+    
+    /**
+     * 将资源键转换为显示文本
+     * @param context 上下文
+     * @param resourceKey 资源键
+     * @return 显示文本，如果无法转换则返回null
+     */
+    private static String convertResourceKeyToDisplayText(Context context, String resourceKey) {
+        if (resourceKey == null) {
+            return null;
+        }
+        
+        switch (resourceKey) {
+            case "api_url_local":
+                return context.getString(R.string.api_url_local);
+            case "api_url_openai":
+                return context.getString(R.string.api_url_openai);
+            case "common_custom":
+                return context.getString(R.string.common_custom);
+            case "common_new":
+                return context.getString(R.string.common_new);
+            case "common_none":
+                return context.getString(R.string.common_none);
+            case "kb_state_empty":
+                return context.getString(R.string.kb_state_empty);
+            case "common_loading":
+                return context.getString(R.string.common_loading);
+            case "common_ready":
+            return context.getString(R.string.common_ready);
+            case "reranker_model_bge_reranker":
+                return context.getString(R.string.reranker_model_bge_reranker);
+            default:
+                return null; // 如果不是资源键，返回null表示不需要转换
+        }
+    }
 
     /**
      * 获取配置文件
@@ -382,7 +478,17 @@ public class ConfigManager {
         try {
             JSONObject config = loadConfig(context);
             if (config.has(key)) {
-                return config.getString(key);
+                String value = config.getString(key);
+                
+                // 对于特定的多语言配置项，从资源键转换为显示文本
+                if (isMultiLanguageConfigKey(key)) {
+                    String displayText = convertResourceKeyToDisplayText(context, value);
+                    if (displayText != null) {
+                        return displayText;
+                    }
+                }
+                
+                return value;
             }
         } catch (JSONException e) {
             LogManager.logE(TAG, getLogString(context, R.string.config_get_string_failed) + ": " + key, e);
@@ -985,7 +1091,19 @@ public class ConfigManager {
     public static void setString(Context context, String key, String value) {
         try {
             JSONObject config = loadConfig(context);
-            config.put(key, value);
+            
+            // 对于特定的多语言配置项，存储资源键而非显示文本
+            if (isMultiLanguageConfigKey(key)) {
+                String resourceKey = convertDisplayTextToResourceKey(context, value);
+                if (resourceKey != null) {
+                    config.put(key, resourceKey);
+                } else {
+                    config.put(key, value); // 如果无法转换，保存原值
+                }
+            } else {
+                config.put(key, value);
+            }
+            
             saveConfig(context, config);
         } catch (JSONException e) {
             LogManager.logE(TAG, "设置字符串配置失败: " + key, e);

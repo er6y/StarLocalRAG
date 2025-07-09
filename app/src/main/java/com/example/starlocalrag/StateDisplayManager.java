@@ -75,6 +75,8 @@ public class StateDisplayManager {
                 return context.getString(R.string.common_failed);
             case AppConstants.KnowledgeBaseState.EMPTY:
                 return context.getString(R.string.kb_state_empty);
+            case AppConstants.KnowledgeBaseState.READY:
+                return context.getString(R.string.common_ready);
             default:
                 return context.getString(R.string.common_unknown_state);
         }
@@ -125,6 +127,18 @@ public class StateDisplayManager {
      * 将显示文本转换回API URL常量
      */
     public String getApiUrlFromDisplayText(String displayText) {
+        // 检查是否为资源键
+        if ("api_url_local".equals(displayText)) {
+            return AppConstants.ApiUrl.LOCAL;
+        } else if ("api_url_openai".equals(displayText)) {
+            return AppConstants.ApiUrl.OPENAI;
+        } else if ("common_custom".equals(displayText)) {
+            return AppConstants.ApiUrl.CUSTOM;
+        } else if ("common_new".equals(displayText)) {
+            return AppConstants.ApiUrl.NEW;
+        }
+        
+        // 检查是否为显示文本
         if (displayText.equals(context.getString(R.string.api_url_local))) {
             return AppConstants.ApiUrl.LOCAL;
         } else if (displayText.equals(context.getString(R.string.api_url_openai))) {
@@ -135,6 +149,62 @@ public class StateDisplayManager {
             return AppConstants.ApiUrl.NEW;
         } else {
             return displayText; // 直接返回原始值（自定义URL）
+        }
+    }
+    
+    /**
+     * Convert display text back to reranker model constant
+     * 将显示文本转换回重排模型常量
+     */
+    public String getRerankerModelFromDisplayText(String displayText) {
+        // 检查是否为资源键
+        if ("common_none".equals(displayText)) {
+            return AppConstants.RerankerModel.NONE;
+        } else if ("reranker_model_bge_reranker".equals(displayText)) {
+            return AppConstants.RerankerModel.BGE_RERANKER;
+        } else if ("common_custom".equals(displayText)) {
+            return AppConstants.RerankerModel.CUSTOM;
+        }
+        
+        // 检查是否为显示文本
+        if (displayText.equals(context.getString(R.string.common_none))) {
+            return AppConstants.RerankerModel.NONE;
+        } else if (displayText.equals(context.getString(R.string.reranker_model_bge_reranker))) {
+            return AppConstants.RerankerModel.BGE_RERANKER;
+        } else if (displayText.equals(context.getString(R.string.common_custom))) {
+            return AppConstants.RerankerModel.CUSTOM;
+        } else {
+            return displayText; // 直接返回原始值（自定义模型）
+        }
+    }
+    
+    /**
+     * Convert display text back to knowledge base state constant
+     * 将显示文本转换回知识库状态常量
+     */
+    public String getKnowledgeBaseFromDisplayText(String displayText) {
+        // 检查是否为资源键
+        if ("common_none".equals(displayText)) {
+            return AppConstants.KnowledgeBaseState.NONE;
+        } else if ("kb_state_empty".equals(displayText)) {
+            return AppConstants.KnowledgeBaseState.EMPTY;
+        } else if ("common_loading".equals(displayText)) {
+            return AppConstants.KnowledgeBaseState.LOADING;
+        } else if ("common_ready".equals(displayText)) {
+            return AppConstants.KnowledgeBaseState.READY;
+        }
+        
+        // 检查是否为显示文本
+        if (displayText.equals(context.getString(R.string.common_none))) {
+            return AppConstants.KnowledgeBaseState.NONE;
+        } else if (displayText.equals(context.getString(R.string.kb_state_empty))) {
+            return AppConstants.KnowledgeBaseState.EMPTY;
+        } else if (displayText.equals(context.getString(R.string.common_loading))) {
+            return AppConstants.KnowledgeBaseState.LOADING;
+        } else if (displayText.equals(context.getString(R.string.common_ready))) {
+            return AppConstants.KnowledgeBaseState.READY;
+        } else {
+            return displayText; // 直接返回原始值（知识库名称）
         }
     }
     
@@ -162,15 +232,18 @@ public class StateDisplayManager {
      * Get display text for reranker model
      */
     public String getRerankerModelDisplay(String model) {
+        // 处理"none"值（AppConstants.RerankerModel.NONE和AppConstants.RERANKER_MODEL_NONE都是"none"）
+        if (AppConstants.RerankerModel.NONE.equals(model) || AppConstants.RERANKER_MODEL_NONE.equals(model)) {
+            return context.getString(R.string.common_none);
+        }
+        
         switch (model) {
-            case AppConstants.RerankerModel.NONE:
-                return context.getString(R.string.common_none);
             case AppConstants.RerankerModel.BGE_RERANKER:
                 return context.getString(R.string.reranker_model_bge_reranker);
             case AppConstants.RerankerModel.CUSTOM:
                 return context.getString(R.string.common_custom);
             default:
-                return context.getString(R.string.reranker_model_unknown);
+                return model; // 返回原始模型名称，用于自定义模型
         }
     }
     
@@ -331,6 +404,8 @@ public class StateDisplayManager {
                 return getApiUrlDisplay(state);
             case "embedding_model":
                 return getEmbeddingModelDisplay(state);
+            case "reranker_model":
+                return getRerankerModelDisplay(state);
             case "menu_item":
                 return getMenuItemDisplay(state);
             case "file_type":

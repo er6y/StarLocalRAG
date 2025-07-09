@@ -9,11 +9,14 @@ import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
+import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
@@ -183,8 +186,8 @@ public class LogManager {
             String timestamp = dateFormat.format(new Date());
             String logMessage = String.format("%s %s/%s: %s\n", timestamp, level, tag, message);
             
-            // 写入日志文件
-            try (BufferedWriter writer = new BufferedWriter(new FileWriter(logFile, true))) {
+            // 写入日志文件，使用UTF-8编码
+            try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(logFile, true), StandardCharsets.UTF_8))) {
                 writer.write(logMessage);
             }
         } catch (IOException e) {
@@ -198,8 +201,8 @@ public class LogManager {
     private void checkLogFileSize() {
         if (logFile.exists() && logFile.length() > MAX_LOG_SIZE) {
             try {
-                // 清空日志文件
-                try (BufferedWriter writer = new BufferedWriter(new FileWriter(logFile, false))) {
+                // 清空日志文件，使用UTF-8编码
+                try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(logFile, false), StandardCharsets.UTF_8))) {
                     writer.write(""); // 清空文件
                 }
                 
@@ -211,7 +214,7 @@ public class LogManager {
                 String timestamp = dateFormat.format(new Date());
                 String logMessage = String.format("%s I/%s: %s\n", timestamp, TAG, clearMessage);
                 
-                try (BufferedWriter writer = new BufferedWriter(new FileWriter(logFile, true))) {
+                try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(logFile, true), StandardCharsets.UTF_8))) {
                     writer.write(logMessage);
                 }
             } catch (IOException e) {
@@ -265,8 +268,8 @@ public class LogManager {
     public boolean clearLogFile() {
         if (logFile.exists()) {
             try {
-                // 清空日志文件
-                try (BufferedWriter writer = new BufferedWriter(new FileWriter(logFile, false))) {
+                // 清空日志文件，使用UTF-8编码
+                try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(logFile, false), StandardCharsets.UTF_8))) {
                     writer.write(""); // 清空文件
                 }
                 
@@ -278,7 +281,7 @@ public class LogManager {
                 String timestamp = dateFormat.format(new Date());
                 String logMessage = String.format("%s I/%s: %s\n", timestamp, TAG, clearMessage);
                 
-                try (BufferedWriter writer = new BufferedWriter(new FileWriter(logFile, true))) {
+                try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(logFile, true), StandardCharsets.UTF_8))) {
                     writer.write(logMessage);
                 }
                 

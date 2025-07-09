@@ -9,6 +9,7 @@ import ai.onnxruntime.OrtException;
 import ai.onnxruntime.OrtSession;
 
 import com.example.starlocalrag.api.TokenizerManager;
+import com.example.starlocalrag.GlobalStopManager;
 
 import java.io.File;
 import java.nio.FloatBuffer;
@@ -292,6 +293,13 @@ public class RerankerModelHandler {
     public List<RerankResult> rerank(String query, List<String> documents, int topK, RerankProgressCallback progressCallback) {
         // 立即输出日志，确认方法被调用
         LogManager.logI(TAG, "=== RERANK METHOD EXECUTION STARTED ===");
+        
+        // 检查全局停止标志
+        if (GlobalStopManager.isGlobalStopRequested()) {
+            LogManager.logD(TAG, "检测到全局停止标志，中断重排序操作");
+            return convertToRerankResults(documents); // 返回原始顺序
+        }
+        
         //LogManager.logI(TAG, "Query text: " + (query != null ? query.substring(0, Math.min(50, query.length())) + "..." : "null"));
         //LogManager.logI(TAG, "Document count: " + (documents != null ? documents.size() : 0));
         //LogManager.logI(TAG, "topK: " + topK);
@@ -341,6 +349,12 @@ public class RerankerModelHandler {
             
             // 分批处理以避免内存过大
             for (int i = 0; i < documents.size(); i += MAX_BATCH_SIZE) {
+                // 在每个批次开始前检查停止标志
+                if (GlobalStopManager.isGlobalStopRequested()) {
+                    LogManager.logD(TAG, "检测到全局停止标志，中断重排序批处理");
+                    break;
+                }
+                
                 int endIndex = Math.min(i + MAX_BATCH_SIZE, documents.size());
                 List<String> batch = documents.subList(i, endIndex);
                 
@@ -390,6 +404,12 @@ public class RerankerModelHandler {
         //LogManager.logI(TAG, "Starting batch processing, document count: " + documents.size() + ", start index: " + startIndex);
         
         for (int i = 0; i < documents.size(); i++) {
+            // 在处理每个文档前检查停止标志
+            if (GlobalStopManager.isGlobalStopRequested()) {
+                LogManager.logD(TAG, "检测到全局停止标志，中断文档处理");
+                break;
+            }
+            
             long docStartTime = System.currentTimeMillis();
             int globalIndex = startIndex + i;
             
@@ -759,6 +779,25 @@ public class RerankerModelHandler {
             return 0.5f;
         }
         
+        // 向量异常检测和修复
+        try {
+            VectorAnomalyHandler.AnomalyResult anomalyResult = VectorAnomalyHandler.detectAnomalies(logits, -1);
+            if (anomalyResult.isAnomalous) {
+                LogManager.logW(TAG, "检测到logits向量异常，尝试修复");
+                logits = VectorAnomalyHandler.repairVector(logits, anomalyResult.type);
+                
+                // 对修复后的向量进行最终验证
+                VectorAnomalyHandler.AnomalyResult verifyResult = VectorAnomalyHandler.detectAnomalies(logits, -1);
+                if (verifyResult.isAnomalous) {
+                    LogManager.logW(TAG, "logits向量修复失败，使用默认分数");
+                    return 0.5f;
+                }
+            }
+        } catch (Exception e) {
+            LogManager.logE(TAG, "logits向量异常处理失败: " + e.getMessage());
+            return 0.5f;
+        }
+        
         LogManager.logI(TAG, "  - logits length: " + logits.length);
         // LogManager.logI(TAG, "  - All logits values: " + java.util.Arrays.toString(logits));
         
@@ -799,31 +838,124 @@ public class RerankerModelHandler {
     }
     
     /**
-     * Sigmoid激活函数
+     * Sigmoid激活函数（带异常处理）
      */
     private float sigmoid(float x) {
-        return (float) (1.0 / (1.0 + Math.exp(-x)));
+        // 检查输入异常
+        if (Float.isNaN(x) || Float.isInfinite(x)) {
+            LogManager.logW(TAG, "Sigmoid输入异常: " + x + "，返回默认值0.5");
+            return 0.5f;
+        }
+        
+        // 防止数值溢出
+        if (x > 700) {
+            return 1.0f; // exp(-700) 接近 0，sigmoid 接近 1
+        } else if (x < -700) {
+            return 0.0f; // exp(700) 接近无穷大，sigmoid 接近 0
+        }
+        
+        try {
+            float result = (float) (1.0 / (1.0 + Math.exp(-x)));
+            
+            // 检查结果异常
+            if (Float.isNaN(result) || Float.isInfinite(result)) {
+                LogManager.logW(TAG, "Sigmoid计算结果异常: " + result + "，返回默认值0.5");
+                return 0.5f;
+            }
+            
+            // 确保结果在[0,1]范围内
+            return Math.max(0.0f, Math.min(1.0f, result));
+        } catch (Exception e) {
+            LogManager.logE(TAG, "Sigmoid计算异常: " + e.getMessage());
+            return 0.5f;
+        }
     }
     
     /**
-     * Softmax函数
+     * Softmax函数（带异常处理）
      */
     private float[] softmax(float[] logits) {
+        if (logits == null || logits.length == 0) {
+            LogManager.logW(TAG, "Softmax输入为空，返回默认结果");
+            return new float[]{0.5f};
+        }
+        
         float[] result = new float[logits.length];
-        float sum = 0.0f;
         
-        // Calculate exp values
-        for (int i = 0; i < logits.length; i++) {
-            result[i] = (float) Math.exp(logits[i]);
-            sum += result[i];
+        try {
+            // 检查输入异常
+            for (int i = 0; i < logits.length; i++) {
+                if (Float.isNaN(logits[i]) || Float.isInfinite(logits[i])) {
+                    LogManager.logW(TAG, "Softmax输入包含异常值: " + logits[i] + "，使用均匀分布");
+                    // 返回均匀分布
+                    float uniformValue = 1.0f / logits.length;
+                    for (int j = 0; j < result.length; j++) {
+                        result[j] = uniformValue;
+                    }
+                    return result;
+                }
+            }
+            
+            // 找到最大值以防止数值溢出
+            float maxLogit = logits[0];
+            for (int i = 1; i < logits.length; i++) {
+                if (logits[i] > maxLogit) {
+                    maxLogit = logits[i];
+                }
+            }
+            
+            // 计算exp值（减去最大值防止溢出）
+            float sum = 0.0f;
+            for (int i = 0; i < logits.length; i++) {
+                float expValue = (float) Math.exp(logits[i] - maxLogit);
+                if (Float.isNaN(expValue) || Float.isInfinite(expValue)) {
+                    LogManager.logW(TAG, "Softmax exp计算异常，使用均匀分布");
+                    float uniformValue = 1.0f / logits.length;
+                    for (int j = 0; j < result.length; j++) {
+                        result[j] = uniformValue;
+                    }
+                    return result;
+                }
+                result[i] = expValue;
+                sum += expValue;
+            }
+            
+            // 检查sum是否异常
+            if (sum <= 0 || Float.isNaN(sum) || Float.isInfinite(sum)) {
+                LogManager.logW(TAG, "Softmax sum异常: " + sum + "，使用均匀分布");
+                float uniformValue = 1.0f / logits.length;
+                for (int j = 0; j < result.length; j++) {
+                    result[j] = uniformValue;
+                }
+                return result;
+            }
+            
+            // 归一化
+            for (int i = 0; i < result.length; i++) {
+                result[i] /= sum;
+                
+                // 检查归一化结果
+                if (Float.isNaN(result[i]) || Float.isInfinite(result[i])) {
+                    LogManager.logW(TAG, "Softmax归一化结果异常，使用均匀分布");
+                    float uniformValue = 1.0f / logits.length;
+                    for (int j = 0; j < result.length; j++) {
+                        result[j] = uniformValue;
+                    }
+                    return result;
+                }
+            }
+            
+            return result;
+            
+        } catch (Exception e) {
+            LogManager.logE(TAG, "Softmax计算异常: " + e.getMessage());
+            // 返回均匀分布作为备用
+            float uniformValue = 1.0f / logits.length;
+            for (int i = 0; i < result.length; i++) {
+                result[i] = uniformValue;
+            }
+            return result;
         }
-        
-        // Normalize
-        for (int i = 0; i < result.length; i++) {
-            result[i] /= sum;
-        }
-        
-        return result;
     }
     
     /**

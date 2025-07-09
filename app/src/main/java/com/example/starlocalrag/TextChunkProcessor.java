@@ -559,6 +559,36 @@ public class TextChunkProcessor {
                         // Generate vector
                         float[] embedding = model.generateEmbedding(text);
                         
+                        // 向量异常处理
+                        if (embedding != null && embedding.length > 0) {
+                            // 检测向量异常
+                            VectorAnomalyHandler.AnomalyResult anomalyResult = VectorAnomalyHandler.detectAnomalies(embedding, -1);
+                            
+                            if (anomalyResult.isAnomalous) {
+                                LogManager.logW(TAG, String.format("Vector anomaly detected for chunk %d/%d: %s (severity: %.2f) - %s", 
+                                        i + 1, totalChunks, anomalyResult.type.name(), anomalyResult.severity, anomalyResult.description));
+                                
+                                // 修复向量异常
+                                float[] repairedEmbedding = VectorAnomalyHandler.repairVector(embedding, anomalyResult.type);
+                                if (repairedEmbedding != null) {
+                                    embedding = repairedEmbedding;
+                                    LogManager.logD(TAG, String.format("Vector anomaly repaired for chunk %d/%d", i + 1, totalChunks));
+                                } else {
+                                    LogManager.logW(TAG, String.format("Failed to repair vector anomaly for chunk %d/%d, using original vector", i + 1, totalChunks));
+                                }
+                            }
+                            
+                            // 最终向量验证
+                            VectorAnomalyHandler.AnomalyResult finalCheck = VectorAnomalyHandler.detectAnomalies(embedding, -1);
+                            if (finalCheck.isAnomalous && finalCheck.severity > 0.8f) {
+                                LogManager.logE(TAG, String.format("Critical vector anomaly remains after repair for chunk %d/%d: %s", 
+                                        i + 1, totalChunks, finalCheck.description));
+                                // 对于严重异常，生成随机单位向量作为备用
+                                embedding = VectorAnomalyHandler.generateRandomUnitVector(embedding.length);
+                                LogManager.logW(TAG, String.format("Generated random unit vector as fallback for chunk %d/%d", i + 1, totalChunks));
+                            }
+                        }
+                        
                         // Add to database
                         vectorDB.addVector(text, embedding, source, metadata.toString());
                         

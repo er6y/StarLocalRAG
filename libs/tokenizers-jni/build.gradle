@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace 'com.starlocalrag.tokenizers'
+    namespace = 'com.starlocalrag.tokenizers'
     compileSdkVersion 34
 
     defaultConfig {
@@ -21,7 +21,9 @@ android {
             // CMake配置已移除
         }
         release {
-            minifyEnabled false
+            // 开源项目：启用压缩和优化，但禁用混淆
+            minifyEnabled true
+            shrinkResources false  // 库模块不支持资源压缩
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             // CMake配置已移除
         }
@@ -35,8 +37,8 @@ android {
     }
 }
 
-group 'com.starlocalrag'
-version '1.0-SNAPSHOT'
+group = 'com.starlocalrag'
+version = '1.0-SNAPSHOT'
 
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
@@ -49,7 +51,7 @@ dependencies {
 
 // Rust编译任务
 task compileRustJNIAndroidArm64(type: Exec) {
-    description 'Compile Rust JNI library for ARM64'
+    description = 'Compile Rust JNI library for ARM64'
     workingDir file('src/main/rust')
     
     if (System.getProperty('os.name').toLowerCase().contains('windows')) {
@@ -64,7 +66,7 @@ task compileRustJNIAndroidArm64(type: Exec) {
 }
 
 task compileRustJNIAndroidArm7(type: Exec) {
-    description 'Compile Rust JNI library for ARMv7'
+    description = 'Compile Rust JNI library for ARMv7'
     workingDir file('src/main/rust')
     
     if (System.getProperty('os.name').toLowerCase().contains('windows')) {
@@ -79,7 +81,7 @@ task compileRustJNIAndroidArm7(type: Exec) {
 }
 
 task compileRustJNIAndroidX86(type: Exec) {
-    description 'Compile Rust JNI library for x86'
+    description = 'Compile Rust JNI library for x86'
     workingDir file('src/main/rust')
     
     if (System.getProperty('os.name').toLowerCase().contains('windows')) {
@@ -94,7 +96,7 @@ task compileRustJNIAndroidX86(type: Exec) {
 }
 
 task compileRustJNIAndroidX86_64(type: Exec) {
-    description 'Compile Rust JNI library for x86_64'
+    description = 'Compile Rust JNI library for x86_64'
     workingDir file('src/main/rust')
     
     if (System.getProperty('os.name').toLowerCase().contains('windows')) {
@@ -110,28 +112,28 @@ task compileRustJNIAndroidX86_64(type: Exec) {
 
 // 复制任务 - 将编译好的.so文件复制到app/src/main/jniLibs目录
 task copyRustLibrariesArm64(type: Copy) {
-    description 'Copy ARM64 Rust library to app jniLibs'
+    description = 'Copy ARM64 Rust library to app jniLibs'
     dependsOn compileRustJNIAndroidArm64
     from 'src/main/rust/target/aarch64-linux-android/release/libtokenizers_jni.so'
     into '../../app/src/main/jniLibs/arm64-v8a'
 }
 
 task copyRustLibrariesArm7(type: Copy) {
-    description 'Copy ARMv7 Rust library to app jniLibs'
+    description = 'Copy ARMv7 Rust library to app jniLibs'
     dependsOn compileRustJNIAndroidArm7
     from 'src/main/rust/target/armv7-linux-androideabi/release/libtokenizers_jni.so'
     into '../../app/src/main/jniLibs/armeabi-v7a'
 }
 
 task copyRustLibrariesX86(type: Copy) {
-    description 'Copy x86 Rust library to app jniLibs'
+    description = 'Copy x86 Rust library to app jniLibs'
     dependsOn compileRustJNIAndroidX86
     from 'src/main/rust/target/i686-linux-android/release/libtokenizers_jni.so'
     into '../../app/src/main/jniLibs/x86'
 }
 
 task copyRustLibrariesX86_64(type: Copy) {
-    description 'Copy x86_64 Rust library to app jniLibs'
+    description = 'Copy x86_64 Rust library to app jniLibs'
     dependsOn compileRustJNIAndroidX86_64
     from 'src/main/rust/target/x86_64-linux-android/release/libtokenizers_jni.so'
     into '../../app/src/main/jniLibs/x86_64'
@@ -142,7 +144,7 @@ preBuild.dependsOn copyRustLibrariesArm64, copyRustLibrariesArm7, copyRustLibrar
 
 // 清理任务
 task cleanRust(type: Delete) {
-    description 'Clean Rust build artifacts'
+    description = 'Clean Rust build artifacts'
     delete 'src/main/rust/target'
 }
 

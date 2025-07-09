@@ -68,7 +68,7 @@ public class HuggingfaceTokenizer implements Closeable, Model {
             sb.append(ids[i]);
         }
         sb.append("]");
-        return TokenizerJNI.decode(nativePtr, sb.toString(), skipSpecialTokens);
+        return TokenizerJNI.decodeWithUnicodeFix(nativePtr, sb.toString(), skipSpecialTokens);
     }
     
     private String decodeIdsToString(int[] ids) {
@@ -135,9 +135,14 @@ public class HuggingfaceTokenizer implements Closeable, Model {
             this.modelPath = path;
             
             if (isFile) {
+                System.out.println("[HuggingfaceTokenizer] 开始JNI调用加载分词器: " + path);
+                long startTime = System.currentTimeMillis();
+                
                 // 从文件加载
                 try {
                     nativePtr = TokenizerJNI.loadTokenizerFromFile(path);
+                    long endTime = System.currentTimeMillis();
+                    System.out.println("[HuggingfaceTokenizer] JNI调用完成，耗时: " + (endTime - startTime) + "ms");
                 } catch (UnsatisfiedLinkError e) {
                     e.printStackTrace();
                     throw e;
@@ -171,6 +176,8 @@ public class HuggingfaceTokenizer implements Closeable, Model {
             if (nativePtr == 0) {
                 throw new IllegalArgumentException("创建分词器失败，可能是文件路径错误或格式不兼容");
             }
+            
+            System.out.println("[HuggingfaceTokenizer] 分词器创建成功，nativePtr: " + nativePtr);
         } catch (UnsatisfiedLinkError e) {
             e.printStackTrace();
             throw e;
@@ -580,9 +587,30 @@ public class HuggingfaceTokenizer implements Closeable, Model {
             filteredIdsArray[i] = filteredIds.get(i);
         }
         
-        // 解码
+        // 解码（已包含Unicode修复）
         String result = decodeIdsToString(filteredIdsArray);
-    
+        
+        // 强化Unicode修复 - 确保所有Unicode转义序列都被正确解码
+        if (result != null && result.contains("\\u")) {
+            String originalResult = result;
+            result = UnicodeDecoder.decodeUnicodeEscapes(result);
+            
+            // 多次修复，直到没有更多的Unicode转义序列
+            int maxAttempts = 3;
+            int attempts = 0;
+            while (result.contains("\\u") && attempts < maxAttempts) {
+                String beforeFix = result;
+                result = UnicodeDecoder.decodeUnicodeEscapes(result);
+                attempts++;
+                
+                // 如果没有变化，跳出循环避免无限循环
+                if (beforeFix.equals(result)) {
+                    break;
+                }
+            }
+            
+            System.out.println("Unicode修复: 原始长度=" + originalResult.length() + ", 修复后长度=" + result.length() + ", 修复次数=" + attempts);
+        }
         
         //System.out.println("字符串过滤后的解码结果: " + result);
         return result;
@@ -989,10 +1017,35 @@ public class HuggingfaceTokenizer implements Closeable, Model {
      * 关闭分词器并释放资源
      */
     @Override
-    public void close() {
+    public synchronized void close() {
         if (!isClosed) {
-            TokenizerJNI.freeTokenizer(nativePtr);
-            isClosed = true;
+            try {
+                System.out.println("[HuggingfaceTokenizer] 开始释放分词器资源，nativePtr: " + nativePtr);
+                
+                // 添加短暂延迟，确保JNI层准备就绪
+                Thread.sleep(50);
+                
+                // 检查nativePtr是否有效
+                if (nativePtr != 0) {
+                    TokenizerJNI.freeTokenizer(nativePtr);
+                    System.out.println("[HuggingfaceTokenizer] 成功释放JNI资源");
+                } else {
+                    System.out.println("[HuggingfaceTokenizer] nativePtr为0，跳过JNI资源释放");
+                }
+                
+                isClosed = true;
+                nativePtr = 0; // 清空指针
+                System.out.println("[HuggingfaceTokenizer] 分词器资源释放完成");
+                
+            } catch (Exception e) {
+                System.err.println("[HuggingfaceTokenizer] 释放资源时发生异常: " + e.getMessage());
+                e.printStackTrace();
+                // 即使出现异常，也要标记为已关闭，避免重复释放
+                isClosed = true;
+                nativePtr = 0;
+            }
+        } else {
+            System.out.println("[HuggingfaceTokenizer] 分词器已经关闭，跳过释放");
         }
     }
     

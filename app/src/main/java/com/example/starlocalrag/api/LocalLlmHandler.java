@@ -7,7 +7,9 @@ import android.os.Looper;
 import android.util.Log;
 
 import com.example.starlocalrag.ConfigManager;
+import com.example.starlocalrag.GlobalStopManager;
 import com.example.starlocalrag.LogManager;
+import com.example.starlocalrag.R;
 import com.starlocalrag.llamacpp.LlamaCppInference;
 import com.starlocalrag.llamacpp.NativeLibraryLoader;
 
@@ -28,6 +30,7 @@ import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 // ONNX Runtime相关导入已移除
 import java.util.Iterator;
@@ -46,6 +49,16 @@ import java.util.Arrays;
 public class LocalLlmHandler {
     private static final String TAG = "LocalLLMHandler";
     
+    /**
+     * 模型状态枚举 - 统一状态管理
+     */
+    public enum ModelState {
+        UNLOADED,    // 未加载
+        LOADING,     // 正在加载
+        READY,       // 已加载且空闲
+        BUSY         // 正在推理
+    }
+    
     // 单例实例
     private static LocalLlmHandler instance;
     
@@ -58,11 +71,8 @@ public class LocalLlmHandler {
     // 当前加载的模型名称
     private String currentModelName;
     
-    // 模型是否已加载
-    private final AtomicBoolean modelLoaded = new AtomicBoolean(false);
-    
-    // 模型是否正在加载
-    private final AtomicBoolean modelLoading = new AtomicBoolean(false);
+    // 统一的模型状态管理 - 简化为单一状态源
+    private final AtomicReference<ModelState> modelState = new AtomicReference<>(ModelState.UNLOADED);
     
     // 是否使用GPU
     private boolean useGpu = false;
@@ -375,6 +385,8 @@ public class LocalLlmHandler {
         this.context = context.getApplicationContext();
         this.executorService = Executors.newSingleThreadExecutor();
         
+        LogManager.logD(TAG, "LocalLlmHandler初始化: 模型状态设置为 " + ModelState.UNLOADED);
+        
         // 初始化GPU设置
         this.useGpu = ConfigManager.getBoolean(context, ConfigManager.KEY_USE_GPU, false);
         LogManager.logD(TAG, "LocalLlmHandler初始化: GPU加速设置为 " + (this.useGpu ? "启用" : "禁用"));
@@ -455,103 +467,93 @@ public class LocalLlmHandler {
     }
     
     /**
-     * 加载本地模型（兼容旧接口）
+     * 加载本地模型（简化版本）
      * @param modelName 模型名称（目录名）
      * @param callback 回调接口
      */
     @Deprecated
     public void loadModel(String modelName, final LocalLlmCallback callback) {
+        LogManager.logI(TAG, "DEBUG: Load model request: " + modelName + ", thread: " + Thread.currentThread().getName());
+        
+        // 检查当前状态
+        ModelState currentState = modelState.get();
+        LogManager.logI(TAG, "DEBUG: Current state: " + currentState + ", current model: " + currentModelName + ", target model: " + modelName);
+        
         // 如果已经加载了相同的模型，直接返回
-        if (modelLoaded.get() && modelName.equals(currentModelName)) {
+        if ((currentState == ModelState.READY || currentState == ModelState.BUSY) && modelName.equals(currentModelName)) {
+            LogManager.logI(TAG, "DEBUG: Model already loaded, skipping: " + modelName);
             if (callback != null) {
-                callback.onComplete("模型已加载: " + modelName);
+                callback.onComplete("Model already loaded: " + modelName);
             }
             return;
         }
         
-        // 如果正在加载模型，返回
-        if (modelLoading.get()) {
+        // 检查是否已经在加载相同模型
+        if (currentState == ModelState.LOADING && modelName.equals(currentModelName)) {
+            LogManager.logW(TAG, "DEBUG: Model is already loading, rejecting duplicate request: " + modelName);
             if (callback != null) {
-                callback.onError("Model is loading, please try again later");
+                callback.onError("Model is already loading: " + modelName);
             }
             return;
         }
         
-        // 标记为正在加载
-        modelLoading.set(true);
+        // 简化状态转换：直接设置为LOADING
+        LogManager.logI(TAG, "DEBUG: Setting model state to LOADING for: " + modelName);
+        forceSetModelState(ModelState.LOADING);
         currentModelName = modelName;
         
-        // 添加外层try-catch确保modelLoading状态总是被重置
-        try {
-            // 异步加载模型
-            executorService.submit(() -> {
-                try {
-                    LogManager.logI(TAG, "开始加载模型: " + modelName);
-                    
-                    // 释放之前的资源
-                    if (inferenceEngine != null) {
-                        inferenceEngine.release();
-                    }
-                    
-                    modelLoaded.set(false);
-                    
-                    // 1. 确保模型文件存在
-                    String modelPath = ConfigManager.getModelPath(context);
-                    File modelDir = new File(modelPath, modelName);
-                    
-                    if (!modelDir.exists() || !modelDir.isDirectory()) {
-                        throw new IOException("Model file does not exist: " + modelDir.getAbsolutePath());
-                    }
-                    
-                    // 2. 检测模型类型并选择推理引擎
-                    InferenceEngine selectedEngine = selectInferenceEngine(modelDir);
-                    if (selectedEngine == null) {
-                        throw new IOException("Unable to determine model type or unsupported model format: " + modelDir.getAbsolutePath());
-                    }
-                    
-                    // 如果推理引擎发生变化，释放旧引擎
-                    if (inferenceEngine != null && !inferenceEngine.getEngineType().equals(selectedEngine.getEngineType())) {
-                        inferenceEngine.release();
-                    }
-                    inferenceEngine = selectedEngine;
-                    
-                    // 3. 加载模型配置（只支持LlamaCpp）
-                    ModelConfig modelConfig = createBasicModelConfig(modelDir.getAbsolutePath());
-                    
-                    // 4. 初始化推理引擎
-                    inferenceEngine.initialize(modelDir.getAbsolutePath(), modelConfig);
-                    
-                    // 5. 标记模型已加载
-                    modelLoaded.set(true);
-                    
-                    LogManager.logI(TAG, "✓ 模型加载成功: " + modelName + " (引擎: " + inferenceEngine.getEngineType() + ")");
-                    
-                    if (callback != null) {
-                        callback.onComplete("Model loaded successfully: " + modelName);
-                    }
-                } catch (Exception e) {
-                    LogManager.logE(TAG, "模型加载失败: " + e.getMessage(), e);
-                    if (callback != null) {
-                        callback.onError("模型加载失败: " + e.getMessage());
-                    }
-                } finally {
-                    // 确保modelLoading状态总是被重置
-                    modelLoading.set(false);
+        // 异步加载模型
+        executorService.submit(() -> {
+            try {
+                LogManager.logI(TAG, "Start loading model: " + modelName);
+                
+                // 释放之前的资源
+                if (inferenceEngine != null) {
+                    inferenceEngine.release();
                 }
-            });
-        } catch (Exception e) {
-            LogManager.logE(TAG, "启动模型加载任务失败: " + e.getMessage(), e);
-            modelLoading.set(false);
-            if (callback != null) {
-                callback.onError("启动模型加载任务失败: " + e.getMessage());
+                
+                // 1. 确保模型文件存在
+                String modelPath = ConfigManager.getModelPath(context);
+                File modelDir = new File(modelPath, modelName);
+                
+                if (!modelDir.exists() || !modelDir.isDirectory()) {
+                    throw new IOException("Model file does not exist: " + modelDir.getAbsolutePath());
+                }
+                
+                // 2. 选择推理引擎（只支持LlamaCpp）
+                InferenceEngine selectedEngine = selectInferenceEngine(modelDir);
+                if (selectedEngine == null) {
+                    throw new IOException("Unsupported model format: " + modelDir.getAbsolutePath());
+                }
+                
+                inferenceEngine = selectedEngine;
+                
+                // 3. 创建模型配置
+                ModelConfig modelConfig = createBasicModelConfig(modelDir.getAbsolutePath());
+                
+                // 4. 初始化推理引擎
+                inferenceEngine.initialize(modelDir.getAbsolutePath(), modelConfig);
+                
+                // 5. 设置状态为READY
+                forceSetModelState(ModelState.READY);
+                
+                LogManager.logI(TAG, "✓ Model loaded successfully: " + modelName + " (engine: " + inferenceEngine.getEngineType() + ")");
+                
+                if (callback != null) {
+                    callback.onComplete("Model loaded successfully: " + modelName);
+                }
+            } catch (Exception e) {
+                LogManager.logE(TAG, "Model loading failed: " + e.getMessage(), e);
+                
+                // 加载失败时重置状态为UNLOADED
+                forceSetModelState(ModelState.UNLOADED);
+                currentModelName = null;
+                
+                if (callback != null) {
+                    callback.onError("Model loading failed: " + e.getMessage());
+                }
             }
-        } finally {
-            // 外层finally块确保在任何异常情况下都重置modelLoading状态
-            if (modelLoading.get()) {
-                LogManager.logW(TAG, "外层异常处理：重置modelLoading状态");
-                modelLoading.set(false);
-            }
-        }
+        });
     }
     
     /**
@@ -568,30 +570,71 @@ public class LocalLlmHandler {
     }
     
     /**
-     * 执行推理（完整参数版本）
+     * 执行推理（简化版本）
      * @param prompt 输入提示词
      * @param params 推理参数
      * @param callback 流式回调
      */
     public void inference(String prompt, InferenceParams params, StreamingCallback callback) {
-        if (!modelLoaded.get()) {
-            callback.onError("模型未加载，请先加载模型");
+        LogManager.logD(TAG, "Inference start, thread: " + Thread.currentThread().getName());
+        
+        // 检查全局停止标志
+        if (GlobalStopManager.isGlobalStopRequested()) {
+            LogManager.logD(TAG, "Detected global stop flag, interrupting inference");
+            callback.onError("Inference interrupted by global stop flag");
+            return;
+        }
+        
+        // 检查模型状态
+        ModelState currentState = modelState.get();
+        LogManager.logD(TAG, "Current state: " + currentState);
+        
+        if (currentState != ModelState.READY) {
+            String errorMsg = "Model not ready, current state: " + currentState;
+            LogManager.logW(TAG, errorMsg);
+            callback.onError(errorMsg);
             return;
         }
         
         if (inferenceEngine == null) {
-            callback.onError("推理引擎未初始化");
+            LogManager.logE(TAG, "Inference engine not initialized");
+            callback.onError("Inference engine not initialized");
             return;
         }
+        
+        // 简化状态转换：直接设置为BUSY
+        forceSetModelState(ModelState.BUSY);
+        LogManager.logI(TAG, "State set to BUSY, start inference");
         
         // 重置停止标志
         resetStopFlag();
         
-        LogManager.logD(TAG, "开始推理，引擎: " + inferenceEngine.getEngineType() + ", 提示词长度: " + prompt.length());
-        // 调试追踪日志已移除
+        LogManager.logD(TAG, "Start inference, engine: " + inferenceEngine.getEngineType() + ", prompt length: " + prompt.length());
+        
+        // 创建包装回调，在推理完成时重置状态
+        StreamingCallback wrappedCallback = new StreamingCallback() {
+            @Override
+            public void onToken(String token) {
+                callback.onToken(token);
+            }
+            
+            @Override
+            public void onComplete(String fullResponse) {
+                // 推理完成，设置状态回READY
+                forceSetModelState(ModelState.READY);
+                callback.onComplete(fullResponse);
+            }
+            
+            @Override
+            public void onError(String errorMessage) {
+                // 推理出错，设置状态回READY
+                forceSetModelState(ModelState.READY);
+                callback.onError(errorMessage);
+            }
+        };
         
         // 执行推理
-        inferenceEngine.inference(prompt, params, callback);
+        inferenceEngine.inference(prompt, params, wrappedCallback);
     }
     
     /**
@@ -644,37 +687,44 @@ public class LocalLlmHandler {
         }
         
         StringBuilder info = new StringBuilder();
-        info.append("批处理支持: ").append(modelConfig.getMaxBatchSize() > 1 ? "是" : "否").append("\n");
-        info.append("最大批处理大小: ").append(modelConfig.getMaxBatchSize()).append("\n");
-        info.append("最大序列长度: ").append(modelConfig.getMaxSequenceLength()).append("\n");
-        info.append("KV缓存: ").append(modelConfig.isEnableKVCache() ? "启用" : "禁用").append("\n");
-        info.append("量化类型: ").append(modelConfig.isQuantized() ? modelConfig.getQuantizationType() : "无").append("\n");
+        String batchSupport = modelConfig.getMaxBatchSize() > 1 ? context.getString(R.string.common_yes) : context.getString(R.string.common_no);
+        info.append("Batch Support: ").append(batchSupport).append("\n");
+        info.append("Max Batch Size: ").append(modelConfig.getMaxBatchSize()).append("\n");
+        info.append("Max Sequence Length: ").append(modelConfig.getMaxSequenceLength()).append("\n");
+        String kvCache = modelConfig.isEnableKVCache() ? context.getString(R.string.common_enabled) : context.getString(R.string.common_disabled);
+        info.append("KV Cache: ").append(kvCache).append("\n");
+        String quantizationType = modelConfig.isQuantized() ? modelConfig.getQuantizationType() : context.getString(R.string.common_none);
+        info.append("Quantization Type: ").append(quantizationType).append("\n");
         
         return info.toString();
     }
     
     /**
-     * 停止当前推理
+     * 停止当前推理（简化版本）
      */
     public void stopInference() {
-        // 停止调试日志已移除
-        LogManager.logD(TAG, "[停止调试] 停止标志当前状态: " + shouldStopInference.get());
+        LogManager.logD(TAG, "Stop inference, current stop flag: " + shouldStopInference.get());
         
-        // 首先调用当前推理引擎的stopInference方法
+        // 调用推理引擎的stopInference方法
         if (inferenceEngine != null) {
-            // 停止调试日志已移除
             try {
                 inferenceEngine.stopInference();
             } catch (Exception e) {
-                LogManager.logE(TAG, "推理引擎stopInference调用失败: " + e.getMessage());
+                LogManager.logE(TAG, "Inference engine stopInference failed: " + e.getMessage());
             }
         } else {
-            LogManager.logW(TAG, "推理引擎为null，无法调用其stopInference方法");
+            LogManager.logW(TAG, "Inference engine is null, cannot call stopInference");
         }
         
-        // 然后设置本地停止标志
+        // 设置本地停止标志
         shouldStopInference.set(true);
-        // 停止调试日志已移除
+        
+        // 如果当前状态是BUSY，直接设置为READY
+        ModelState currentState = modelState.get();
+        if (currentState == ModelState.BUSY) {
+            forceSetModelState(ModelState.READY);
+            LogManager.logD(TAG, "Model state set from BUSY to READY");
+        }
     }
     
     /**
@@ -695,10 +745,9 @@ public class LocalLlmHandler {
      * 重置模型记忆 - 清除KV缓存和对话历史
      */
     public void resetModelMemory() {
-        // 新对话调试日志已移除
-        
-        if (!modelLoaded.get()) {
-            LogManager.logW(TAG, "模型未加载，无法重置记忆");
+        ModelState currentState = modelState.get();
+        if (currentState != ModelState.READY && currentState != ModelState.BUSY) {
+            LogManager.logW(TAG, "模型不可用，无法重置记忆，当前状态: " + currentState);
             return;
         }
         
@@ -714,12 +763,61 @@ public class LocalLlmHandler {
         }
     }
     
+    // ========== 统一状态管理方法 ==========
+    
     /**
-     * 检查模型是否已加载
+     * 获取当前模型状态
+     * @return 当前模型状态
+     */
+    public ModelState getModelState() {
+        return modelState.get();
+    }
+    
+    /**
+     * 检查模型是否可以进行推理
+     * @return true如果模型处于READY状态，false否则
+     */
+    public boolean isModelReady() {
+        return modelState.get() == ModelState.READY;
+    }
+    
+    /**
+     * 检查模型是否正忙
+     * @return true如果模型处于BUSY或LOADING状态，false否则
+     */
+    public boolean isModelBusy() {
+        ModelState state = modelState.get();
+        return state == ModelState.BUSY || state == ModelState.LOADING;
+    }
+    
+    /**
+     * 尝试将模型状态从期望状态转换为目标状态
+     * @param expectedState 期望的当前状态
+     * @param newState 目标状态
+     * @return true如果转换成功，false否则
+     */
+    // 移除tryTransitionState方法，简化为直接使用forceSetModelState
+    
+    /**
+     * 强制设置模型状态（仅在错误恢复时使用）
+     * @param newState 新状态
+     */
+    public void forceSetModelState(ModelState newState) {
+        ModelState oldState = modelState.getAndSet(newState);
+        LogManager.logW(TAG, "Force model state change: " + oldState + " -> " + newState);
+    }
+    
+    // 移除兼容性标志更新方法，简化状态管理
+    
+    // ========== 兼容性方法（保持向后兼容） ==========
+    
+    /**
+     * 检查模型是否已加载（兼容性方法）
      * @return true如果模型已加载，false否则
      */
     public boolean isModelLoaded() {
-        return modelLoaded.get();
+        ModelState state = modelState.get();
+        return state == ModelState.READY || state == ModelState.BUSY;
     }
     
     /**
@@ -734,15 +832,49 @@ public class LocalLlmHandler {
      * 卸载模型
      */
     public void unloadModel() {
-        // 卸载模型逻辑
-        LogManager.logD(TAG, "卸载模型");
-        // ONNX Handler已移除
-        // 设置模型卸载标志
-        modelLoaded.set(false);
+        LogManager.logD(TAG, "开始卸载模型");
         
-        // 释放内存
-        System.gc();
-        LogManager.logD(TAG, "已请求垃圾回收");
+        ModelState currentState = modelState.get();
+        if (currentState == ModelState.UNLOADED) {
+            LogManager.logD(TAG, "模型已经是未加载状态");
+            return;
+        }
+        
+        // 如果模型正在忙碌，先停止推理
+        if (currentState == ModelState.BUSY) {
+            LogManager.logI(TAG, "模型正忙，先停止推理");
+            stopInference();
+            // 等待一小段时间让推理停止
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        
+        try {
+            // 释放推理引擎资源
+            if (inferenceEngine != null) {
+                inferenceEngine.release();
+                inferenceEngine = null;
+            }
+            
+            // 清空当前模型名称
+            currentModelName = null;
+            
+            // 转换状态为UNLOADED
+            forceSetModelState(ModelState.UNLOADED);
+            
+            LogManager.logI(TAG, "模型卸载完成");
+        } catch (Exception e) {
+            LogManager.logE(TAG, "卸载模型时发生错误: " + e.getMessage(), e);
+            // 即使出错也要设置为UNLOADED状态
+            forceSetModelState(ModelState.UNLOADED);
+        } finally {
+            // 释放内存
+            System.gc();
+            LogManager.logD(TAG, "已请求垃圾回收");
+        }
     }
     
     /**

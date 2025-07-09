@@ -3,16 +3,16 @@ plugins {
 }
 
 android {
-    namespace 'com.example.starlocalrag'
-    compileSdk 34 // Use an appropriate SDK version
+    namespace = 'com.example.starlocalrag'
+    compileSdk = 34 // Use an appropriate SDK version
     
     // 添加NDK配置
-    ndkVersion "25.1.8937393" // 使用合适的NDK版本
+    ndkVersion = "25.1.8937393" // 使用合适的NDK版本
 
     defaultConfig {
         applicationId "com.example.starlocalrag"
-        minSdk 26 // Adjust based on required features and device support
-        targetSdk 34
+        minSdk = 26 // Adjust based on required features and device support
+        targetSdk = 34
         versionCode 1
         versionName "1.0"
 
@@ -25,16 +25,22 @@ android {
 
     buildTypes {
         release {
-            // 启用代码收缩、资源收缩和混淆以优化性能
+            // 开源项目配置：启用代码压缩和资源压缩，但不混淆
             minifyEnabled true
-            shrinkResources true
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            shrinkResources = true
+            // 使用不混淆的ProGuard配置文件
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            
+            // 保持JIT编译器开启以获得更好的性能
             
             // 添加性能优化标志
             buildConfigField "boolean", "ENABLE_GPU_ACCELERATION", "true"
             buildConfigField "boolean", "ENABLE_NNAPI", "true"
             buildConfigField "int", "THREAD_COUNT", "4"
-            signingConfig signingConfigs.debug// CPU线程数优化
+            signingConfig = signingConfigs.debug // CPU线程数优化
+            
+            // 启用资源优化
+            crunchPngs true
         }
         debug {
             minifyEnabled false
@@ -73,14 +79,14 @@ android {
     //     jvmTarget = '1.8'
     // }
     buildFeatures {
-        viewBinding true // Enable View Binding for easier UI access
-        buildConfig true // Enable BuildConfig for custom fields
+        viewBinding = true // Enable View Binding for easier UI access
+        buildConfig = true // Enable BuildConfig for custom fields
     }
     
     lint {
-        abortOnError false
-        checkReleaseBuilds false
-        baseline file("lint-baseline.xml")
+        abortOnError = false
+        checkReleaseBuilds = false
+        baseline = file("lint-baseline.xml")
     }
     
     packaging {

@@ -75,6 +75,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -87,9 +88,11 @@ import com.example.starlocalrag.SQLiteVectorDatabaseHandler;
 import com.example.starlocalrag.ConfigManager;
 import com.example.starlocalrag.ApiUrlAdapter;
 import com.example.starlocalrag.api.TokenizerManager;
+import com.example.starlocalrag.RerankerModelManager;
 import com.example.starlocalrag.AppConstants;
 import com.example.starlocalrag.StateDisplayManager;
 import com.example.starlocalrag.adapter.StateAwareSpinnerAdapter;
+import com.example.starlocalrag.GlobalStopManager;
 import io.noties.markwon.Markwon;
 import io.noties.markwon.html.HtmlPlugin;
 import io.noties.markwon.AbstractMarkwonPlugin;
@@ -127,7 +130,7 @@ public class RagQaFragment extends Fragment {
     private final StringBuilder answerBuilder = new StringBuilder();
     private final StringBuilder debugBuilder = new StringBuilder();
 
-    private boolean isSending = false; // Track the state of the send/stop button
+    private final AtomicBoolean isSending = new AtomicBoolean(false); // Track the state of the send/stop button with atomic operations
     private static final String CONFIG_FILE = ".config"; // 配置文件名
     private List<String> systemPromptHistory = new ArrayList<>(); // 系统提示词历史记录
     private Map<String, String> apiKeyMap = new HashMap<>(); // API Key映射
@@ -139,8 +142,20 @@ public class RagQaFragment extends Fragment {
     // 全局停止标志 - 用于统一控制所有模型的停止
     private volatile boolean globalStopFlag = false;
     
-    // 用于执行后台任务的线程池
-    private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    // 【重要修复】线程池职责分离：
+    // 1. stopCheckExecutor - 专门用于停止检查任务，不应触发模型操作
+    // 2. ragQueryExecutor - 专门用于RAG查询任务，可以调用模型
+    private final ExecutorService stopCheckExecutor = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "RagQa-StopCheck-Thread");
+        t.setDaemon(true);
+        return t;
+    });
+    
+    private final ExecutorService ragQueryExecutor = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "RagQa-Query-Thread");
+        t.setDaemon(true);
+        return t;
+    });
     // 主线程Handler
     private Handler mainHandler;
 
@@ -286,10 +301,9 @@ public class RagQaFragment extends Fragment {
         editTextSystemPrompt.setOnFocusChangeListener((v, hasFocus) -> {
             if (!hasFocus) {
                 String systemPrompt = editTextSystemPrompt.getText().toString();
-                if (!systemPrompt.isEmpty()) {
-                    ConfigManager.setSystemPrompt(requireContext(), systemPrompt);
-                    LogManager.logD(TAG, "Saved system prompt");
-                }
+                // 无论是否为空都保存，确保用户清空系统提示词时能正确保存
+                ConfigManager.setSystemPrompt(requireContext(), systemPrompt);
+                LogManager.logD(TAG, "Saved system prompt: " + (systemPrompt.isEmpty() ? "[empty]" : systemPrompt));
             }
         });
         
@@ -504,12 +518,16 @@ public class RagQaFragment extends Fragment {
             // 加载API URL
             String apiUrl = ConfigManager.getString(requireContext(), ConfigManager.KEY_API_URL, "");
             if (!apiUrl.isEmpty()) {
-                setSpinnerSelection(spinnerApiUrl, apiUrl);
+                // 将原始API URL转换为显示文本后再设置选择
+                String apiUrlDisplayText = StateDisplayManager.getApiUrlDisplayText(requireContext(), apiUrl);
+                setSpinnerSelection(spinnerApiUrl, apiUrlDisplayText);
             }
             
             // 加载模型名称
             String modelName = ConfigManager.getString(requireContext(), ConfigManager.KEY_MODEL_NAME, "");
             if (!modelName.isEmpty()) {
+                // 检查是否为状态显示文本，如果是则直接使用，否则可能需要转换
+                // 由于模型名称通常直接保存，这里直接使用即可
                 setSpinnerSelection(spinnerApiModel, modelName);
             }
             
@@ -824,6 +842,11 @@ public class RagQaFragment extends Fragment {
             
             if (!lastKnowledgeBase.isEmpty()) {
                 setSpinnerSelection(spinnerKnowledgeBase, lastKnowledgeBase);
+            } else {
+                // 如果没有保存的知识库选择，默认选择"无"选项
+                String noneText = getString(R.string.common_none);
+                setSpinnerSelection(spinnerKnowledgeBase, noneText);
+                LogManager.logD(TAG, "No saved knowledge base selection, defaulting to 'None' option");
             }
         } catch (Exception e) {
             LogManager.logE(TAG, "Failed to load knowledge base selection: " + e.getMessage(), e);
@@ -832,7 +855,8 @@ public class RagQaFragment extends Fragment {
     }
 
     private void handleSendStopClick() {
-        if (!isSending) {
+        // 使用原子操作检查并设置发送状态，防止并发点击
+        if (isSending.compareAndSet(false, true)) {
             // --- 开始发送 --- 
             String apiUrlDisplay = spinnerApiUrl.getSelectedItem().toString();
             String apiUrl = StateDisplayManager.getApiUrlFromDisplayText(requireContext(), apiUrlDisplay);
@@ -866,41 +890,55 @@ public class RagQaFragment extends Fragment {
             // 保存当前配置
             saveConfig();
             
-            // 重置停止标志（开始新的推理前）
-            String currentApiUrlDisplay = spinnerApiUrl.getSelectedItem().toString();
-            String currentApiUrl = StateDisplayManager.getApiUrlFromDisplayText(requireContext(), currentApiUrlDisplay);
-            if (AppConstants.ApiUrl.LOCAL.equals(currentApiUrl)) {
-                try {
-                    LocalLlmAdapter localAdapter = LocalLlmAdapter.getInstance(requireContext());
-                    // 重置停止标志
-                    localAdapter.resetStopFlag();
-                    LogManager.logD(TAG, "Reset local LLM stop flag");
-                } catch (Exception e) {
-                    LogManager.logE(TAG, "Error resetting local LLM stop flag", e);
-                }
+            // 更新按钮状态（isSending已经在compareAndSet中设置为true）
+            buttonSendStop.setText(getString(R.string.button_stop_with_icon));
+            
+            // 清空响应区域并显示正在处理的消息
+            if (textViewResponse != null) {
+                textViewResponse.setText("");
             }
             
-            // 更新按钮状态
-            buttonSendStop.setText(getString(R.string.button_stop_with_icon));
-            isSending = true;
-            
-            // 显示正在处理的消息，不显示调试信息
-            //updateProgressOnUiThread("正在查询知识库...");
+            // 【重要修复】使用专门的RAG查询线程池执行查询任务
+            // 避免在停止检查线程中执行模型操作，消除并发冲突
+            ragQueryExecutor.execute(() -> {
+                // 【修复】只重置本地LLM的停止标志，不重置全局停止标志
+                // 全局停止标志只能在确认停止流程完成后被重置
+                String currentApiUrlDisplay = spinnerApiUrl.getSelectedItem().toString();
+                String currentApiUrl = StateDisplayManager.getApiUrlFromDisplayText(requireContext(), currentApiUrlDisplay);
+                if (AppConstants.ApiUrl.LOCAL.equals(currentApiUrl)) {
+                    try {
+                        LocalLlmAdapter localAdapter = LocalLlmAdapter.getInstance(requireContext());
+                        // 只重置本地LLM的停止标志，不影响全局停止标志
+                        localAdapter.resetStopFlag();
+                        LogManager.logD(TAG, "Reset local LLM stop flag in RAG query thread (global stop flag unchanged)");
+                    } catch (Exception e) {
+                        LogManager.logE(TAG, "Error resetting local LLM stop flag", e);
+                    }
+                }
+                
+                // 在后台线程中显示处理消息，避免UI线程嵌套调用
+                //updateProgressOnUiThread("Starting knowledge base query...");
+                executeRagQuery(apiUrl, apiKey, model, knowledgeBase, systemPrompt, userPrompt);
+            });
 
-            // 执行RAG查询任务
-            executeRagQuery(apiUrl, apiKey, model, knowledgeBase, systemPrompt, userPrompt);
-
-        } else {
+        } else if (isSending.compareAndSet(true, false)) {
             // --- 停止发送 --- 
             LogManager.logD(TAG, "User clicked stop button");
-            LogManager.logD(TAG, "Current state - isSending: " + isSending + ", isTaskRunning: " + isTaskRunning + ", isTaskCancelled: " + isTaskCancelled);
+            LogManager.logD(TAG, "Current state - isSending: " + isSending.get() + ", isTaskRunning: " + isTaskRunning + ", isTaskCancelled: " + isTaskCancelled);
             
             // 设置全局停止标志和任务取消标志
             globalStopFlag = true;
             isTaskCancelled = true;
+            
+            // 使用GlobalStopManager设置全局停止标志
+            GlobalStopManager.setGlobalStopFlag(true);
+            
             LogManager.logD(TAG, "Set global stop flag and task cancellation flag to true");
             
-            // 如果是本地模型，调用停止推理方法（无论isTaskRunning状态如何）
+            // 停止所有组件：tokenizer、embedding、reranker、本地LLM
+            LogManager.logD(TAG, "开始停止所有组件...");
+            
+            // 1. 停止本地LLM推理
             String currentApiUrlDisplay = spinnerApiUrl.getSelectedItem().toString();
             String currentApiUrl = StateDisplayManager.getApiUrlFromDisplayText(requireContext(), currentApiUrlDisplay);
             LogManager.logD(TAG, "Current API URL: " + currentApiUrl);
@@ -918,73 +956,166 @@ public class RagQaFragment extends Fragment {
                 LogManager.logD(TAG, "Non-local model, skipping local LLM stop call");
             }
             
+            // 2. 停止Embedding模型（如果正在使用）
+            try {
+                EmbeddingModelManager embeddingManager = EmbeddingModelManager.getInstance(getContext());
+                if (embeddingManager != null) {
+                    // EmbeddingModelManager没有直接的停止方法，但可以通过卸载模型来停止
+                    LogManager.logD(TAG, "Embedding model manager found, marking as stopped");
+                }
+                LogManager.logI(TAG, "✓ Embedding model stop signal sent");
+            } catch (Exception e) {
+                LogManager.logE(TAG, "✗ Error stopping embedding model", e);
+            }
+            
+            // 3. 停止Reranker模型（如果正在使用）
+            try {
+                RerankerModelManager rerankerManager = RerankerModelManager.getInstance(getContext());
+                if (rerankerManager != null) {
+                    // RerankerModelManager没有直接的停止方法，但可以通过重置来停止
+                    LogManager.logD(TAG, "Reranker model manager found, marking as stopped");
+                }
+                LogManager.logI(TAG, "✓ Reranker model stop signal sent");
+            } catch (Exception e) {
+                LogManager.logE(TAG, "✗ Error stopping reranker model", e);
+            }
+            
+            // 4. 停止Tokenizer（如果正在使用）
+            try {
+                TokenizerManager tokenizerManager = TokenizerManager.getInstance(requireContext());
+                if (tokenizerManager != null) {
+                    // TokenizerManager有reset方法可以重置状态
+                    tokenizerManager.reset();
+                    LogManager.logI(TAG, "✓ Tokenizer reset completed");
+                } else {
+                    LogManager.logD(TAG, "Tokenizer manager not found, skipping");
+                }
+            } catch (Exception e) {
+                LogManager.logE(TAG, "✗ Error resetting tokenizer", e);
+            }
+            
+            LogManager.logI(TAG, "所有组件停止信号已发送");
+            
             // 启动停止完成检查机制（防呆机制）
-            startStopCompletionCheck();
+            // 智能检查：只在真正需要时启动（当任务可能仍在运行时）
+            if (isTaskRunning || !globalStopFlag) {
+                needsStopCheck = true;
+                startStopCompletionCheck();
+            } else {
+                LogManager.logD(TAG, "[防呆机制] 任务状态正常，无需启动检查");
+            }
             
             Toast.makeText(requireContext(), getString(R.string.toast_request_stopped), Toast.LENGTH_SHORT).show();
             appendToResponse("\n" + getString(R.string.toast_request_stopped) + "。");
             LogManager.logD(TAG, "Stop processing initiated, waiting for completion check");
+        } else {
+            // 防止重复点击
+            LogManager.logD(TAG, "Button click ignored - operation already in progress or completed");
         }
     }
     
     
     // 执行RAG查询任务
     /**
+     * 初始化发送状态（开始新的查询时调用）
+     * 【修复】不重置全局停止标志，只初始化任务状态
+     */
+    private void initializeSendingState() {
+        isTaskRunning = true;
+        isTaskCancelled = false;
+        // 【重要】不重置全局停止标志，保持之前的停止状态
+        LogManager.logD(TAG, "Initializing sending state - task running: " + isTaskRunning + ", cancelled: " + isTaskCancelled + ", global stop flag unchanged: " + globalStopFlag);
+    }
+    
+    /**
      * 重置所有发送状态
      * 统一管理所有状态变量的重置，确保状态一致性
+     * 【修复】只在确认所有任务真正停止后才重置全局停止标志
      */
     private void resetSendingState() {
         isTaskRunning = false;
         isTaskCancelled = false;
-        globalStopFlag = false;
-        isSending = false;
         
-        // 在UI线程上更新按钮状态
+        // 【修复】只有在确认停止流程完成后才重置全局停止标志
+        // 这确保了停止标志不会被过早重置
+        LogManager.logD(TAG, "Resetting sending state - confirming all tasks stopped before resetting global stop flag");
+        globalStopFlag = false;
+        GlobalStopManager.setGlobalStopFlag(false);
+        LogManager.logD(TAG, "Global stop flag reset to false after confirming all tasks stopped");
+        
+        isSending.set(false); // 使用原子操作重置发送状态
+        
+        // 在UI线程上更新按钮状态，添加Fragment生命周期检查
         if (mainHandler != null && buttonSendStop != null) {
             mainHandler.post(() -> {
-                buttonSendStop.setText(getString(R.string.button_send));
+                // 检查Fragment是否仍然附加到Activity
+                if (getActivity() == null || !isAdded() || isDetached()) {
+                    LogManager.logW(TAG, "Cannot reset sending state, Fragment not attached to Activity");
+                    return;
+                }
+                
+                try {
+                    buttonSendStop.setText(getString(R.string.button_send));
+                } catch (Exception e) {
+                    LogManager.logE(TAG, "Failed to reset button text", e);
+                }
             });
         }
     }
     
+    // 智能检查标志 - 只在真正需要时启动防呆检查
+    private volatile boolean needsStopCheck = false;
+    
     /**
      * 启动停止完成检查机制（防呆机制）
      * 持续监控所有任务是否真正停止，确保按钮状态正确
+     * 优化：减少检查频率，智能检查
      */
     private void startStopCompletionCheck() {
-        LogManager.logD(TAG, "[防呆机制] 启动停止完成检查");
+        // 智能检查：只在真正需要时启动
+        if (!needsStopCheck) {
+            LogManager.logD(TAG, "[防呆机制] 无需启动检查，任务状态正常");
+            return;
+        }
         
-        // 使用后台线程进行检查，避免阻塞UI
-        executor.execute(() -> {
+        LogManager.logD(TAG, "[防呆机制] 启动停止完成检查（智能模式）");
+        
+        // 【重要修复】使用专门的停止检查线程池，避免与RAG查询任务冲突
+        stopCheckExecutor.execute(() -> {
             int checkCount = 0;
+            final int CHECK_INTERVAL_MS = 300; // 减少检查频率：从100ms增加到300ms
+            final int MAX_CHECKS = 100; // 减少最大检查次数：从300次减少到100次（30秒）
             
-            while (true) {
+            while (needsStopCheck) {
                 try {
-                    Thread.sleep(100); // 每100ms检查一次
+                    Thread.sleep(CHECK_INTERVAL_MS);
                     checkCount++;
                     
                     boolean allTasksStopped = checkAllTasksStopped();
                     
-                    // 每10次检查记录一次日志，避免日志过多
-                    if (checkCount % 10 == 0) {
+                    // 每5次检查记录一次日志，减少日志频率
+                    if (checkCount % 5 == 0) {
                         LogManager.logD(TAG, "[防呆机制] 第" + checkCount + "次检查，所有任务已停止: " + allTasksStopped);
                     }
                     
                     if (allTasksStopped) {
                         LogManager.logI(TAG, "[防呆机制] ✓ 所有任务已确认停止，恢复按钮状态（检查" + checkCount + "次）");
+                        needsStopCheck = false; // 重置智能检查标志
                         resetSendingState();
                         return;
                     }
                     
-                    // 安全检查：如果检查次数过多（超过30秒），强制恢复状态
-                    if (checkCount > 300) {
+                    // 安全检查：如果检查次数过多，强制恢复状态
+                    if (checkCount > MAX_CHECKS) {
                         LogManager.logW(TAG, "[防呆机制] ⚠ 检查次数过多（" + checkCount + "次），强制恢复按钮状态");
+                        needsStopCheck = false; // 重置智能检查标志
                         resetSendingState();
                         return;
                     }
                     
                 } catch (InterruptedException e) {
                     LogManager.logE(TAG, "[防呆机制] 检查线程被中断", e);
+                    needsStopCheck = false; // 重置智能检查标志
                     break;
                 }
             }
@@ -996,29 +1127,6 @@ public class RagQaFragment extends Fragment {
      * @return true如果所有任务都已停止，false否则
      */
     private boolean checkAllTasksStopped() {
-        // 检查本地LLM是否还在推理
-        String currentApiUrlDisplay = spinnerApiUrl.getSelectedItem().toString();
-        String currentApiUrl = StateDisplayManager.getApiUrlFromDisplayText(requireContext(), currentApiUrlDisplay);
-        
-        if (AppConstants.ApiUrl.LOCAL.equals(currentApiUrl)) {
-            try {
-                LocalLlmAdapter localAdapter = LocalLlmAdapter.getInstance(requireContext());
-                LocalLlmHandler localHandler = LocalLlmHandler.getInstance(requireContext());
-                
-                // 检查本地LLM是否还在推理
-                if (localHandler.shouldStopInference()) {
-                    // 停止标志已设置，但需要确认推理真正停止
-                    // 这里可以添加更精确的检查逻辑
-                    LogManager.logD(TAG, "[防呆机制] 本地LLM停止标志已设置");
-                } else {
-                    LogManager.logD(TAG, "[防呆机制] 本地LLM停止标志未设置，任务可能仍在运行");
-                    return false;
-                }
-            } catch (Exception e) {
-                LogManager.logE(TAG, "[防呆机制] 检查本地LLM状态失败", e);
-            }
-        }
-        
         // 检查RAG查询任务是否还在运行
         if (isTaskRunning && !isTaskCancelled) {
             LogManager.logD(TAG, "[防呆机制] RAG任务仍在运行");
@@ -1031,15 +1139,76 @@ public class RagQaFragment extends Fragment {
             return false;
         }
         
-        LogManager.logD(TAG, "[防呆机制] 所有检查通过，任务已停止");
+        // 使用GlobalStopManager检查各个模块的停止状态
+        if (!GlobalStopManager.areAllModulesStopped()) {
+            LogManager.logD(TAG, "[防呆机制] 仍有模块未完全停止");
+            return false;
+        }
+        
+        // 检查本地LLM是否还在推理
+        String currentApiUrlDisplay = spinnerApiUrl.getSelectedItem().toString();
+        String currentApiUrl = StateDisplayManager.getApiUrlFromDisplayText(requireContext(), currentApiUrlDisplay);
+        
+        if (AppConstants.ApiUrl.LOCAL.equals(currentApiUrl)) {
+            try {
+                // 检查本地LLM是否真正停止
+                if (!GlobalStopManager.isModuleStopped("LocalLLM")) {
+                    LogManager.logD(TAG, "[防呆机制] 本地LLM仍在运行");
+                    return false;
+                }
+                LogManager.logD(TAG, "[防呆机制] 本地LLM已停止");
+            } catch (Exception e) {
+                LogManager.logE(TAG, "[防呆机制] 检查本地LLM状态时出错: " + e.getMessage());
+                // 出错时认为还未完全停止
+                return false;
+            }
+        }
+        
+        // 检查Embedding模型状态
+        try {
+            if (!GlobalStopManager.isModuleStopped("Embedding")) {
+                LogManager.logD(TAG, "[防呆机制] Embedding模型仍在运行");
+                return false;
+            }
+            LogManager.logD(TAG, "[防呆机制] Embedding模型已停止");
+        } catch (Exception e) {
+            LogManager.logE(TAG, "[防呆机制] 检查Embedding模型状态时出错: " + e.getMessage());
+            return false;
+        }
+        
+        // 检查Reranker模型状态
+        try {
+            if (!GlobalStopManager.isModuleStopped("Reranker")) {
+                LogManager.logD(TAG, "[防呆机制] Reranker模型仍在运行");
+                return false;
+            }
+            LogManager.logD(TAG, "[防呆机制] Reranker模型已停止");
+        } catch (Exception e) {
+            LogManager.logE(TAG, "[防呆机制] 检查Reranker模型状态时出错: " + e.getMessage());
+            return false;
+        }
+        
+        // 检查Tokenizer状态
+        try {
+            if (!GlobalStopManager.isModuleStopped("Tokenizer")) {
+                LogManager.logD(TAG, "[防呆机制] Tokenizer仍在运行");
+                return false;
+            }
+            LogManager.logD(TAG, "[防呆机制] Tokenizer已停止");
+        } catch (Exception e) {
+            LogManager.logE(TAG, "[防呆机制] 检查Tokenizer状态时出错: " + e.getMessage());
+            return false;
+        }
+        
+        LogManager.logD(TAG, "[防呆机制] 所有组件已确认完全停止，可以转换按钮状态");
         return true;
     }
     
     private void executeRagQuery(String apiUrl, String apiKey, String model, String knowledgeBase, String systemPrompt, String userPrompt) {
-        // 重置停止标志
-        globalStopFlag = false;
-        isTaskRunning = true;
-        isTaskCancelled = false;
+        // 【修复】使用专门的初始化方法，不重置全局停止标志
+        initializeSendingState();
+        
+        LogManager.logD(TAG, "Starting RAG query execution with preserved global stop flag state");
         
         // 保存查询参数，用于恢复
         lastApiUrl = apiUrl;
@@ -1064,18 +1233,16 @@ public class RagQaFragment extends Fragment {
         // 更新UI，显示开始查询
         mainHandler.post(() -> {
             buttonSendStop.setText(getString(R.string.button_stop_with_icon));
-            isSending = true;
-            isTaskRunning = true;
-            isTaskCancelled = false;
+            isSending.set(true); // 使用原子操作设置发送状态
+            // 【修复】任务状态已在initializeSendingState中设置，此处不重复设置
             
             // 清空响应区域
             //updateProgressOnUiThread("正在查询知识库...");
         });
         
-        // 在后台线程中执行查询
-        executor.execute(() -> {
-            try {
-                // 记录查询信息到日志
+        // 同步执行查询（避免并发冲突）
+        try {
+            // 记录查询信息到日志
                 String logMessage = "执行RAG查询:\n" +
                         "API URL: " + apiUrl + "\n" +
                         "模型: " + model + "\n" +
@@ -1231,21 +1398,19 @@ public class RagQaFragment extends Fragment {
                     updateProgressOnUiThread("Calling LLM API...");
                     callLLMApi(apiUrl, apiKey, model, fullPrompt);
                 }
-            } catch (Exception e) {
-                String errorMsg = "RAG query task execution failed: " + e.getMessage();
-                LogManager.logE(TAG, errorMsg, e);
-                
-                updateResultOnUiThread("Query failed: " + e.getMessage());
-                mainHandler.post(() -> {
-                    buttonSendStop.setText(getString(R.string.button_send));
-                    isSending = false;
-                });
-            } finally {
-                // 注意：不在这里设置isTaskRunning = false，因为LLM推理是异步的
-                // isTaskRunning将在LLM推理完成或出错时在回调中设置为false
-                LogManager.logD(TAG, "executeRagQuery method execution completed, waiting for async LLM inference to complete");
-            }
-        });
+        } catch (Exception e) {
+            String errorMsg = "RAG query task execution failed: " + e.getMessage();
+            LogManager.logE(TAG, errorMsg, e);
+            
+            updateResultOnUiThread("Query failed: " + e.getMessage());
+            mainHandler.post(() -> {
+                buttonSendStop.setText(getString(R.string.button_send));
+                isSending.set(false); // 使用原子操作重置发送状态
+            });
+        } finally {
+            // executeRagQuery方法执行完成，LLM推理将异步进行
+            LogManager.logD(TAG, "executeRagQuery method execution completed, LLM inference will proceed asynchronously");
+        }
     }
     
     // 查询知识库获取相关内容
@@ -1655,10 +1820,21 @@ public class RagQaFragment extends Fragment {
                     LogManager.logD(TAG, "API call successful, duration: " + (System.currentTimeMillis() - startTime) + "ms");
                     LogManager.logD(TAG, "Response length: " + response.length() + " characters");
 
+                    // 检查Fragment生命周期状态
+                    if (getActivity() == null || !isAdded() || isDetached()) {
+                        LogManager.logW(TAG, "Cannot handle success, Fragment not attached to Activity");
+                        return;
+                    }
                     
                     // 在UI线程中进行最终的Markdown渲染
                     mainHandler.post(() -> {
                         try {
+                            // 再次检查Fragment状态
+                            if (getActivity() == null || !isAdded() || isDetached() || getView() == null) {
+                                LogManager.logW(TAG, "Cannot update UI in success callback, Fragment not attached");
+                                return;
+                            }
+                            
                             TextView textViewResponse = getView().findViewById(R.id.textViewResponse);
                             if (textViewResponse != null) {
                                 // 获取当前显示的内容
@@ -1715,7 +1891,11 @@ public class RagQaFragment extends Fragment {
                 // 在onStreamingData方法中，使用简单的setText方法
                 @Override
                 public void onStreamingData(final String chunk) {
-                    if (getActivity() == null) return;
+                    // 检查Fragment生命周期状态
+                    if (getActivity() == null || !isAdded() || isDetached()) {
+                        LogManager.logW(TAG, "Cannot handle streaming data, Fragment not attached to Activity");
+                        return;
+                    }
                     
                     // 检查全局停止标志
                     if (globalStopFlag) {
@@ -1733,6 +1913,12 @@ public class RagQaFragment extends Fragment {
                     // 在UI线程中更新内容，使用纯文本方式
                     getActivity().runOnUiThread(() -> {
                         try {
+                            // 再次检查Fragment状态
+                            if (getActivity() == null || !isAdded() || isDetached() || getView() == null) {
+                                LogManager.logW(TAG, "Cannot update UI in streaming callback, Fragment not attached");
+                                return;
+                            }
+                            
                             // 获取文本视图和滚动视图
                             TextView textViewResponse = getView().findViewById(R.id.textViewResponse);
                             ScrollView scrollView = getView().findViewById(R.id.scrollViewResponse);
@@ -1973,13 +2159,22 @@ public class RagQaFragment extends Fragment {
                     // 处理错误
                     LogManager.logE(TAG, "API call failed, duration: " + (System.currentTimeMillis() - startTime) + "ms, error: " + errorMessage);
                     
-                    // 显示错误信息
-                    updateResultOnUiThread("API call failed: " + errorMessage);
+                    // 检查Fragment生命周期状态
+                    if (getActivity() == null || !isAdded() || isDetached()) {
+                        LogManager.logW(TAG, "Cannot handle error, Fragment not attached to Activity");
+                        return;
+                    }
                     
-                    // 使用统一的状态重置方法
-                    resetSendingState();
-                    LogManager.logD(TAG, "Task error, all states reset");
-                    
+                    try {
+                        // 显示错误信息
+                        updateResultOnUiThread("API call failed: " + errorMessage);
+                        
+                        // 使用统一的状态重置方法
+                        resetSendingState();
+                        LogManager.logD(TAG, "Task error, all states reset");
+                    } catch (Exception e) {
+                        LogManager.logE(TAG, "Failed to handle error callback", e);
+                    }
                 }
             };
             
@@ -2016,9 +2211,10 @@ public class RagQaFragment extends Fragment {
             return;
         }
         
-        if (getActivity() == null || !isAdded()) {
+        if (getActivity() == null || !isAdded() || isDetached()) {
             LogManager.logW(TAG, "Cannot update UI, Fragment not attached to Activity, will retry in 1 second (remaining retries: " + retryCount + ")");
-            queryNeedsResume = true; // 标记需要恢复查询
+            // 移除自动恢复查询的逻辑，避免应用启动时自动执行查询
+            // queryNeedsResume = true; // 标记需要恢复查询
             
             // 1秒后重试
             new Handler(Looper.getMainLooper()).postDelayed(() -> {
@@ -2028,86 +2224,93 @@ public class RagQaFragment extends Fragment {
         }
         
         getActivity().runOnUiThread(() -> {
+            // 再次检查Fragment状态
+            if (getActivity() == null || !isAdded() || isDetached()) {
+                LogManager.logW(TAG, "Cannot update UI in progress callback, Fragment not attached");
+                return;
+            }
             appendToResponse(progress);
         });
     }
     
     // 完全重写的追加内容方法，解决滚动和Markdown渲染问题
     private void appendToResponse(String text) {
-        if (getActivity() == null || !isAdded()) {
+        if (getActivity() == null || !isAdded() || isDetached()) {
             LogManager.logW(TAG, "Cannot append response, Fragment not attached to Activity");
             return;
         }
         
-        getActivity().runOnUiThread(() -> {
-            try {
-                if (getView() == null) {
-                    LogManager.logW(TAG, "Cannot append response, Fragment's View is null");
-                    return;
-                }
-                
-                // 获取文本视图和滚动视图
-                TextView textViewResponse = getView().findViewById(R.id.textViewResponse);
-                ScrollView scrollView = getView().findViewById(R.id.scrollViewResponse);
-                if (textViewResponse == null || scrollView == null) return;
-                
-                // 获取当前滚动状态
-                int scrollY = scrollView.getScrollY();
-                int scrollViewHeight = scrollView.getHeight();
-                int contentHeight = scrollView.getChildAt(0).getHeight();
-                
-                // 判断是否在底部或接近底部（允许30px的误差）
-                boolean wasAtBottom = (scrollY + scrollViewHeight >= contentHeight - 30);
-                
-                // 保存当前文本
-                CharSequence currentText = textViewResponse.getText();
-                
-                // 准备新文本
-                String newText;
-                if (currentText.length() == 0) {
-                    newText = text;
-                } else {
-                    newText = currentText + "\n" + text;
-                }
-                
-                // 添加调试日志，查看文本内容和Markdown渲染过程
-                //LogManager.logD(TAG, "DEBUG: Text content to render: " + newText);
-        //LogManager.logD(TAG, "DEBUG: Is Markwon instance null: " + (markwon == null ? "yes" : "no"));
-                
-                try {
-                    // 尝试使用不同的方式渲染Markdown
-                    // 方式1: 直接设置文本，然后使用setMarkdown
-                    textViewResponse.setText(newText);
-                    markwon.setMarkdown(textViewResponse, newText);
-                    
-                    // 调试日志
-                    //LogManager.logD(TAG, "DEBUG: Attempted to render using setMarkdown");
-                    
-                    // 检查TextView的属性
-                    //LogManager.logD(TAG, "DEBUG: TextView text selectable state: " + textViewResponse.isTextSelectable());
-            //LogManager.logD(TAG, "DEBUG: TextView MovementMethod: " + textViewResponse.getMovementMethod());
-                } catch (Exception e) {
-                    LogManager.logE(TAG, "DEBUG: Markdown rendering failed", e);
-                }
-                
-                // 不再使用自动滚动，由用户自行控制滚动位置
-            } catch (Exception e) {
-                LogManager.logE(TAG, "Failed to append content", e);
+        // 检查是否已经在UI线程中
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            // 已经在UI线程中，直接执行
+            performAppendToResponse(text);
+        } else {
+            // 不在UI线程中，切换到UI线程
+            getActivity().runOnUiThread(() -> performAppendToResponse(text));
+        }
+    }
+    
+    private void performAppendToResponse(String text) {
+        try {
+            // 检查Fragment状态
+            if (getActivity() == null || !isAdded() || isDetached() || getView() == null) {
+                LogManager.logW(TAG, "Cannot append response in UI thread, Fragment not attached");
+                return;
             }
-        });
+            
+            // 获取文本视图和滚动视图
+            TextView textViewResponse = getView().findViewById(R.id.textViewResponse);
+            ScrollView scrollView = getView().findViewById(R.id.scrollViewResponse);
+            if (textViewResponse == null || scrollView == null) return;
+            
+            // 保存当前文本
+            CharSequence currentText = textViewResponse.getText();
+            
+            // 准备新文本
+            String newText;
+            if (currentText.length() == 0) {
+                newText = text;
+            } else {
+                newText = currentText + "\n" + text;
+            }
+            
+            try {
+                // 优化的Markdown渲染：先设置文本，再渲染
+                textViewResponse.setText(newText);
+                if (markwon != null) {
+                    markwon.setMarkdown(textViewResponse, newText);
+                }
+            } catch (Exception e) {
+                LogManager.logE(TAG, "Markdown rendering failed, using plain text", e);
+                textViewResponse.setText(newText);
+            }
+            
+            // 自动滚动到底部（延迟执行以确保内容已渲染）
+            scrollView.post(() -> {
+                try {
+                    scrollView.fullScroll(View.FOCUS_DOWN);
+                } catch (Exception e) {
+                    LogManager.logE(TAG, "Failed to scroll to bottom", e);
+                }
+            });
+            
+        } catch (Exception e) {
+            LogManager.logE(TAG, "Failed to append content", e);
+        }
     }
     
     // 在UI线程上更新结果（替换全部内容）
     private void updateResultOnUiThread(String result) {
-        if (getActivity() == null || !isAdded()) {
+        if (getActivity() == null || !isAdded() || isDetached()) {
             LogManager.logW(TAG, "Cannot update result, Fragment not attached to Activity");
             return;
         }
         
         mainHandler.post(() -> {
             try {
-                if (getView() == null) {
-                    LogManager.logW(TAG, "Cannot update result, Fragment's View is null");
+                // 再次检查Fragment状态
+                if (getActivity() == null || !isAdded() || isDetached() || getView() == null) {
+                    LogManager.logW(TAG, "Cannot update result in UI thread, Fragment not attached");
                     return;
                 }
                 
@@ -2317,36 +2520,39 @@ public class RagQaFragment extends Fragment {
         }
         
         // 重置发送/停止按钮状态
-        if (isSending) {
+        if (isSending.get()) {
             buttonSendStop.setText(getString(R.string.button_send));
-            isSending = false;
+            isSending.set(false); // 使用原子操作重置发送状态
             if (isTaskRunning) {
                 isTaskCancelled = true;
             }
         }
         
         // 重置模型记忆 - 清除KV缓存和对话历史
-        try {
-            String selectedApiDisplay = spinnerApiUrl.getSelectedItem().toString();
-            String selectedApi = StateDisplayManager.getApiUrlFromDisplayText(getContext(), selectedApiDisplay);
-            // 新对话调试日志已移除
-            
-            if (AppConstants.ApiUrl.LOCAL.equals(selectedApi)) {
-                // 新对话调试日志已移除
-                LocalLlmAdapter localAdapter = LocalLlmAdapter.getInstance(getContext());
-                if (localAdapter != null) {
-                    localAdapter.resetModelMemory();
-                } else {
-                    LogManager.logW("RagQaFragment", "LocalLlmAdapter instance is null");
+        // 【修复】将本地模型操作移到后台线程中执行，避免main线程调用模型
+        String selectedApiDisplay = spinnerApiUrl.getSelectedItem().toString();
+        String selectedApi = StateDisplayManager.getApiUrlFromDisplayText(getContext(), selectedApiDisplay);
+        
+        if (AppConstants.ApiUrl.LOCAL.equals(selectedApi)) {
+            // 在后台线程中执行本地模型重置操作
+            ragQueryExecutor.execute(() -> {
+                try {
+                    LocalLlmAdapter localAdapter = LocalLlmAdapter.getInstance(getContext());
+                    if (localAdapter != null) {
+                        localAdapter.resetModelMemory();
+                        LogManager.logD(TAG, "Reset local model memory in background thread");
+                    } else {
+                        LogManager.logW("RagQaFragment", "LocalLlmAdapter instance is null");
+                    }
+                } catch (Exception e) {
+                    LogManager.logE("RagQaFragment", "Failed to reset model memory", e);
                 }
-            } else {
-                // 对于在线大模型，清除本地对话历史和状态
-                // 新对话调试日志已移除
-                // 在线大模型通常是无状态的，每次请求都是独立的
-                // 这里主要是清除本地的UI状态和缓存
-            }
-        } catch (Exception e) {
-            LogManager.logE("RagQaFragment", "Failed to reset model memory", e);
+            });
+        } else {
+            // 对于在线大模型，清除本地对话历史和状态
+            // 新对话调试日志已移除
+            // 在线大模型通常是无状态的，每次请求都是独立的
+            // 这里主要是清除本地的UI状态和缓存
         }
         
         // 新对话调试日志已移除
@@ -2364,11 +2570,7 @@ public class RagQaFragment extends Fragment {
         return super.onContextItemSelected(item);
     }
 
-    @Override
-    public void onDestroy() {
-        super.onDestroy();
-        executor.shutdown();
-    }
+
     
     // 加载模型并处理查询
     private void loadModelAndProcessQuery(String foundModelPath, String query, SQLiteVectorDatabaseHandler vectorDb) {
@@ -2435,6 +2637,13 @@ public class RagQaFragment extends Fragment {
             //updateProgressOnUiThread("标记模型开始使用，防止自动卸载");
             
             try {
+                // 检查全局停止标志
+                if (GlobalStopManager.isGlobalStopRequested()) {
+                    LogManager.logD(TAG, "Global stop requested, aborting before vector generation");
+                    updateProgressOnUiThread("Operation stopped by user");
+                    return;
+                }
+                
                 // 生成查询向量
                 updateProgressOnUiThread("Generating query vector...");
                 
@@ -2443,6 +2652,13 @@ public class RagQaFragment extends Fragment {
                 
                 // 生成向量
                 float[] queryVector = embeddingHandler.generateEmbedding(userQuery);
+                
+                // 检查全局停止标志
+                if (GlobalStopManager.isGlobalStopRequested()) {
+                    LogManager.logD(TAG, "Global stop requested, aborting after vector generation");
+                    updateProgressOnUiThread("Operation stopped by user");
+                    return;
+                }
                 
                 // 记录向量调试信息
                 String vectorDebugInfo = embeddingHandler.getVectorDebugInfo(userQuery, queryVector, System.currentTimeMillis());
@@ -2453,6 +2669,13 @@ public class RagQaFragment extends Fragment {
                 updateProgressOnUiThread(vectorDebugInfo);
 
                 
+                // 检查全局停止标志
+                if (GlobalStopManager.isGlobalStopRequested()) {
+                    LogManager.logD(TAG, "Global stop requested, aborting before database search");
+                    updateProgressOnUiThread("Operation stopped by user");
+                    return;
+                }
+                
                 // 搜索相似文本块
                 updateProgressOnUiThread("Searching similar text blocks...");
                 
@@ -2461,6 +2684,13 @@ public class RagQaFragment extends Fragment {
                 
                 // 搜索相似文本块
                 List<SQLiteVectorDatabaseHandler.SearchResult> searchResults = vectorDb.searchSimilar(queryVector, retrievalCount);
+                
+                // 检查全局停止标志
+                if (GlobalStopManager.isGlobalStopRequested()) {
+                    LogManager.logD(TAG, "Global stop requested, aborting after database search");
+                    updateProgressOnUiThread("Operation stopped by user");
+                    return;
+                }
                 
                 // 显示检索结果的相似度
                 if (!searchResults.isEmpty()) {
@@ -2474,16 +2704,35 @@ public class RagQaFragment extends Fragment {
                     updateProgressOnUiThread(similarityInfo.toString());
                 }
                 
+                // 检查全局停止标志
+                if (GlobalStopManager.isGlobalStopRequested()) {
+                    LogManager.logD(TAG, "Global stop requested, aborting before reranking");
+                    updateProgressOnUiThread("Operation stopped by user");
+                    return;
+                }
+                
                 // 检查是否需要重排
+                int rerankCount = ConfigManager.getRerankCount(requireContext());
                 String rerankerModelPath = getRerankerModelPath(vectorDb);
-                if (rerankerModelPath != null && !rerankerModelPath.isEmpty()) {
+                
+                if (rerankCount > 0 && rerankerModelPath != null && !rerankerModelPath.isEmpty()) {
                     // 使用重排模型
+                    LogManager.logI(TAG, "Using reranker model with rerank count: " + rerankCount);
                     updateProgressOnUiThread("Using reranker model to optimize results...");
                     processWithReranker(userQuery, searchResults, rerankerModelPath, vectorDb);
                 } else {
                     // 不使用重排，直接处理向量检索结果
-                    LogManager.logD(TAG, "No reranker model configured, using vector search results");
+                    if (rerankCount == 0) {
+                        LogManager.logI(TAG, "Rerank count is 0, skipping reranking and using vector search results directly");
+                        updateProgressOnUiThread("Rerank count is 0, skipping reranking");
+                    } else {
+                        LogManager.logD(TAG, "No reranker model configured, using vector search results");
+                    }
                     processVectorSearchResults(searchResults);
+                    
+                    // 【修复】不再调用continueRagQueryAfterReranking，避免重复调用LLM API
+                    // executeRagQuery方法会等待relevantDocuments被设置后自行调用callLLMApi
+                    // continueRagQueryAfterReranking();
                 }
 
                 // 标记模型使用结束
@@ -2568,6 +2817,13 @@ public class RagQaFragment extends Fragment {
     private void processWithReranker(String query, List<SQLiteVectorDatabaseHandler.SearchResult> searchResults, 
                                    String rerankerModelPath, SQLiteVectorDatabaseHandler vectorDb) {
         try {
+            // 检查全局停止标志
+            if (GlobalStopManager.isGlobalStopRequested()) {
+                LogManager.logD(TAG, "Global stop requested, aborting reranking process");
+                updateProgressOnUiThread("Operation stopped by user");
+                return;
+            }
+            
             // 获取重排模型管理器
             RerankerModelManager rerankerManager = RerankerModelManager.getInstance(requireContext());
             
@@ -2705,8 +2961,9 @@ public class RagQaFragment extends Fragment {
             
             updateProgressOnUiThread("Reranking optimization completed, found " + relevantDocs.size() + " relevant contents");
             
-            // 重排完成后，继续执行RAG查询流程 - 调用LLM API生成回答
-            continueRagQueryAfterReranking();
+            // 【修复】不再调用continueRagQueryAfterReranking，避免重复调用LLM API
+            // executeRagQuery方法会等待relevantDocuments被设置后自行调用callLLMApi
+            // continueRagQueryAfterReranking();
             
         } catch (Exception e) {
             LogManager.logE(TAG, "Failed to process reranked results: " + e.getMessage(), e);
@@ -2952,6 +3209,38 @@ public class RagQaFragment extends Fragment {
             
             // 生成向量
             float[] queryVector = modelHandler.generateEmbedding(userQuery);
+            
+            // 查询向量异常处理
+            if (queryVector != null && queryVector.length > 0) {
+                // 检测查询向量异常
+                VectorAnomalyHandler.AnomalyResult anomalyResult = VectorAnomalyHandler.detectAnomalies(queryVector, -1);
+                
+                if (anomalyResult.isAnomalous) {
+                    LogManager.logW(TAG, String.format("Query vector anomaly detected: %s (severity: %.2f) - %s", 
+                            anomalyResult.type.name(), anomalyResult.severity, anomalyResult.description));
+                    
+                    // 修复查询向量异常
+                    float[] repairedQueryVector = VectorAnomalyHandler.repairVector(queryVector, anomalyResult.type);
+                    if (repairedQueryVector != null) {
+                        queryVector = repairedQueryVector;
+                        LogManager.logD(TAG, "Query vector anomaly repaired successfully");
+                        updateProgressOnUiThread("Query vector anomaly detected and repaired");
+                    } else {
+                        LogManager.logW(TAG, "Failed to repair query vector anomaly, using original vector");
+                        updateProgressOnUiThread("Query vector anomaly detected but repair failed, using original vector");
+                    }
+                }
+                
+                // 最终查询向量验证
+                VectorAnomalyHandler.AnomalyResult finalCheck = VectorAnomalyHandler.detectAnomalies(queryVector, -1);
+                if (finalCheck.isAnomalous && finalCheck.severity > 0.8f) {
+                    LogManager.logE(TAG, String.format("Critical query vector anomaly remains after repair: %s", finalCheck.description));
+                    // 对于严重异常，生成随机单位向量作为备用
+                    queryVector = VectorAnomalyHandler.generateRandomUnitVector(queryVector.length);
+                    LogManager.logW(TAG, "Generated random unit vector as fallback for query");
+                    updateProgressOnUiThread("Critical query vector anomaly, using fallback vector");
+                }
+            }
             
             // 记录向量调试信息
             String vectorDebugInfo = modelHandler.getVectorDebugInfo(userQuery, queryVector, System.currentTimeMillis());
@@ -3229,6 +3518,9 @@ public class RagQaFragment extends Fragment {
         // 在页面恢复时重新应用字体大小，以便在设置页面修改后能够立即生效
         applyGlobalTextSize();
         
+        // 移除自动查询恢复逻辑，避免应用启动时意外执行查询
+        // 如果需要恢复查询功能，应该通过用户明确的操作触发
+        /*
         // 检查是否需要恢复之前的查询
         if (queryNeedsResume && lastUserPrompt != null && !lastUserPrompt.isEmpty()) {
             LogManager.logD(TAG, "Detected query that needs to be resumed, will re-execute after page resume");
@@ -3255,6 +3547,7 @@ public class RagQaFragment extends Fragment {
                 }
             }, 500);
         }
+        */
     }
     
     // 设置自定义文本选择菜单
@@ -3396,5 +3689,41 @@ public class RagQaFragment extends Fragment {
             // 使用统一的状态重置方法
             resetSendingState();
         }
+    }
+    
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        
+        // 【重要修复】正确关闭两个线程池，避免资源泄漏
+        LogManager.logD(TAG, "Shutting down thread pools...");
+        
+        if (stopCheckExecutor != null && !stopCheckExecutor.isShutdown()) {
+            stopCheckExecutor.shutdown();
+            LogManager.logD(TAG, "StopCheck executor shutdown initiated");
+        }
+        
+        if (ragQueryExecutor != null && !ragQueryExecutor.isShutdown()) {
+            ragQueryExecutor.shutdown();
+            LogManager.logD(TAG, "RagQuery executor shutdown initiated");
+        }
+        
+        // 尝试等待线程池关闭
+        try {
+            if (stopCheckExecutor != null && !stopCheckExecutor.awaitTermination(1, TimeUnit.SECONDS)) {
+                stopCheckExecutor.shutdownNow();
+                LogManager.logW(TAG, "StopCheck executor forced shutdown");
+            }
+            
+            if (ragQueryExecutor != null && !ragQueryExecutor.awaitTermination(1, TimeUnit.SECONDS)) {
+                ragQueryExecutor.shutdownNow();
+                LogManager.logW(TAG, "RagQuery executor forced shutdown");
+            }
+        } catch (InterruptedException e) {
+            LogManager.logE(TAG, "Thread pool shutdown interrupted", e);
+            Thread.currentThread().interrupt();
+        }
+        
+        LogManager.logD(TAG, "Thread pools shutdown completed");
     }
 }

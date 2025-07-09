@@ -28,6 +28,8 @@
     <string name="common_idle">Idle</string>
     <string name="common_busy">Busy</string>
     <string name="common_none">None</string>
+    <string name="common_yes">Yes</string>
+    <string name="common_no">No</string>
     <string name="common_loading">Loading…</string>
     <string name="common_processing">Processing</string>
     <string name="common_preparing">Preparing</string>

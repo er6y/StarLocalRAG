@@ -41,34 +41,52 @@ public class EmbeddingModelUtils {
             Consumer<String> callback,
             ModelSelectedCallback modelSelectedCallback) {
         
+        LogManager.logD(TAG, "=== Starting checkAndLoadEmbeddingModel ===");
+        
         // 获取配置路径
         String embeddingModelPath = ConfigManager.getEmbeddingModelPath(context);
         String rerankerModelPath = ConfigManager.getRerankerModelPath(context);
         
+        LogManager.logD(TAG, "Embedding model path: " + embeddingModelPath);
+        LogManager.logD(TAG, "Reranker model path: " + rerankerModelPath);
+        
         // 获取元数据中的模型目录
         String modeldir = vectorDb.getMetadata().getModeldir();
         String rerankerdir = vectorDb.getMetadata().getRerankerdir();
+        
+        LogManager.logD(TAG, "Metadata modeldir: '" + modeldir + "'");
+        LogManager.logD(TAG, "Metadata rerankerdir: '" + rerankerdir + "'");
         
         boolean needEmbeddingModelSelection = false;
         boolean needRerankerModelSelection = false;
         String modelPath = null;
         
         // 检查嵌入模型
+        LogManager.logD(TAG, "=== Checking embedding model ===");
         if (modeldir != null && !modeldir.isEmpty()) {
+            LogManager.logD(TAG, "Modeldir is not empty, checking if it exists in available models");
             // 检查modeldir是否在embedding_model_path下的所有模型目录中存在
             File embeddingModelDir = new File(embeddingModelPath);
             boolean embeddingModelFound = false;
             
+            LogManager.logD(TAG, "Embedding model directory exists: " + embeddingModelDir.exists());
+            LogManager.logD(TAG, "Embedding model directory is directory: " + embeddingModelDir.isDirectory());
+            
             if (embeddingModelDir.exists() && embeddingModelDir.isDirectory()) {
                 File[] directories = embeddingModelDir.listFiles(File::isDirectory);
+                LogManager.logD(TAG, "Found " + (directories != null ? directories.length : 0) + " subdirectories");
                 if (directories != null) {
                     for (File dir : directories) {
+                        LogManager.logD(TAG, "Checking directory: " + dir.getName() + " against modeldir: " + modeldir);
                         if (dir.getName().equals(modeldir)) {
+                            LogManager.logD(TAG, "Found matching directory: " + dir.getName());
                             // 检查目录中是否有模型文件
                             File[] modelFiles = dir.listFiles(file -> isModelFile(file));
+                            LogManager.logD(TAG, "Found " + (modelFiles != null ? modelFiles.length : 0) + " model files in directory");
                             if (modelFiles != null && modelFiles.length > 0) {
                                 modelPath = modelFiles[0].getAbsolutePath();
                                 embeddingModelFound = true;
+                                LogManager.logD(TAG, "Embedding model found at: " + modelPath);
                                 break;
                             }
                         }
@@ -77,10 +95,13 @@ public class EmbeddingModelUtils {
                 
                 // 如果是根目录（空字符串），检查根目录
                 if (!embeddingModelFound && modeldir.isEmpty()) {
+                    LogManager.logD(TAG, "Modeldir is empty, checking root directory for model files");
                     File[] rootModelFiles = embeddingModelDir.listFiles(file -> isModelFile(file));
+                    LogManager.logD(TAG, "Found " + (rootModelFiles != null ? rootModelFiles.length : 0) + " model files in root directory");
                     if (rootModelFiles != null && rootModelFiles.length > 0) {
                         modelPath = rootModelFiles[0].getAbsolutePath();
                         embeddingModelFound = true;
+                        LogManager.logD(TAG, "Embedding model found in root at: " + modelPath);
                     }
                 }
             }
@@ -88,6 +109,8 @@ public class EmbeddingModelUtils {
             if (!embeddingModelFound) {
                 LogManager.logD(TAG, "嵌入模型目录 '" + modeldir + "' 在可用模型目录中未找到");
                 needEmbeddingModelSelection = true;
+            } else {
+                LogManager.logD(TAG, "Embedding model validation passed, no selection needed");
             }
         } else {
             LogManager.logD(TAG, "元数据中没有modeldir配置或为空");
@@ -119,8 +142,14 @@ public class EmbeddingModelUtils {
         }
 
         // 如果需要选择模型
+        LogManager.logD(TAG, "=== Final decision ===");
+        LogManager.logD(TAG, "Need embedding model selection: " + needEmbeddingModelSelection);
+        LogManager.logD(TAG, "Need reranker model selection: " + needRerankerModelSelection);
+        LogManager.logD(TAG, "Final model path: " + modelPath);
+        
         if (needEmbeddingModelSelection || needRerankerModelSelection) {
             LogManager.logD(TAG, "需要选择模型，嵌入模型: " + needEmbeddingModelSelection + ", 重排模型: " + needRerankerModelSelection);
+            LogManager.logW(TAG, "*** MODEL SELECTION DIALOG WILL BE SHOWN ***");
             
             // 获取可用的嵌入模型列表
             List<String> availableEmbeddingModels = new ArrayList<>();

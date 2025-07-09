@@ -3,6 +3,8 @@ package com.example.starlocalrag.api;
 import android.content.Context;
 
 import com.example.starlocalrag.LogManager;
+import com.example.starlocalrag.UnicodeUtils;
+import com.example.starlocalrag.GlobalStopManager;
 import com.starlocalrag.tokenizers.HuggingfaceTokenizer;
 
 import org.json.JSONArray;
@@ -368,10 +370,29 @@ public class TokenizerManager implements TokenizerInterface {
                 LogManager.logI(TAG, "🚀 开始创建HuggingfaceTokenizer对象...");
                 LogManager.logI(TAG, "构造参数: path=" + tokenizerFile.getAbsolutePath() + ", isFile=true");
                 
+                // 检查全局停止标志
+                if (GlobalStopManager.isGlobalStopRequested()) {
+                    LogManager.logD(TAG, "Detected global stop flag, interrupting tokenizer creation");
+                    return false;
+                }
+                
                 long createStartTime = System.currentTimeMillis();
                 
                 // 正确传递参数，第二个参数应该是true，表示这是一个文件路径
                 tokenizer = new HuggingfaceTokenizer(tokenizerFile.getAbsolutePath(), true);
+                
+                // 创建完成后再次检查停止标志
+                if (GlobalStopManager.isGlobalStopRequested()) {
+                    LogManager.logD(TAG, "Detected global stop flag after tokenizer creation, closing tokenizer");
+                    try {
+                        tokenizer.close();
+                    } catch (Exception e) {
+                        LogManager.logW(TAG, "Error closing tokenizer after stop signal", e);
+                    } finally {
+                        tokenizer = null;
+                    }
+                    return false;
+                }
                 
                 long createEndTime = System.currentTimeMillis();
                 LogManager.logI(TAG, "HuggingfaceTokenizer创建耗时: " + (createEndTime - createStartTime) + "ms");
@@ -419,6 +440,12 @@ public class TokenizerManager implements TokenizerInterface {
      * @return 分词结果（token ID列表）
      */
     public long[][] tokenize(String text) {
+        // 检查全局停止标志
+        if (GlobalStopManager.isGlobalStopRequested()) {
+            LogManager.logD(TAG, "Detected global stop flag, interrupting tokenization");
+            return new long[1][0];
+        }
+        
         if (tokenizer == null) {
             LogManager.logE(TAG, "分词器未初始化");
             return new long[1][0];
@@ -429,6 +456,13 @@ public class TokenizerManager implements TokenizerInterface {
         
         try {
             long startTime = System.currentTimeMillis();
+            
+            // 再次检查停止标志
+            if (GlobalStopManager.isGlobalStopRequested()) {
+                LogManager.logD(TAG, "Detected global stop flag during tokenization, interrupting");
+                return new long[1][0];
+            }
+            
             // 使用HuggingfaceTokenizer分词
             long[][] result = tokenizer.tokenizeToLongArray(text);
             long endTime = System.currentTimeMillis();
@@ -466,11 +500,27 @@ public class TokenizerManager implements TokenizerInterface {
     public void close() {
         if (tokenizer != null) {
             try {
-                tokenizer.close();
-                tokenizer = null;
-                LogManager.logI(TAG, "释放分词器资源");
+                // 添加同步锁，防止并发访问导致的内存问题
+                synchronized (this) {
+                    if (tokenizer != null) {
+                        LogManager.logD(TAG, "开始释放分词器资源...");
+                        
+                        // 添加延迟，确保JNI层完成所有操作
+                        try {
+                            Thread.sleep(50);
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                        }
+                        
+                        tokenizer.close();
+                        tokenizer = null;
+                        LogManager.logI(TAG, "分词器资源释放完成");
+                    }
+                }
             } catch (Exception e) {
                 LogManager.logE(TAG, "关闭分词器时出错: " + e.getMessage(), e);
+                // 即使出错也要清空引用，防止内存泄漏
+                tokenizer = null;
             }
         }
     }
@@ -481,16 +531,34 @@ public class TokenizerManager implements TokenizerInterface {
      */
     public static synchronized void resetManager() {
         if (instance != null) {
-            LogManager.logD(TAG, "重置分词器管理器");
+            LogManager.logD(TAG, "开始重置分词器管理器...");
             
-            // 释放资源
+            // 安全释放资源
             try {
+                // 先标记为未初始化，防止其他线程使用
+                instance.initialized = false;
+                
+                // 添加延迟，确保所有正在进行的操作完成
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                }
+                
+                // 释放资源
                 instance.close();
+                
+                LogManager.logI(TAG, "分词器管理器重置完成");
             } catch (Exception e) {
                 LogManager.logE(TAG, "释放分词器资源失败: " + e.getMessage(), e);
+                // 记录详细的错误信息用于调试
+                LogManager.logE(TAG, "错误堆栈: ", e);
+            } finally {
+                // 无论是否出错都要清空实例
+                instance = null;
             }
-            
-            instance = null;
+        } else {
+            LogManager.logD(TAG, "分词器管理器实例为空，无需重置");
         }
     }
     
@@ -524,7 +592,38 @@ public class TokenizerManager implements TokenizerInterface {
         if (debugMode) {
             LogManager.logD(TAG, "使用HuggingfaceTokenizer的decodeForModelOutput方法解码");
         }
-        return tokenizer.decodeForModelOutput(ids);
+        String decodedText = tokenizer.decodeForModelOutput(ids);
+         
+         // 强化Unicode解码修复 - 多重检查和修复
+         String fixedText = decodedText;
+         
+         // 第一次修复：使用UnicodeUtils
+         if (UnicodeUtils.containsUnicodeEscapes(fixedText)) {
+             fixedText = UnicodeUtils.decodeUnicodeEscapes(fixedText);
+             if (debugMode) {
+                 LogManager.logD(TAG, "第一次Unicode修复: " + decodedText.substring(0, Math.min(100, decodedText.length())) + " -> " + fixedText.substring(0, Math.min(100, fixedText.length())));
+             }
+         }
+         
+         // 第二次修复：处理可能遗漏的转义序列
+         if (fixedText.contains("\\u")) {
+             String secondFix = UnicodeUtils.decodeUnicodeEscapes(fixedText);
+             if (!secondFix.equals(fixedText)) {
+                 if (debugMode) {
+                     LogManager.logD(TAG, "第二次Unicode修复: " + fixedText.substring(0, Math.min(100, fixedText.length())) + " -> " + secondFix.substring(0, Math.min(100, secondFix.length())));
+                 }
+                 fixedText = secondFix;
+             }
+         }
+         
+         // 第三次修复：清理可能的残留转义字符
+         fixedText = UnicodeUtils.cleanText(fixedText);
+         
+         if (debugMode && !decodedText.equals(fixedText)) {
+             LogManager.logD(TAG, "最终Unicode解码修复完成");
+         }
+         
+         return fixedText;
         } catch (Exception e) {
             LogManager.logE(TAG, "解码异常: " + e.getMessage(), e);
             return "";
@@ -536,20 +635,36 @@ public class TokenizerManager implements TokenizerInterface {
      */
     @Override
     public void reset() {
-        // 重置状态
+        LogManager.logD(TAG, "开始重置分词器...");
+        
+        // 先重置状态
         initialized = false;
         
-        // 释放分词器资源
+        // 安全释放分词器资源
         if (tokenizer != null) {
             try {
-                tokenizer.close();
-                tokenizer = null;
+                synchronized (this) {
+                    if (tokenizer != null) {
+                        // 添加延迟，确保JNI层完成所有操作
+                        try {
+                            Thread.sleep(50);
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                        }
+                        
+                        tokenizer.close();
+                        tokenizer = null;
+                        LogManager.logI(TAG, "分词器资源释放完成");
+                    }
+                }
             } catch (Exception e) {
                 LogManager.logE(TAG, "释放分词器资源失败: " + e.getMessage(), e);
+                // 即使出错也要清空引用
+                tokenizer = null;
             }
         }
         
-        LogManager.logD(TAG, "分词器已重置");
+        LogManager.logD(TAG, "分词器重置完成");
     }
     
     /**

@@ -286,10 +286,33 @@ public class ModelDownloadFragment extends Fragment {
         
         new AlertDialog.Builder(getContext())
             .setTitle(getString(R.string.dialog_directory_exists_title))
-                .setMessage(message)
-                .setPositiveButton(getString(R.string.common_overwrite), (dialog, which) -> executeDownload(selectedModels))
-                .setNegativeButton(getString(R.string.common_cancel), null)
+            .setMessage(message)
+            .setPositiveButton(getString(R.string.common_overwrite), (dialog, which) -> executeDownloadWithOverwrite(selectedModels))
+            .setNeutralButton(getString(R.string.common_continue), (dialog, which) -> executeDownload(selectedModels))
+            .setNegativeButton(getString(R.string.common_cancel), null)
             .show();
+    }
+    
+    private void executeDownloadWithOverwrite(List<String> selectedModels) {
+        // 删除冲突目录中的文件，然后开始下载
+        for (String modelKey : selectedModels) {
+            ModelConfig config = MODEL_CONFIGS.get(modelKey);
+            if (config != null) {
+                File targetDir = getTargetDirectory(config);
+                if (targetDir.exists() && targetDir.isDirectory()) {
+                    // 删除目录中的所有文件
+                    File[] files = targetDir.listFiles();
+                    if (files != null) {
+                        for (File file : files) {
+                            if (file.isFile()) {
+                                file.delete();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        executeDownload(selectedModels);
     }
     
     private void executeDownload(List<String> selectedModels) {
@@ -367,12 +390,18 @@ public class ModelDownloadFragment extends Fragment {
             
             mainHandler.post(() -> appendProgress(getString(R.string.log_downloading_file) + ": " + filename + "\n"));
             
-            boolean success = downloadFile(url, new File(targetDir, filename));
-            if (!success && isDownloading) {
-                // 只有在未被中断的情况下才尝试备用地址
-                String backupUrl = url.replace("hf-mirror.com", "huggingface.co");
-                mainHandler.post(() -> appendProgress(getString(R.string.log_trying_backup_url) + "\n"));
-                success = downloadFile(backupUrl, new File(targetDir, filename));
+            // 准备主URL和备用URL
+            String[] urlsToTry = {
+                url,
+                url.replace("hf-mirror.com", "huggingface.co")
+            };
+            
+            boolean success = false;
+            for (int urlIndex = 0; urlIndex < urlsToTry.length && !success; urlIndex++) {
+                if (urlIndex > 0) {
+                    mainHandler.post(() -> appendProgress(getString(R.string.log_trying_backup_url) + "\n"));
+                }
+                success = downloadFileWithRetry(urlsToTry[urlIndex], new File(targetDir, filename));
             }
             
             if (!success) {
@@ -404,82 +433,178 @@ public class ModelDownloadFragment extends Fragment {
         return new File(basePath, config.directoryName);
     }
     
-    private boolean downloadFile(String urlString, File targetFile) {
-        try {
-            URL url = new URL(urlString);
-            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-            connection.setConnectTimeout(30000);
-            connection.setReadTimeout(30000);
-            
-            int responseCode = connection.getResponseCode();
-            if (responseCode != HttpURLConnection.HTTP_OK) {
-                LogManager.logE(TAG, "下载失败，HTTP响应码" + ": " + responseCode);
+    private boolean downloadFileWithRetry(String urlString, File targetFile) {
+        final int MAX_RETRY_ATTEMPTS = 10; // 最大重试次数
+        final int CONNECT_TIMEOUT = 60000; // 连接超时60秒
+        final int READ_TIMEOUT = 120000; // 读取超时120秒
+        
+        for (int attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
+            // 检查是否已被中断
+            if (!isDownloading) {
+                LogManager.logI(TAG, "Download interrupted");
                 return false;
             }
             
-            long fileSize = connection.getContentLengthLong();
+            if (attempt > 1) {
+                LogManager.logI(TAG, "Retry attempt " + attempt + "/" + MAX_RETRY_ATTEMPTS + " for URL: " + urlString);
+            }
             
-            // 初始化进度显示
-            mainHandler.post(() -> appendProgress(getString(R.string.log_progress) + ":"));
-            
-            try (InputStream inputStream = connection.getInputStream();
-                 FileOutputStream outputStream = new FileOutputStream(targetFile)) {
+            try {
+                // 检查是否支持断点续传
+                long existingFileSize = 0;
+                if (targetFile.exists()) {
+                    existingFileSize = targetFile.length();
+                    LogManager.logI(TAG, "Found existing file, size: " + existingFileSize + " bytes");
+                }
                 
-                byte[] buffer = new byte[32768]; // 增大缓冲区到32KB提高性能
-                long totalBytesRead = 0;
-                int bytesRead;
-                int lastReportedProgress = 0;
+                URL url = new URL(urlString);
+                HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+                connection.setConnectTimeout(CONNECT_TIMEOUT);
+                connection.setReadTimeout(READ_TIMEOUT);
                 
-                LogManager.logI(TAG, "开始下载，文件大小: " + fileSize + " 字节");
+                // 首先获取文件总大小来检查是否已完整下载
+                connection.setRequestMethod("HEAD");
+                int headResponseCode = connection.getResponseCode();
+                long serverFileSize = connection.getContentLengthLong();
+                connection.disconnect();
                 
-                while ((bytesRead = inputStream.read(buffer)) != -1) {
-                    // 检查是否已被中断
-                    if (!isDownloading) {
-                        LogManager.logI(TAG, "下载已被中断");
+                // 检查文件是否已经完整下载
+                if (existingFileSize > 0 && serverFileSize > 0 && existingFileSize >= serverFileSize) {
+                    LogManager.logI(TAG, "File already completely downloaded, size: " + existingFileSize + " bytes");
+                    mainHandler.post(() -> appendProgress("File already exists and complete.\n"));
+                    return true;
+                }
+                
+                // 重新建立连接进行下载
+                connection = (HttpURLConnection) url.openConnection();
+                connection.setConnectTimeout(CONNECT_TIMEOUT);
+                connection.setReadTimeout(READ_TIMEOUT);
+                
+                // 设置断点续传请求头
+                if (existingFileSize > 0) {
+                    connection.setRequestProperty("Range", "bytes=" + existingFileSize + "-");
+                    LogManager.logI(TAG, "Attempting resume download from byte: " + existingFileSize);
+                }
+                
+                int responseCode = connection.getResponseCode();
+                
+                // 检查响应码
+                if (responseCode == HttpURLConnection.HTTP_PARTIAL) {
+                    // 支持断点续传
+                    LogManager.logI(TAG, "Resume download supported (HTTP 206)");
+                } else if (responseCode == HttpURLConnection.HTTP_OK) {
+                    // 不支持断点续传，重新下载
+                    if (existingFileSize > 0) {
+                        LogManager.logI(TAG, "Resume not supported, restarting download");
+                        targetFile.delete();
+                        existingFileSize = 0;
+                    }
+                } else {
+                    LogManager.logE(TAG, "Download failed, HTTP response code: " + responseCode + ", attempt: " + attempt);
+                    connection.disconnect();
+                    
+                    if (attempt < MAX_RETRY_ATTEMPTS) {
+                        final int currentAttempt = attempt;
+                        mainHandler.post(() -> appendProgress("Retry " + currentAttempt + "/" + MAX_RETRY_ATTEMPTS + "..."));
+                        Thread.sleep(2000 * attempt); // 递增延迟重试
+                        continue;
+                    } else {
+                        LogManager.logE(TAG, "All retry attempts failed for URL: " + urlString);
                         return false;
                     }
+                }
+                
+                long totalFileSize = connection.getContentLengthLong();
+                if (responseCode == HttpURLConnection.HTTP_PARTIAL) {
+                    // 对于断点续传，需要加上已下载的部分
+                    totalFileSize += existingFileSize;
+                }
+                
+                // 初始化进度显示
+                if (attempt == 1) {
+                    final long finalExistingFileSize = existingFileSize;
+                    if (existingFileSize == 0) {
+                        mainHandler.post(() -> appendProgress(getString(R.string.log_progress) + ":"));
+                    } else {
+                        mainHandler.post(() -> appendProgress("Resuming from " + (finalExistingFileSize / 1024 / 1024) + "MB..."));
+                    }
+                }
+                
+                try (InputStream inputStream = connection.getInputStream();
+                     FileOutputStream outputStream = new FileOutputStream(targetFile, existingFileSize > 0)) {
                     
-                    outputStream.write(buffer, 0, bytesRead);
-                    totalBytesRead += bytesRead;
+                    byte[] buffer = new byte[32768]; // 32KB缓冲区
+                    long totalBytesRead = existingFileSize; // 包含已下载的字节数
+                    int bytesRead;
+                    int lastReportedProgress = totalFileSize > 0 ? (int) ((totalBytesRead * 100) / totalFileSize) : 0;
                     
-                    if (fileSize > 0) {
-                        final int progress = (int) ((totalBytesRead * 100) / fileSize);
+                    LogManager.logI(TAG, "Starting download, total file size: " + totalFileSize + " bytes, resume from: " + existingFileSize);
+                    
+                    while ((bytesRead = inputStream.read(buffer)) != -1) {
+                        // 检查是否已被中断
+                        if (!isDownloading) {
+                            LogManager.logI(TAG, "Download interrupted");
+                            return false;
+                        }
                         
-                        // 确保每个百分点都显示一个点，防止跳跃
-                        if (progress > lastReportedProgress) {
-                            // 构建所有需要添加的点号和百分比
-                            StringBuilder progressText = new StringBuilder();
-                            while (progress > lastReportedProgress && lastReportedProgress < 100) {
-                                lastReportedProgress++;
-                                progressText.append(".");
-                                
-                                // 每10个点插入百分比数字，不换行
-                                if (lastReportedProgress % 10 == 0) {
-                                    progressText.append(lastReportedProgress).append("%");
+                        outputStream.write(buffer, 0, bytesRead);
+                        totalBytesRead += bytesRead;
+                        
+                        if (totalFileSize > 0) {
+                            final int progress = (int) ((totalBytesRead * 100) / totalFileSize);
+                            
+                            // 确保每个百分点都显示一个点，防止跳跃
+                            if (progress > lastReportedProgress) {
+                                // 构建所有需要添加的点号和百分比
+                                StringBuilder progressText = new StringBuilder();
+                                while (progress > lastReportedProgress && lastReportedProgress < 100) {
+                                    lastReportedProgress++;
+                                    progressText.append(".");
+                                    
+                                    // 每10个点插入百分比数字，不换行
+                                    if (lastReportedProgress % 10 == 0) {
+                                        progressText.append(lastReportedProgress).append("%");
+                                    }
                                 }
+                                
+                                final String textToAdd = progressText.toString();
+                                LogManager.logI(TAG, "Progress update: " + lastReportedProgress + "%, content: " + textToAdd);
+                                
+                                // 一次性添加所有内容，减少UI更新次数
+                                mainHandler.post(() -> appendProgress(textToAdd));
                             }
-                            
-                            final String textToAdd = progressText.toString();
-                            LogManager.logI(TAG, "进度更新: " + lastReportedProgress + "%, 添加内容: " + textToAdd);
-                            
-                            // 一次性添加所有内容，减少UI更新次数
-                            mainHandler.post(() -> appendProgress(textToAdd));
                         }
                     }
                 }
+                
+                // 完成后显示结果
+                if (totalFileSize > 0) {
+                    mainHandler.post(() -> appendProgress(" " + getString(R.string.log_100_percent) + "\n"));
+                }
+                
+                LogManager.logI(TAG, "Download completed successfully");
+                return true;
+                
+            } catch (IOException | InterruptedException e) {
+                LogManager.logE(TAG, "Download failed on attempt " + attempt + ": " + urlString, e);
+                
+                if (attempt < MAX_RETRY_ATTEMPTS) {
+                    final int currentAttempt = attempt;
+                    mainHandler.post(() -> appendProgress("Error, retry " + currentAttempt + "/" + MAX_RETRY_ATTEMPTS + "..."));
+                    try {
+                        Thread.sleep(2000 * attempt); // 递增延迟重试：2s, 4s, 6s...
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        return false;
+                    }
+                } else {
+                    LogManager.logE(TAG, "All retry attempts failed for: " + urlString);
+                    return false;
+                }
             }
-            
-            // 完成后显示结果
-            if (fileSize > 0) {
-                mainHandler.post(() -> appendProgress(" " + getString(R.string.log_100_percent) + "\n"));
-            }
-            
-            return true;
-            
-        } catch (IOException e) {
-            LogManager.logE(TAG, getString(R.string.log_download_file_failed) + ": " + urlString, e);
-            return false;
         }
+        
+        return false;
     }
     
     private void appendProgress(String text) {

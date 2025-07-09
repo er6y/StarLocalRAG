@@ -557,11 +557,34 @@ public class BuildKnowledgeBaseFragment extends Fragment {
                 
                 // 尝试选择上次保存的重排模型
                 String lastSelectedReranker = ConfigManager.getLastSelectedRerankerModel(requireContext());
+                String displayText;
+                
                 if (!lastSelectedReranker.isEmpty()) {
+                    // 对于具体的模型名称，直接使用原始名称
+                    displayText = lastSelectedReranker;
+                } else {
+                    // 如果没有保存的选择或保存的是空字符串，使用"无"选项的显示文本
+                    displayText = StateDisplayManager.getRerankerModelDisplayText(requireContext(), AppConstants.RERANKER_MODEL_NONE);
+                }
+                
+                // 在选项列表中查找并选择对应的项
+                boolean found = false;
+                for (int i = 0; i < optionsArray.length; i++) {
+                    if (optionsArray[i].equals(displayText)) {
+                        spinnerRerankerModel.setSelection(i);
+                        LogManager.logD(TAG, "自动选择重排模型: " + lastSelectedReranker + " (显示为: " + displayText + ")");
+                        found = true;
+                        break;
+                    }
+                }
+                
+                // 如果没有找到匹配项，默认选择"无"选项
+                if (!found) {
+                    String noneDisplayText = StateDisplayManager.getRerankerModelDisplayText(requireContext(), AppConstants.RERANKER_MODEL_NONE);
                     for (int i = 0; i < optionsArray.length; i++) {
-                        if (optionsArray[i].equals(lastSelectedReranker)) {
+                        if (optionsArray[i].equals(noneDisplayText)) {
                             spinnerRerankerModel.setSelection(i);
-                            LogManager.logD(TAG, "自动选择上次使用的重排模型: " + lastSelectedReranker);
+                            LogManager.logD(TAG, "未找到匹配的重排模型，默认选择无重排模型选项: " + noneDisplayText);
                             break;
                         }
                     }
@@ -1018,7 +1041,7 @@ public class BuildKnowledgeBaseFragment extends Fragment {
     private void processKnowledgeBaseTraditional(String knowledgeBaseName, String embeddingModel, boolean overwrite) {
         // 获取选中的重排模型（在UI线程中获取）
         String selectedRerankerModel = spinnerRerankerModel.getSelectedItem() != null ? 
-            spinnerRerankerModel.getSelectedItem().toString() : "无";
+            spinnerRerankerModel.getSelectedItem().toString() : getString(R.string.common_none);
         
         // 在后台线程中执行
         executor.execute(() -> {

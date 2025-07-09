@@ -575,6 +575,31 @@ public class KnowledgeNoteFragment extends Fragment {
                             // 生成嵌入向量
                             float[] chunkEmbedding = embeddingHandler.generateEmbedding(chunk);
                             
+                            // 向量异常处理
+                            try {
+                                // 检测向量异常
+                                VectorAnomalyHandler.AnomalyResult anomalyResult = VectorAnomalyHandler.detectAnomalies(chunkEmbedding, -1);
+                                if (anomalyResult.isAnomalous) {
+                                    updateProgress(getString(R.string.vector_anomaly_detected_repairing));
+                                    // 尝试修复向量
+                                    chunkEmbedding = VectorAnomalyHandler.repairVector(chunkEmbedding, anomalyResult.type);
+                                    
+                                    // 对修复后的向量进行最终验证
+                                    VectorAnomalyHandler.AnomalyResult verifyResult = VectorAnomalyHandler.detectAnomalies(chunkEmbedding, -1);
+                                    if (verifyResult.isAnomalous) {
+                                        updateProgress(getString(R.string.vector_repair_failed_using_random));
+                                        // 如果修复失败，生成随机单位向量作为备用
+                                        chunkEmbedding = VectorAnomalyHandler.generateRandomUnitVector(chunkEmbedding.length);
+                                    } else {
+                                        updateProgress(getString(R.string.vector_repair_success));
+                                    }
+                                }
+                            } catch (Exception e) {
+                                updateProgress(getString(R.string.vector_processing_error, e.getMessage()));
+                                // 异常情况下生成随机单位向量
+                                chunkEmbedding = VectorAnomalyHandler.generateRandomUnitVector(chunkEmbedding.length);
+                            }
+                            
                             // 添加文本块到数据库
                             String chunkTitle = title + " (BLK " + (i+1) + "/" + chunks.size() + ")";
                             boolean chunkSuccess = noteVectorDb.addChunk(chunk, chunkTitle, chunkEmbedding);
@@ -605,6 +630,31 @@ public class KnowledgeNoteFragment extends Fragment {
                         // 直接生成嵌入向量
                         updateProgress(getString(R.string.generating_embedding_vector));
                         float[] contentEmbedding = embeddingHandler.generateEmbedding(content);
+                        
+                        // 向量异常处理
+                        try {
+                            // 检测向量异常
+                            VectorAnomalyHandler.AnomalyResult anomalyResult = VectorAnomalyHandler.detectAnomalies(contentEmbedding, -1);
+                            if (anomalyResult.isAnomalous) {
+                                updateProgress(getString(R.string.vector_anomaly_detected_repairing));
+                                // 尝试修复向量
+                                contentEmbedding = VectorAnomalyHandler.repairVector(contentEmbedding, anomalyResult.type);
+                                
+                                // 对修复后的向量进行最终验证
+                                VectorAnomalyHandler.AnomalyResult verifyResult = VectorAnomalyHandler.detectAnomalies(contentEmbedding, -1);
+                                if (verifyResult.isAnomalous) {
+                                    updateProgress(getString(R.string.vector_repair_failed_using_random));
+                                    // 如果修复失败，生成随机单位向量作为备用
+                                    contentEmbedding = VectorAnomalyHandler.generateRandomUnitVector(contentEmbedding.length);
+                                } else {
+                                    updateProgress(getString(R.string.vector_repair_success));
+                                }
+                            }
+                        } catch (Exception e) {
+                            updateProgress(getString(R.string.vector_processing_error, e.getMessage()));
+                            // 异常情况下生成随机单位向量
+                            contentEmbedding = VectorAnomalyHandler.generateRandomUnitVector(contentEmbedding.length);
+                        }
                         
                         // 记录向量调试信息
                         String vectorDebugInfo = embeddingHandler.getVectorDebugInfo(content, contentEmbedding, System.currentTimeMillis());
