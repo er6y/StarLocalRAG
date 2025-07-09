@@ -1856,7 +1856,7 @@ public class ConfigManager {
             // ONNX引擎默认配置已移除
             
             // API设置
-            config.put(KEY_API_URL, "https://api.deepseek.com");
+            config.put(KEY_API_URL, AppConstants.ApiUrl.LOCAL);
             config.put(KEY_MODEL_NAME, "deepseek-chat");
             config.put(KEY_KNOWLEDGE_BASE, "默认知识库");
             

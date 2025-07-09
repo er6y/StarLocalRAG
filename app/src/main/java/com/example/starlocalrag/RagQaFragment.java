@@ -696,10 +696,14 @@ public class RagQaFragment extends Fragment {
                     if (apiUrl.equals(StateDisplayManager.getApiUrlDisplayText(requireContext(), AppConstants.API_URL_NEW))) {
                         showAddApiUrlDialog();
                     } else {
+                        // 将显示文本转换为内部常量值
+                        String internalApiUrl = StateDisplayManager.getApiUrlFromDisplayText(requireContext(), apiUrl);
+                        LogManager.logD(TAG, "Selected API URL display: " + apiUrl + ", internal: " + internalApiUrl);
+                        
                         // 加载对应的API Key
                         loadApiKeyForUrl(apiUrl);
-                        // 保存当前选择的API URL
-                        ConfigManager.setString(requireContext(), ConfigManager.KEY_API_URL, apiUrl);
+                        // 保存当前选择的API URL（使用内部常量值）
+                        ConfigManager.setString(requireContext(), ConfigManager.KEY_API_URL, internalApiUrl);
                     }
                 },
                 spinnerApiUrl
@@ -709,13 +713,41 @@ public class RagQaFragment extends Fragment {
         
         // 设置当前选中的API URL
         String currentApiUrl = ConfigManager.getString(requireContext(), ConfigManager.KEY_API_URL, "");
+        LogManager.logD(TAG, "Current API URL from config: " + currentApiUrl);
         if (!currentApiUrl.isEmpty()) {
+            // 将当前API URL转换为显示文本进行匹配
+            String currentApiUrlDisplay = StateDisplayManager.getApiUrlDisplayText(requireContext(), currentApiUrl);
+            LogManager.logD(TAG, "Current API URL display text: " + currentApiUrlDisplay);
+            
             // 查找当前API URL的位置
+            boolean found = false;
             for (int i = 0; i < apiUrlsList.size(); i++) {
-                if (apiUrlsList.get(i).equals(currentApiUrl)) {
+                String listItem = apiUrlsList.get(i);
+                // 尝试直接匹配显示文本
+                if (listItem.equals(currentApiUrlDisplay)) {
                     spinnerApiUrl.setSelection(i);
                     adapter.setSelectedPosition(i);
+                    found = true;
+                    LogManager.logD(TAG, "Found API URL match at position " + i + ": " + listItem);
                     break;
+                }
+                // 如果显示文本匹配失败，尝试原始值匹配（兼容性处理）
+                if (listItem.equals(currentApiUrl)) {
+                    spinnerApiUrl.setSelection(i);
+                    adapter.setSelectedPosition(i);
+                    found = true;
+                    LogManager.logD(TAG, "Found API URL match (fallback) at position " + i + ": " + listItem);
+                    break;
+                }
+            }
+            
+            if (!found) {
+                LogManager.logW(TAG, "Could not find matching API URL in list for: " + currentApiUrl + " (display: " + currentApiUrlDisplay + ")");
+                // 默认选择第一个非"新建"选项（通常是"本地"）
+                if (apiUrlsList.size() > 1) {
+                    spinnerApiUrl.setSelection(1);
+                    adapter.setSelectedPosition(1);
+                    LogManager.logD(TAG, "Defaulting to position 1: " + apiUrlsList.get(1));
                 }
             }
         }
