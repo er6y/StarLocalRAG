@@ -99,17 +99,16 @@ test_onnx.py
 *.lai
 *.lo
 
-# 排除大的 JNI 库文件（超过GitHub限制）
-**/*.so
-*.apk
-*.aab
+# 大文件现在通过 Git LFS 管理
+# **/*.so - 现在通过 LFS 管理
+# *.apk - 现在通过 LFS 管理
+# *.aab - 现在通过 LFS 管理
 
-# 排除大的发布文件
-StarLocalRAG_release*.apk
+# 排除其他大的发布文件
 app/release/
 
-# 排除大的JNI库文件
-app/src/main/jniLibs/
+# JNI库文件现在通过 LFS 管理
+# app/src/main/jniLibs/ - 现在通过 LFS 管理
 /log.ini
 /app/debug
 /Rerankers
