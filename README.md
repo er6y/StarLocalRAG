@@ -12,6 +12,17 @@
 [![ONNX](https://img.shields.io/badge/ONNX-005CED?style=flat-square&logo=onnx&logoColor=white)](https://onnx.ai/)
 [![LlamaCpp](https://img.shields.io/badge/LlamaCpp-FF6B6B?style=flat-square)](https://github.com/ggerganov/llama.cpp)
 
+
+## 示例demo
+
+知识库构建 
+![e0f8b519a5d3ab1e99e6dcba518114e5](https://github.com/user-attachments/assets/d7f938b6-56fe-46d2-add2-e3f6d59dc6e9)
+在线大模型示例
+![35d9dc5fbe5b59b2c3563185357ede76](https://github.com/user-attachments/assets/10057e1f-1957-4996-9db5-1f4dff23c739)
+本地小模型示例
+![84bffc5557514eabd43177546d2f800e](https://github.com/user-attachments/assets/fc1e5930-93c3-48e6-8eb6-caeffa144eab)
+![29683f1ba196413c18c851a8245f7b84](https://github.com/user-attachments/assets/a1180485-40d3-4581-bfb0-fd5ebb217c84)
+
 [English](#english) | [中文](#中文)
 
 </div>
